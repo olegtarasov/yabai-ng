@@ -257,6 +257,32 @@ void native_tab_handle_window_destroyed(struct space_manager *sm, struct window_
     })
 }
 
+struct window *native_tab_focused_window(struct window_manager *wm, struct window *window)
+{
+    if (!window) return NULL;
+    if (!window_check_rule_flag(window, WINDOW_RULE_TAB)) return NULL;
+    if (!application_is_frontmost(window->application)) return NULL;
+
+    uint32_t focused_window_id = application_focused_window(window->application);
+    if (!focused_window_id) return NULL;
+
+    struct window *focused_window = window_manager_find_window(wm, focused_window_id);
+    if (!focused_window) return NULL;
+    if (focused_window->application != window->application) return NULL;
+    if (!window_check_rule_flag(focused_window, WINDOW_RULE_TAB)) return NULL;
+    if (!native_tab_same_space(window, focused_window)) return NULL;
+
+    if (window_check_flag(focused_window, WINDOW_TAB)) {
+        return native_tab_find_frame_parent(wm, focused_window) ? focused_window : NULL;
+    }
+
+    if (window_check_flag(focused_window, WINDOW_TAB_PARENT)) {
+        return native_tab_parent_has_children(wm, focused_window, 0) ? focused_window : NULL;
+    }
+
+    return NULL;
+}
+
 bool native_tab_should_preserve_parent(struct window_manager *wm, struct window *window)
 {
     if (!window) return false;

@@ -70,6 +70,15 @@ static void window_did_receive_focus(struct window_manager *wm, struct mouse_sta
     }
 }
 
+static void window_did_receive_native_tab_focus(struct window *window)
+{
+    struct window *focused_window = native_tab_focused_window(&g_window_manager, window);
+    if (!focused_window || focused_window->id == g_window_manager.focused_window_id) return;
+
+    window_did_receive_focus(&g_window_manager, &g_mouse_state, focused_window);
+    event_signal_push(SIGNAL_WINDOW_FOCUSED, focused_window);
+}
+
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wunused-parameter"
 static EVENT_HANDLER(APPLICATION_LAUNCHED)
@@ -580,6 +589,7 @@ static EVENT_HANDLER(WINDOW_CREATED)
     }
 
     bool native_tab = native_tab_handle_window_created(&g_window_manager, window);
+    if (native_tab) window_did_receive_native_tab_focus(window);
 
     if (!native_tab && window_manager_should_manage_window(window) && !window_manager_find_managed_window(&g_window_manager, window)) {
         uint64_t sid;
@@ -961,6 +971,7 @@ static EVENT_HANDLER(WINDOW_TITLE_CHANGED)
     if (window->title) CFRelease(window->title);
 
     window->title = window_title(window);
+    window_did_receive_native_tab_focus(window);
 
     event_signal_push(SIGNAL_WINDOW_TITLE_CHANGED, window);
 }

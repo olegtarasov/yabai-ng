@@ -52,6 +52,7 @@ extern bool g_verbose;
 #define COMMAND_CONFIG_MOUSE_DROP_ACTION     "mouse_drop_action"
 #define COMMAND_CONFIG_EXTERNAL_BAR          "external_bar"
 #define COMMAND_CONFIG_SKIP_SPACE_ANIMATION  "skip_window_focus_animation"
+#define COMMAND_CONFIG_MANAGED_SPACES        "managed_spaces"
 
 #define SELECTOR_CONFIG_SPACE                "--space"
 
@@ -183,6 +184,7 @@ extern bool g_verbose;
 #define COMMAND_QUERY_DISPLAYS "--displays"
 #define COMMAND_QUERY_SPACES   "--spaces"
 #define COMMAND_QUERY_WINDOWS  "--windows"
+#define COMMAND_QUERY_MANAGED_SPACES "--managed-spaces"
 
 #define ARGUMENT_QUERY_DISPLAY "--display"
 #define ARGUMENT_QUERY_SPACE   "--space"
@@ -1178,6 +1180,17 @@ static void handle_domain_config(FILE *rsp, struct token domain, char *message)
             } else {
                 daemon_fail(rsp, "unknown value '%.*s' given to command '%.*s' for domain '%.*s'\n", value.length, value.text, command.length, command.text, domain.length, domain.text);
             }
+        } else if (token_equals(command, COMMAND_CONFIG_MANAGED_SPACES)) {
+            struct token value = get_token(&message);
+            if (!token_is_valid(value)) {
+                fprintf(rsp, "%s\n", bool_str[managed_space_is_enabled(&g_managed_space)]);
+            } else if (token_equals(value, ARGUMENT_COMMON_VAL_OFF)) {
+                managed_space_set_enabled(&g_managed_space, false);
+            } else if (token_equals(value, ARGUMENT_COMMON_VAL_ON)) {
+                managed_space_set_enabled(&g_managed_space, true);
+            } else {
+                daemon_fail(rsp, "unknown value '%.*s' given to command '%.*s' for domain '%.*s'\n", value.length, value.text, command.length, command.text, domain.length, domain.text);
+            }
         } else if (token_equals(command, COMMAND_CONFIG_MFF)) {
             struct token value = get_token(&message);
             if (!token_is_valid(value)) {
@@ -1853,6 +1866,8 @@ static void handle_domain_space(FILE *rsp, struct token domain, char *message)
                     daemon_fail(rsp, "cannot send space to display because mission-control is active.\n");
                 } else if (result == SPACE_OP_ERROR_SCRIPTING_ADDITION) {
                     daemon_fail(rsp, "cannot send space to display due to an error with the scripting-addition.\n");
+                } else if (result == SPACE_OP_ERROR_SUCCESS) {
+                    managed_space_note_user_space_display_changed(&g_managed_space, acting_sid, selector.did);
                 }
             }
         } else if (token_equals(command, COMMAND_SPACE_CREATE)) {
@@ -1866,14 +1881,19 @@ static void handle_domain_space(FILE *rsp, struct token domain, char *message)
                 }
             }
 
+            managed_space_prepare_user_space_create(&g_managed_space);
             enum space_op_error result = space_manager_add_space(acting_sid);
             if (result == SPACE_OP_ERROR_MISSING_SRC) {
+                managed_space_cancel_user_space_create(&g_managed_space);
                 daemon_fail(rsp, "could not locate the space to act on.\n");
             } else if (result == SPACE_OP_ERROR_DISPLAY_IS_ANIMATING) {
+                managed_space_cancel_user_space_create(&g_managed_space);
                 daemon_fail(rsp, "cannot create space because the display is in the middle of an animation.\n");
             } else if (result == SPACE_OP_ERROR_IN_MISSION_CONTROL) {
+                managed_space_cancel_user_space_create(&g_managed_space);
                 daemon_fail(rsp, "cannot create space because mission-control is active.\n");
             } else if (result == SPACE_OP_ERROR_SCRIPTING_ADDITION) {
+                managed_space_cancel_user_space_create(&g_managed_space);
                 daemon_fail(rsp, "cannot create space due to an error with the scripting-addition.\n");
             }
         } else if (token_equals(command, COMMAND_SPACE_DESTROY)) {
@@ -1900,6 +1920,8 @@ static void handle_domain_space(FILE *rsp, struct token domain, char *message)
                 daemon_fail(rsp, "cannot destroy space because mission-control is active.\n");
             } else if (result == SPACE_OP_ERROR_SCRIPTING_ADDITION) {
                 daemon_fail(rsp, "cannot destroy space due to an error with the scripting-addition.\n");
+            } else if (result == SPACE_OP_ERROR_SUCCESS) {
+                managed_space_note_user_space_destroyed(&g_managed_space, acting_sid);
             }
         } else if (token_equals(command, COMMAND_SPACE_EQUALIZE)) {
             struct token value = get_token(&message);
@@ -2032,9 +2054,12 @@ static void handle_domain_space(FILE *rsp, struct token domain, char *message)
             if (parse_label(rsp, get_token(&message), LABEL_SPACE, &label)) {
                 if (label) {
                     space_manager_set_label_for_space(&g_space_manager, acting_sid, label);
+                    managed_space_note_space_label_changed(&g_managed_space, acting_sid);
                 } else {
                     if (!space_manager_remove_label_for_space(&g_space_manager, acting_sid)) {
                         daemon_fail(rsp, "the selected space was not associated with a label!\n");
+                    } else {
+                        managed_space_note_space_label_changed(&g_managed_space, acting_sid);
                     }
                 }
             }
@@ -2145,6 +2170,7 @@ static void handle_domain_window(FILE *rsp, struct token domain, char *message)
                     daemon_fail(rsp, "can not move window to a macOS fullscreen space!\n");
                 } else {
                     window_manager_send_window_to_space(&g_space_manager, &g_window_manager, acting_window, sid, false);
+                    managed_space_note_user_window_space_changed(&g_managed_space, acting_window, sid);
                 }
             }
         } else if (token_equals(command, COMMAND_WINDOW_SPACE)) {
@@ -2154,6 +2180,7 @@ static void handle_domain_window(FILE *rsp, struct token domain, char *message)
                     daemon_fail(rsp, "can not move window to a macOS fullscreen space!\n");
                 } else {
                     window_manager_send_window_to_space(&g_space_manager, &g_window_manager, acting_window, selector.sid, false);
+                    managed_space_note_user_window_space_changed(&g_managed_space, acting_window, selector.sid);
                 }
             }
         } else if (token_equals(command, COMMAND_WINDOW_SWAP)) {
@@ -2588,6 +2615,8 @@ static void handle_domain_query(FILE *rsp, struct token domain, char *message)
         } else {
             window_manager_query_windows_for_displays(rsp, properties.flags);
         }
+    } else if (token_equals(command, COMMAND_QUERY_MANAGED_SPACES)) {
+        managed_space_query(rsp, &g_managed_space);
     } else {
         daemon_fail(rsp, "unknown command '%.*s' for domain '%.*s'\n", command.length, command.text, domain.length, domain.text);
     }

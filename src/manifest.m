@@ -75,6 +75,7 @@
 #include "space_manager.h"
 #include "window_manager.h"
 #include "mouse_handler.h"
+#include "managed_space.h"
 
 #include "sa.m"
 #include "mission_control.c"
@@ -92,5 +93,6 @@
 #include "display_manager.c"
 #include "space_manager.c"
 #include "window_manager.c"
+#include "managed_space.c"
 #include "mouse_handler.c"
 #include "yabai.c"

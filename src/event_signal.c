@@ -116,6 +116,9 @@ void event_signal_push(enum signal_type type, void *context)
     es->arg_value[1] = NULL;
     es->arg_value[2] = NULL;
     es->arg_value[3] = NULL;
+    es->app          = NULL;
+    es->title        = NULL;
+    es->active       = SIGNAL_PROP_UD;
 
     switch (type) {
     default: break;
@@ -336,6 +339,27 @@ void event_signal_push(enum signal_type type, void *context)
 
         snprintf(es->arg_name[0],  arg_size, "%s", "YABAI_MISSION_CONTROL_MODE");
         snprintf(es->arg_value[0], arg_size, "%s", mission_control_mode_str[mode]);
+    } break;
+    case SIGNAL_MANAGED_SPACES_CHANGED: {
+        struct managed_space *managed_space = context;
+
+        es->arg_name[0]  = ts_alloc_unaligned(arg_size);
+        es->arg_value[0] = ts_alloc_unaligned(arg_size);
+        es->arg_name[1]  = ts_alloc_unaligned(arg_size);
+        es->arg_value[1] = ts_alloc_unaligned(arg_size);
+        es->arg_name[2]  = ts_alloc_unaligned(arg_size);
+        es->arg_value[2] = ts_alloc_unaligned(arg_size);
+        es->arg_name[3]  = ts_alloc_unaligned(arg_size);
+        es->arg_value[3] = ts_alloc_unaligned(arg_size);
+
+        snprintf(es->arg_name[0],  arg_size, "%s", "YABAI_MANAGED_SPACE_COUNT");
+        snprintf(es->arg_value[0], arg_size, "%d", managed_space_count(managed_space));
+        snprintf(es->arg_name[1],  arg_size, "%s", "YABAI_MANAGED_EXTRA_SPACE_COUNT");
+        snprintf(es->arg_value[1], arg_size, "%d", managed_space_extra_count(managed_space));
+        snprintf(es->arg_name[2],  arg_size, "%s", "YABAI_MANAGED_REPAIRED_WINDOW_COUNT");
+        snprintf(es->arg_value[2], arg_size, "%d", managed_space_repaired_window_count(managed_space));
+        snprintf(es->arg_name[3],  arg_size, "%s", "YABAI_MANAGED_ACTIVE_ORDER");
+        snprintf(es->arg_value[3], arg_size, "%d", managed_space_active_order(managed_space));
     } break;
     }
 }

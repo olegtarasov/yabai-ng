@@ -137,6 +137,15 @@ Global Settings
 *debug_output* ['<BOOL_SEL>']::
     Enable output of debug information to stdout.
 
+*managed_spaces* ['<BOOL_SEL>']::
+    Enable yabai-ng managed space reconciliation. +
+    When turned on, yabai snapshots all current non-fullscreen user spaces as
+    the managed set in Mission Control order. Future spaces created through
+    `yabai -m space --create` are added to the managed set, and spaces
+    destroyed through `yabai -m space --destroy` are removed from it. +
+    Native fullscreen spaces are exempt and are never moved or destroyed by
+    managed mode.
+
 *external_bar* ['<main|all|off>:<top_padding>:<bottom_padding>']::
     Specify top and bottom padding for a potential custom bar that you may be running. +
     'main': Apply the given padding only to spaces located on the main display. +
@@ -479,6 +488,9 @@ COMMAND
 *--windows*::
     Retrieve information about windows.
 
+*--managed-spaces*::
+    Retrieve managed space registry and reconciliation diagnostics.
+
 ARGUMENT
 ^^^^^^^^
 
@@ -534,7 +546,9 @@ SPACE
     "last-window": number,
     "has-focus": bool,
     "is-visible": bool,
-    "is-native-fullscreen": bool
+    "is-native-fullscreen": bool,
+    "is-managed": bool,
+    "managed-order": number
 }
 ----
 
@@ -600,6 +614,24 @@ The properties that contain incorrect information for windows with `has-ax-refer
     "subrole": string,
     "can-move": bool,
     "can-resize": bool
+}
+----
+
+MANAGED SPACES
+[subs=+macros]
+----
+{
+    "enabled": bool,
+    "managed-space-count": number,
+    "extra-space-count": number,
+    "remembered-window-count": number,
+    "pending-window-repair-count": number,
+    "pending-user-create-count": number,
+    "topology-grace": bool,
+    "last-repaired-window-count": number,
+    "active-managed-order": number,
+    "spaces": array of object,
+    "windows": array of object
 }
 ----
 
@@ -878,6 +910,13 @@ EVENT
 
 *system_woke*::
     Triggered when macOS wakes from sleep.
+
+*managed_spaces_changed*::
+    Triggered after managed mode reaches a stable reconciliation pass that
+    changed managed topology or repaired window namespace state. +
+    Passes four arguments: $YABAI_MANAGED_SPACE_COUNT,
+    $YABAI_MANAGED_EXTRA_SPACE_COUNT, $YABAI_MANAGED_REPAIRED_WINDOW_COUNT,
+    $YABAI_MANAGED_ACTIVE_ORDER
 
 ACTION
 ^^^^^^

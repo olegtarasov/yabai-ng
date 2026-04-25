@@ -16,7 +16,9 @@
     SPACE_PROPERTY_ENTRY("last-window",          SPACE_PROPERTY_LAST_WINDOW,   0x100) \
     SPACE_PROPERTY_ENTRY("has-focus",            SPACE_PROPERTY_HAS_FOCUS,     0x200) \
     SPACE_PROPERTY_ENTRY("is-visible",           SPACE_PROPERTY_IS_VISIBLE,    0x400) \
-    SPACE_PROPERTY_ENTRY("is-native-fullscreen", SPACE_PROPERTY_IS_FULLSCREEN, 0x800)
+    SPACE_PROPERTY_ENTRY("is-native-fullscreen", SPACE_PROPERTY_IS_FULLSCREEN, 0x800) \
+    SPACE_PROPERTY_ENTRY("is-managed",           SPACE_PROPERTY_IS_MANAGED,    0x1000) \
+    SPACE_PROPERTY_ENTRY("managed-order",        SPACE_PROPERTY_MANAGED_ORDER, 0x2000)
 
 enum space_property
 {

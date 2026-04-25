@@ -960,6 +960,21 @@ void view_serialize(FILE *rsp, struct view *view, uint64_t flags)
         if (did_output) fprintf(rsp, ",\n");
 
         fprintf(rsp, "\t\"is-native-fullscreen\":%s", json_bool(space_is_fullscreen(view->sid)));
+        did_output = true;
+    }
+
+    if (flags & SPACE_PROPERTY_IS_MANAGED) {
+        if (did_output) fprintf(rsp, ",\n");
+
+        fprintf(rsp, "\t\"is-managed\":%s", json_bool(managed_space_is_managed_sid(&g_managed_space, view->sid)));
+        did_output = true;
+    }
+
+    if (flags & SPACE_PROPERTY_MANAGED_ORDER) {
+        if (did_output) fprintf(rsp, ",\n");
+
+        fprintf(rsp, "\t\"managed-order\":%d", managed_space_order_for_sid(&g_managed_space, view->sid));
+        did_output = true;
     }
 
     fprintf(rsp, "\n}");

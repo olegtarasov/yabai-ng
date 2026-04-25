@@ -341,6 +341,7 @@ static EVENT_HANDLER(APPLICATION_TERMINATED)
     }
 
 out:
+    managed_space_request_reconcile(&g_managed_space);
     process_destroy(process);
 }
 
@@ -595,6 +596,8 @@ static EVENT_HANDLER(WINDOW_CREATED)
         event_signal_push(SIGNAL_WINDOW_CREATED, window);
     }
 
+    managed_space_request_reconcile(&g_managed_space);
+
     if (workspace_is_macos_sequoia() || workspace_is_macos_tahoe()) {
         update_window_notifications();
     }
@@ -627,6 +630,8 @@ static EVENT_HANDLER(WINDOW_DESTROYED)
     window_manager_remove_window(&g_window_manager, window->id);
     window_unobserve(window);
     window_destroy(window);
+
+    managed_space_request_reconcile(&g_managed_space);
 
     if (workspace_is_macos_sequoia() || workspace_is_macos_tahoe()) {
         update_window_notifications();
@@ -696,6 +701,7 @@ static EVENT_HANDLER(WINDOW_MOVED)
 
     debug("%s: %s %d\n", __FUNCTION__, window->application->name, window->id);
     event_signal_push(SIGNAL_WINDOW_MOVED, window);
+    managed_space_request_reconcile(&g_managed_space);
     bool windowed_fullscreen = CGRectEqualToRect(window->windowed_frame, window->frame);
     window->frame.origin = new_origin;
 
@@ -746,6 +752,7 @@ static EVENT_HANDLER(WINDOW_RESIZED)
 
     debug("%s: %s %d\n", __FUNCTION__, window->application->name, window->id);
     event_signal_push(SIGNAL_WINDOW_RESIZED, window);
+    managed_space_request_reconcile(&g_managed_space);
 
     bool was_fullscreen = window_check_flag(window, WINDOW_FULLSCREEN);
 
@@ -868,6 +875,7 @@ static EVENT_HANDLER(WINDOW_MINIMIZED)
     }
 
     event_signal_push(SIGNAL_WINDOW_MINIMIZED, window);
+    managed_space_request_reconcile(&g_managed_space);
 }
 
 static EVENT_HANDLER(WINDOW_DEMINIMIZED)
@@ -919,6 +927,7 @@ static EVENT_HANDLER(WINDOW_DEMINIMIZED)
     }
 
     event_signal_push(SIGNAL_WINDOW_DEMINIMIZED, window);
+    managed_space_request_reconcile(&g_managed_space);
 }
 
 static EVENT_HANDLER(WINDOW_TITLE_CHANGED)
@@ -973,6 +982,7 @@ static EVENT_HANDLER(SLS_SPACE_CREATED)
     if (type == 0 || type == 4) {
         debug("%s: %lld, %d\n", __FUNCTION__, sid, type);
         space_manager_find_view(&g_space_manager, sid);
+        managed_space_handle_space_created(&g_managed_space, sid);
         event_signal_push(SIGNAL_SPACE_CREATED, context);
     }
 }
@@ -987,6 +997,7 @@ static EVENT_HANDLER(SLS_SPACE_DESTROYED)
         table_remove(&g_space_manager.view, &sid);
         view_destroy(view);
         free(view);
+        managed_space_handle_space_destroyed(&g_managed_space, sid);
         event_signal_push(SIGNAL_SPACE_DESTROYED, context);
     }
 }
@@ -1026,6 +1037,7 @@ static EVENT_HANDLER(SPACE_CHANGED)
     }
 
     event_signal_push(SIGNAL_SPACE_CHANGED, NULL);
+    managed_space_request_reconcile(&g_managed_space);
 }
 
 static EVENT_HANDLER(DISPLAY_CHANGED)
@@ -1078,6 +1090,7 @@ static EVENT_HANDLER(DISPLAY_CHANGED)
     }
 
     event_signal_push(SIGNAL_DISPLAY_CHANGED, NULL);
+    managed_space_note_topology_event(&g_managed_space);
 }
 
 static EVENT_HANDLER(DISPLAY_ADDED)
@@ -1087,6 +1100,7 @@ static EVENT_HANDLER(DISPLAY_ADDED)
     space_manager_handle_display_add(&g_space_manager, did);
     window_manager_handle_display_add_and_remove(&g_space_manager, &g_window_manager, did);
     event_signal_push(SIGNAL_DISPLAY_ADDED, context);
+    managed_space_note_topology_event(&g_managed_space);
 }
 
 static EVENT_HANDLER(DISPLAY_REMOVED)
@@ -1096,6 +1110,7 @@ static EVENT_HANDLER(DISPLAY_REMOVED)
     display_manager_remove_label_for_display(&g_display_manager, did);
     window_manager_handle_display_add_and_remove(&g_space_manager, &g_window_manager, display_manager_main_display_id());
     event_signal_push(SIGNAL_DISPLAY_REMOVED, context);
+    managed_space_note_topology_event(&g_managed_space);
 }
 
 static EVENT_HANDLER(DISPLAY_MOVED)
@@ -1104,6 +1119,7 @@ static EVENT_HANDLER(DISPLAY_MOVED)
     debug("%s: %d\n", __FUNCTION__, did);
     space_manager_mark_spaces_invalid(&g_space_manager);
     event_signal_push(SIGNAL_DISPLAY_MOVED, context);
+    managed_space_note_topology_event(&g_managed_space);
 }
 
 static EVENT_HANDLER(DISPLAY_RESIZED)
@@ -1112,6 +1128,7 @@ static EVENT_HANDLER(DISPLAY_RESIZED)
     debug("%s: %d\n", __FUNCTION__, did);
     space_manager_mark_spaces_invalid_for_display(&g_space_manager, did);
     event_signal_push(SIGNAL_DISPLAY_RESIZED, context);
+    managed_space_note_topology_event(&g_managed_space);
 }
 
 static EVENT_HANDLER(MOUSE_DOWN)
@@ -1537,6 +1554,7 @@ static EVENT_HANDLER(MISSION_CONTROL_EXIT)
 
     event_signal_push(SIGNAL_MISSION_CONTROL_EXIT, (void*)(uintptr_t)g_mission_control_mode);
     g_mission_control_mode = MISSION_CONTROL_MODE_INACTIVE;
+    managed_space_note_topology_event(&g_managed_space);
 }
 
 static EVENT_HANDLER(DOCK_DID_RESTART)
@@ -1553,6 +1571,7 @@ static EVENT_HANDLER(DOCK_DID_RESTART)
     }
 
     event_signal_push(SIGNAL_DOCK_DID_RESTART, NULL);
+    managed_space_note_topology_event(&g_managed_space);
 }
 
 static enum ffm_mode ffm_value;
@@ -1606,6 +1625,12 @@ static EVENT_HANDLER(SYSTEM_WOKE)
     }
 
     event_signal_push(SIGNAL_SYSTEM_WOKE, NULL);
+    managed_space_note_topology_event(&g_managed_space);
+}
+
+static EVENT_HANDLER(MANAGED_SPACES_RECONCILE)
+{
+    managed_space_reconcile(&g_managed_space);
 }
 
 static EVENT_HANDLER(DAEMON_MESSAGE)

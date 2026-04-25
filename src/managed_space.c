@@ -1445,5 +1445,4 @@ void managed_space_note_focus_changed(struct managed_space *ms)
 
     ms->last_focused_order = order;
     event_signal_push(SIGNAL_MANAGED_SPACE_FOCUSED, ms);
-    managed_space_publish_presentation_if_needed(ms);
 }

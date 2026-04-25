@@ -1008,6 +1008,8 @@ static EVENT_HANDLER(SPACE_CHANGED)
 {
     g_space_manager.last_space_id = g_space_manager.current_space_id;
     g_space_manager.current_space_id = space_manager_active_space();
+    managed_space_note_focus_changed(&g_managed_space);
+    event_signal_flush();
 
     if (g_window_manager.menubar_opacity != 1.0f) {
         float alpha = space_is_fullscreen(g_space_manager.current_space_id) ? 1.0f : g_window_manager.menubar_opacity;
@@ -1039,7 +1041,6 @@ static EVENT_HANDLER(SPACE_CHANGED)
     }
 
     event_signal_push(SIGNAL_SPACE_CHANGED, NULL);
-    managed_space_note_focus_changed(&g_managed_space);
     managed_space_request_reconcile(&g_managed_space);
 }
 

@@ -486,6 +486,7 @@ static EVENT_HANDLER(APPLICATION_VISIBLE)
     }
 
     event_signal_push(SIGNAL_APPLICATION_VISIBLE, application);
+    managed_space_request_reconcile(&g_managed_space);
 }
 
 static EVENT_HANDLER(APPLICATION_HIDDEN)
@@ -547,6 +548,7 @@ static EVENT_HANDLER(APPLICATION_HIDDEN)
     }
 
     event_signal_push(SIGNAL_APPLICATION_HIDDEN, application);
+    managed_space_request_reconcile(&g_managed_space);
 }
 
 static EVENT_HANDLER(WINDOW_CREATED)
@@ -1037,6 +1039,7 @@ static EVENT_HANDLER(SPACE_CHANGED)
     }
 
     event_signal_push(SIGNAL_SPACE_CHANGED, NULL);
+    managed_space_note_focus_changed(&g_managed_space);
     managed_space_request_reconcile(&g_managed_space);
 }
 

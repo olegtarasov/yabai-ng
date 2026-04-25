@@ -361,6 +361,27 @@ void event_signal_push(enum signal_type type, void *context)
         snprintf(es->arg_name[3],  arg_size, "%s", "YABAI_MANAGED_ACTIVE_ORDER");
         snprintf(es->arg_value[3], arg_size, "%d", managed_space_active_order(managed_space));
     } break;
+    case SIGNAL_MANAGED_SPACE_FOCUSED: {
+        struct managed_space *managed_space = context;
+
+        es->arg_name[0]  = ts_alloc_unaligned(arg_size);
+        es->arg_value[0] = ts_alloc_unaligned(arg_size);
+        es->arg_name[1]  = ts_alloc_unaligned(arg_size);
+        es->arg_value[1] = ts_alloc_unaligned(arg_size);
+        es->arg_name[2]  = ts_alloc_unaligned(arg_size);
+        es->arg_value[2] = ts_alloc_unaligned(arg_size);
+        es->arg_name[3]  = ts_alloc_unaligned(arg_size);
+        es->arg_value[3] = ts_alloc_unaligned(arg_size);
+
+        snprintf(es->arg_name[0],  arg_size, "%s", "YABAI_SPACE_INDEX");
+        snprintf(es->arg_value[0], arg_size, "%d", managed_space_active_index(managed_space));
+        snprintf(es->arg_name[1],  arg_size, "%s", "YABAI_DISPLAY_INDEX");
+        snprintf(es->arg_value[1], arg_size, "%d", managed_space_active_display(managed_space));
+        snprintf(es->arg_name[2],  arg_size, "%s", "YABAI_MANAGED_ORDER");
+        snprintf(es->arg_value[2], arg_size, "%d", managed_space_active_order(managed_space));
+        snprintf(es->arg_name[3],  arg_size, "%s", "YABAI_MANAGED_SPACE_NAME");
+        snprintf(es->arg_value[3], arg_size, "%s", managed_space_active_name(managed_space));
+    } break;
     }
 }
 

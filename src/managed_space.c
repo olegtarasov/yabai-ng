@@ -12,6 +12,7 @@ static void managed_space_entry_destroy(struct managed_space_entry *entry)
 {
     if (entry->uuid) CFRelease(entry->uuid);
     if (entry->preferred_display_uuid) CFRelease(entry->preferred_display_uuid);
+    if (entry->name) free(entry->name);
     if (entry->label) free(entry->label);
     memset(entry, 0, sizeof(struct managed_space_entry));
 }
@@ -45,7 +46,19 @@ static void managed_space_clear(struct managed_space *ms)
     ms->last_repaired_window_count = 0;
     ms->last_managed_count = 0;
     ms->last_active_order = 0;
+    ms->last_focused_order = 0;
+    ms->last_presentation_hash = 0;
     ms->topology_grace = false;
+}
+
+static void managed_space_clear_names(struct managed_space *ms)
+{
+    for (int i = 0; i < buf_len(ms->names); ++i) {
+        free(ms->names[i]);
+    }
+
+    buf_free(ms->names);
+    ms->names = NULL;
 }
 
 static CFStringRef managed_space_uuid_for_sid(uint64_t sid)
@@ -67,6 +80,53 @@ static void managed_space_refresh_label(struct managed_space_entry *entry)
 
     struct space_label *label = space_manager_get_label_for_space(&g_space_manager, entry->sid);
     entry->label = label ? string_copy(label->label) : string_copy("");
+}
+
+static bool managed_space_name_is_numeric(char *name)
+{
+    if (!name || !name[0]) return false;
+
+    for (char *at = name; *at; ++at) {
+        if (*at < '0' || *at > '9') return false;
+    }
+
+    return true;
+}
+
+static char *managed_space_configured_name(struct managed_space *ms, int order)
+{
+    if (order <= 0 || order > buf_len(ms->names)) return "";
+    return ms->names[order - 1] ? ms->names[order - 1] : "";
+}
+
+static void managed_space_apply_entry_name(struct managed_space *ms, struct managed_space_entry *entry)
+{
+    if (!entry) return;
+
+    if (entry->name) {
+        free(entry->name);
+        entry->name = NULL;
+    }
+
+    char *name = managed_space_configured_name(ms, entry->order);
+    entry->name = string_copy(name);
+
+    if (!entry->sid || !entry->name || !entry->name[0]) return;
+
+    if (managed_space_name_is_numeric(entry->name)) {
+        space_manager_remove_label_for_space(&g_space_manager, entry->sid);
+    } else {
+        space_manager_set_label_for_space(&g_space_manager, entry->sid, string_copy(entry->name));
+    }
+
+    managed_space_refresh_label(entry);
+}
+
+static void managed_space_apply_names(struct managed_space *ms)
+{
+    for (int i = 0; i < buf_len(ms->spaces); ++i) {
+        managed_space_apply_entry_name(ms, &ms->spaces[i]);
+    }
 }
 
 static void managed_space_set_preferred_display(struct managed_space_entry *entry, uint32_t did)
@@ -135,6 +195,7 @@ static void managed_space_renumber(struct managed_space *ms)
 {
     for (int i = 0; i < buf_len(ms->spaces); ++i) {
         ms->spaces[i].order = i + 1;
+        managed_space_apply_entry_name(ms, &ms->spaces[i]);
     }
 }
 
@@ -152,6 +213,7 @@ static struct managed_space_entry *managed_space_add_entry(struct managed_space 
             managed_space_set_preferred_display(existing, space_display_id(sid));
         }
         managed_space_refresh_label(existing);
+        managed_space_apply_entry_name(ms, existing);
         CFRelease(uuid);
         return existing;
     }
@@ -165,6 +227,7 @@ static struct managed_space_entry *managed_space_add_entry(struct managed_space 
 
     buf_push(ms->spaces, entry);
     ms->last_managed_count = buf_len(ms->spaces);
+    managed_space_apply_entry_name(ms, &ms->spaces[buf_len(ms->spaces) - 1]);
 
     return &ms->spaces[buf_len(ms->spaces) - 1];
 }
@@ -229,7 +292,13 @@ static bool managed_space_rebind_missing_entry(struct managed_space *ms, struct 
     managed_space_rebind_window_namespaces(ms, old_uuid, new_uuid);
     if (old_uuid) CFRelease(old_uuid);
 
-    if (entry->label && entry->label[0]) {
+    if (entry->name && entry->name[0]) {
+        if (managed_space_name_is_numeric(entry->name)) {
+            space_manager_remove_label_for_space(&g_space_manager, sid);
+        } else {
+            space_manager_set_label_for_space(&g_space_manager, sid, string_copy(entry->name));
+        }
+    } else if (entry->label && entry->label[0]) {
         space_manager_set_label_for_space(&g_space_manager, sid, string_copy(entry->label));
     }
 
@@ -263,7 +332,7 @@ static uint64_t managed_space_find_unmanaged_user_space(void)
     return 0;
 }
 
-static bool managed_space_window_is_actionable(struct window *window)
+bool managed_space_window_is_displayable(struct window *window)
 {
     if (!window) return false;
     if (!window->id) return false;
@@ -274,6 +343,76 @@ static bool managed_space_window_is_actionable(struct window *window)
     if (window_check_flag(window, WINDOW_MINIMIZE)) return false;
     if (window_check_flag(window, WINDOW_FULLSCREEN)) return false;
     return true;
+}
+
+static bool managed_space_window_is_actionable(struct window *window)
+{
+    return managed_space_window_is_displayable(window);
+}
+
+int managed_space_displayable_window_count(uint64_t sid)
+{
+    int raw_window_count = 0;
+    int result = 0;
+    uint32_t *window_list = space_window_list(sid, &raw_window_count, true);
+
+    for (int i = 0; i < raw_window_count; ++i) {
+        struct window *window = window_manager_find_window(&g_window_manager, window_list[i]);
+        if (managed_space_window_is_displayable(window)) ++result;
+    }
+
+    return result;
+}
+
+void managed_space_serialize_displayable_windows(FILE *rsp, uint64_t sid)
+{
+    int raw_window_count = 0;
+    int output_count = 0;
+    uint32_t *window_list = space_window_list(sid, &raw_window_count, true);
+
+    fprintf(rsp, "[");
+    for (int i = 0; i < raw_window_count; ++i) {
+        struct window *window = window_manager_find_window(&g_window_manager, window_list[i]);
+        if (!managed_space_window_is_displayable(window)) continue;
+
+        if (output_count++) fprintf(rsp, ", ");
+        fprintf(rsp, "%d", window->id);
+    }
+    fprintf(rsp, "]");
+}
+
+static bool managed_space_app_seen(char **apps, char *app)
+{
+    for (int i = 0; i < buf_len(apps); ++i) {
+        if (string_equals(apps[i], app)) return true;
+    }
+
+    return false;
+}
+
+void managed_space_serialize_displayable_apps(FILE *rsp, uint64_t sid)
+{
+    int raw_window_count = 0;
+    int output_count = 0;
+    char **apps = NULL;
+    uint32_t *window_list = space_window_list(sid, &raw_window_count, true);
+
+    fprintf(rsp, "[");
+    for (int i = 0; i < raw_window_count; ++i) {
+        struct window *window = window_manager_find_window(&g_window_manager, window_list[i]);
+        if (!managed_space_window_is_displayable(window)) continue;
+        if (!window->application || !window->application->name) continue;
+        if (managed_space_app_seen(apps, window->application->name)) continue;
+
+        buf_push(apps, window->application->name);
+
+        char *escaped_app = ts_string_escape(window->application->name);
+        if (output_count++) fprintf(rsp, ", ");
+        fprintf(rsp, "\"%s\"", escaped_app ? escaped_app : window->application->name);
+    }
+    fprintf(rsp, "]");
+
+    buf_free(apps);
 }
 
 static bool managed_space_display_uuid_is_active(CFStringRef uuid)
@@ -720,6 +859,78 @@ static int managed_space_compute_extra_count(struct managed_space *ms)
     return result;
 }
 
+static uint64_t managed_space_hash_u64(uint64_t hash, uint64_t value)
+{
+    for (int i = 0; i < 8; ++i) {
+        hash ^= (value >> (i * 8)) & 0xff;
+        hash *= 1099511628211ULL;
+    }
+
+    return hash;
+}
+
+static uint64_t managed_space_hash_string(uint64_t hash, char *value)
+{
+    if (!value) value = "";
+
+    for (char *at = value; *at; ++at) {
+        hash ^= (uint8_t)*at;
+        hash *= 1099511628211ULL;
+    }
+
+    return managed_space_hash_u64(hash, 0xff);
+}
+
+static uint64_t managed_space_presentation_hash(struct managed_space *ms)
+{
+    uint64_t hash = 1469598103934665603ULL;
+
+    hash = managed_space_hash_u64(hash, ms->enabled);
+    hash = managed_space_hash_u64(hash, buf_len(ms->spaces));
+
+    for (int i = 0; i < buf_len(ms->spaces); ++i) {
+        struct managed_space_entry *entry = &ms->spaces[i];
+        uint64_t sid = entry->sid;
+        int displayable_count = sid ? managed_space_displayable_window_count(sid) : 0;
+        bool should_render = sid && (space_is_visible(sid) || displayable_count > 0);
+
+        hash = managed_space_hash_u64(hash, entry->order);
+        hash = managed_space_hash_u64(hash, sid ? space_manager_mission_control_index(sid) : 0);
+        hash = managed_space_hash_u64(hash, sid ? display_manager_display_id_arrangement(space_display_id(sid)) : 0);
+        hash = managed_space_hash_u64(hash, should_render);
+        hash = managed_space_hash_u64(hash, displayable_count);
+        hash = managed_space_hash_string(hash, entry->name);
+        hash = managed_space_hash_string(hash, entry->label);
+
+        if (!sid) continue;
+
+        int raw_window_count = 0;
+        char **apps = NULL;
+        uint32_t *window_list = space_window_list(sid, &raw_window_count, true);
+        for (int j = 0; j < raw_window_count; ++j) {
+            struct window *window = window_manager_find_window(&g_window_manager, window_list[j]);
+            if (!managed_space_window_is_displayable(window)) continue;
+            if (!window->application || !window->application->name) continue;
+            if (managed_space_app_seen(apps, window->application->name)) continue;
+
+            buf_push(apps, window->application->name);
+            hash = managed_space_hash_string(hash, window->application->name);
+        }
+        buf_free(apps);
+    }
+
+    return hash;
+}
+
+static void managed_space_publish_presentation_if_needed(struct managed_space *ms)
+{
+    uint64_t hash = managed_space_presentation_hash(ms);
+    if (hash == ms->last_presentation_hash) return;
+
+    ms->last_presentation_hash = hash;
+    event_signal_push(SIGNAL_MANAGED_SPACES_CHANGED, ms);
+}
+
 static void managed_space_refresh_topology_grace(struct managed_space *ms)
 {
     bool absent_display = managed_space_has_absent_preferred_display(ms);
@@ -730,6 +941,103 @@ static void managed_space_refresh_topology_grace(struct managed_space *ms)
 void managed_space_init(struct managed_space *ms)
 {
     memset(ms, 0, sizeof(struct managed_space));
+}
+
+static void managed_space_create_missing_named_spaces(struct managed_space *ms);
+
+void managed_space_destroy(struct managed_space *ms)
+{
+    managed_space_clear(ms);
+    managed_space_clear_names(ms);
+}
+
+void managed_space_set_names(struct managed_space *ms, char *names)
+{
+    managed_space_clear_names(ms);
+
+    if (names && names[0]) {
+        char *copy = string_copy(names);
+        char *start = copy;
+
+        for (char *at = copy;; ++at) {
+            if (*at == ',' || *at == '\0') {
+                char delimiter = *at;
+                *at = '\0';
+
+                while (*start == ' ' || *start == '\t') ++start;
+
+                char *end = start + strlen(start);
+                while (end > start && (end[-1] == ' ' || end[-1] == '\t')) {
+                    *--end = '\0';
+                }
+
+                if (*start) {
+                    buf_push(ms->names, string_copy(start));
+                }
+
+                if (!delimiter) break;
+                start = at + 1;
+            }
+        }
+
+        free(copy);
+    }
+
+    if (ms->enabled) {
+        managed_space_create_missing_named_spaces(ms);
+        managed_space_apply_names(ms);
+        managed_space_publish_presentation_if_needed(ms);
+        managed_space_request_reconcile(ms);
+    }
+}
+
+void managed_space_write_names(FILE *rsp, struct managed_space *ms)
+{
+    for (int i = 0; i < buf_len(ms->names); ++i) {
+        fprintf(rsp, "%s%s", i ? "," : "", ms->names[i]);
+    }
+    fprintf(rsp, "\n");
+}
+
+static int managed_space_normal_space_count(void)
+{
+    int result = 0;
+
+    for (int index = 1;; ++index) {
+        uint64_t sid = space_manager_mission_control_space(index);
+        if (!sid) break;
+        if (!space_is_user(sid)) continue;
+        if (space_is_fullscreen(sid)) continue;
+        ++result;
+    }
+
+    return result;
+}
+
+static void managed_space_create_missing_named_spaces(struct managed_space *ms)
+{
+    int missing_count = buf_len(ms->names) - managed_space_normal_space_count();
+    if (missing_count <= 0) return;
+
+    uint32_t did = display_manager_active_display_id();
+    if (!did) {
+        int display_count = 0;
+        uint32_t *display_list = display_manager_active_display_list(&display_count);
+        did = display_count > 0 ? display_list[0] : 0;
+    }
+
+    uint64_t acting_sid = did ? display_space_id(did) : 0;
+    if (!acting_sid) return;
+
+    for (int i = 0; i < missing_count; ++i) {
+        ++ms->pending_user_creates;
+        enum space_op_error result = space_manager_add_space(acting_sid);
+        if (result != SPACE_OP_ERROR_SUCCESS) {
+            --ms->pending_user_creates;
+            ms->last_replacement_error = result;
+            break;
+        }
+    }
 }
 
 void managed_space_set_enabled(struct managed_space *ms, bool enabled)
@@ -744,20 +1052,31 @@ void managed_space_set_enabled(struct managed_space *ms, bool enabled)
         return;
     }
 
+    managed_space_create_missing_named_spaces(ms);
+
+    int desired_count = buf_len(ms->names);
+    int added_count = 0;
     for (int index = 1;; ++index) {
         uint64_t sid = space_manager_mission_control_space(index);
         if (!sid) break;
         if (!space_is_user(sid)) continue;
+        if (space_is_fullscreen(sid)) continue;
+        if (desired_count > 0 && added_count >= desired_count) continue;
 
         space_manager_find_view(&g_space_manager, sid);
         managed_space_add_entry(ms, sid);
+        ++added_count;
     }
+
+    managed_space_apply_names(ms);
 
     managed_space_update_window_cache(ms, false);
     ms->last_extra_count = managed_space_compute_extra_count(ms);
     ms->last_managed_count = buf_len(ms->spaces);
     ms->last_active_order = managed_space_active_order(ms);
-    event_signal_push(SIGNAL_MANAGED_SPACES_CHANGED, ms);
+    ms->last_focused_order = 0;
+    managed_space_publish_presentation_if_needed(ms);
+    managed_space_note_focus_changed(ms);
     managed_space_request_reconcile(ms);
 }
 
@@ -781,7 +1100,7 @@ void managed_space_query(FILE *rsp, struct managed_space *ms)
             "\t\"topology-grace\":%s,\n"
             "\t\"last-repaired-window-count\":%d,\n"
             "\t\"active-managed-order\":%d,\n"
-            "\t\"spaces\":[",
+            "\t\"managed-space-names\":[",
             json_bool(ms->enabled),
             buf_len(ms->spaces),
             managed_space_compute_extra_count(ms),
@@ -796,11 +1115,20 @@ void managed_space_query(FILE *rsp, struct managed_space *ms)
             ms->last_repaired_window_count,
             managed_space_active_order(ms));
 
+    for (int i = 0; i < buf_len(ms->names); ++i) {
+        char *escaped_name = ts_string_escape(ms->names[i]);
+        fprintf(rsp, "%s\"%s\"", i ? "," : "", escaped_name ? escaped_name : ms->names[i]);
+    }
+
+    fprintf(rsp, "],\n\t\"spaces\":[");
+
     for (int i = 0; i < buf_len(ms->spaces); ++i) {
         struct managed_space_entry *entry = &ms->spaces[i];
 
         char *uuid = entry->uuid ? ts_cfstring_copy(entry->uuid) : NULL;
         char *preferred_uuid = entry->preferred_display_uuid ? ts_cfstring_copy(entry->preferred_display_uuid) : NULL;
+        char *escaped_name = ts_string_escape(entry->name);
+        char *escaped_label = ts_string_escape(entry->label);
         int index = entry->sid ? space_manager_mission_control_index(entry->sid) : 0;
         uint32_t did = entry->sid ? space_display_id(entry->sid) : 0;
         int display = did ? display_manager_display_id_arrangement(did) : 0;
@@ -814,6 +1142,7 @@ void managed_space_query(FILE *rsp, struct managed_space *ms)
                 "\t\t\"id\":%lld,\n"
                 "\t\t\"uuid\":\"%s\",\n"
                 "\t\t\"index\":%d,\n"
+                "\t\t\"name\":\"%s\",\n"
                 "\t\t\"label\":\"%s\",\n"
                 "\t\t\"display\":%d,\n"
                 "\t\t\"preferred-display\":%d,\n"
@@ -828,7 +1157,8 @@ void managed_space_query(FILE *rsp, struct managed_space *ms)
                 entry->sid,
                 uuid ? uuid : "",
                 index,
-                entry->label ? entry->label : "",
+                escaped_name ? escaped_name : entry->name ? entry->name : "",
+                escaped_label ? escaped_label : entry->label ? entry->label : "",
                 display,
                 preferred_display,
                 preferred_uuid ? preferred_uuid : "",
@@ -879,7 +1209,7 @@ void managed_space_note_user_space_destroyed(struct managed_space *ms, uint64_t 
     if (!ms->enabled) return;
 
     if (managed_space_remove_entry(ms, sid)) {
-        event_signal_push(SIGNAL_MANAGED_SPACES_CHANGED, ms);
+        managed_space_publish_presentation_if_needed(ms);
     }
 
     managed_space_request_reconcile(ms);
@@ -904,6 +1234,7 @@ void managed_space_note_space_label_changed(struct managed_space *ms, uint64_t s
     if (!entry) return;
 
     managed_space_refresh_label(entry);
+    managed_space_publish_presentation_if_needed(ms);
 }
 
 void managed_space_note_user_window_space_changed(struct managed_space *ms, struct window *window, uint64_t sid)
@@ -932,7 +1263,7 @@ void managed_space_handle_space_created(struct managed_space *ms, uint64_t sid)
         if (ms->pending_user_creates > 0) --ms->pending_user_creates;
 
         if (managed_space_rebind_missing_entry(ms, entry, sid)) {
-            event_signal_push(SIGNAL_MANAGED_SPACES_CHANGED, ms);
+            managed_space_publish_presentation_if_needed(ms);
         }
 
         managed_space_request_reconcile(ms);
@@ -942,7 +1273,7 @@ void managed_space_handle_space_created(struct managed_space *ms, uint64_t sid)
     if (ms->pending_user_creates > 0) {
         --ms->pending_user_creates;
         managed_space_add_entry(ms, sid);
-        event_signal_push(SIGNAL_MANAGED_SPACES_CHANGED, ms);
+        managed_space_publish_presentation_if_needed(ms);
     }
 
     managed_space_request_reconcile(ms);
@@ -955,7 +1286,7 @@ void managed_space_handle_space_destroyed(struct managed_space *ms, uint64_t sid
     struct managed_space_entry *entry = managed_space_find_by_sid_internal(ms, sid);
     if (entry) {
         entry->sid = 0;
-        event_signal_push(SIGNAL_MANAGED_SPACES_CHANGED, ms);
+        managed_space_publish_presentation_if_needed(ms);
     }
 
     managed_space_request_reconcile(ms);
@@ -1036,9 +1367,7 @@ void managed_space_reconcile(struct managed_space *ms)
     ms->last_managed_count = buf_len(ms->spaces);
     ms->last_active_order = managed_space_active_order(ms);
 
-    if (changed || repaired_count > 0) {
-        event_signal_push(SIGNAL_MANAGED_SPACES_CHANGED, ms);
-    }
+    managed_space_publish_presentation_if_needed(ms);
 
     ms->is_reconciling = false;
 
@@ -1064,6 +1393,12 @@ int managed_space_order_for_sid(struct managed_space *ms, uint64_t sid)
     return entry ? entry->order : 0;
 }
 
+char *managed_space_name_for_sid(struct managed_space *ms, uint64_t sid)
+{
+    struct managed_space_entry *entry = managed_space_find_by_sid_internal(ms, sid);
+    return entry && entry->name ? entry->name : "";
+}
+
 int managed_space_count(struct managed_space *ms)
 {
     return buf_len(ms->spaces);
@@ -1082,4 +1417,33 @@ int managed_space_repaired_window_count(struct managed_space *ms)
 int managed_space_active_order(struct managed_space *ms)
 {
     return managed_space_order_for_sid(ms, g_space_manager.current_space_id);
+}
+
+int managed_space_active_index(struct managed_space *ms)
+{
+    if (!managed_space_is_managed_sid(ms, g_space_manager.current_space_id)) return 0;
+    return space_manager_mission_control_index(g_space_manager.current_space_id);
+}
+
+int managed_space_active_display(struct managed_space *ms)
+{
+    if (!managed_space_is_managed_sid(ms, g_space_manager.current_space_id)) return 0;
+    return display_manager_display_id_arrangement(space_display_id(g_space_manager.current_space_id));
+}
+
+char *managed_space_active_name(struct managed_space *ms)
+{
+    return managed_space_name_for_sid(ms, g_space_manager.current_space_id);
+}
+
+void managed_space_note_focus_changed(struct managed_space *ms)
+{
+    if (!ms->enabled) return;
+
+    int order = managed_space_active_order(ms);
+    if (order == ms->last_focused_order) return;
+
+    ms->last_focused_order = order;
+    event_signal_push(SIGNAL_MANAGED_SPACE_FOCUSED, ms);
+    managed_space_publish_presentation_if_needed(ms);
 }

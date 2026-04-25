@@ -17,9 +17,13 @@ small, obvious hooks into that subsystem; substantial behavior belongs in
 - Managed mode is off by default and enabled with:
   `yabai -m config managed_spaces on`
 - Turning managed mode on snapshots the current non-fullscreen user spaces as
-  the desired managed set in Mission Control order.
+  the desired managed set in Mission Control order. If `managed_space_names` is
+  configured, yabai first ensures enough normal spaces exist, snapshots only the
+  first configured-name count, and reconciles any additional normal spaces away.
 - Managed identity is the space UUID, not its label. Labels remain normal yabai
   UI/config metadata.
+- Managed slot names are runtime config. Numeric names are exposed in queries
+  only; non-numeric names are also applied as ordinary yabai labels.
 - `space --label` must not change managed membership.
 - `space --create` while managed mode is on intentionally adds the newly
   created user space to the managed set.
@@ -50,14 +54,24 @@ small, obvious hooks into that subsystem; substantial behavior belongs in
 - `yabai -m config managed_spaces on|off`
   Enables or disables managed mode. Enabling snapshots current user spaces.
 
+- `yabai -m config managed_space_names <comma-separated names>`
+  Sets optional managed slot names. Example:
+  `1,2,3,4,5,6,7,8,9,A,B,C,D,E,F,G,H,I,J,K,L,M,N,O,P,Q,R,S,T,U,V,W,X,Y,Z`.
+
 - `yabai -m query --managed-spaces`
   Returns managed registry/debug state.
 
 - `yabai -m query --spaces`
-  Includes `is-managed` and `managed-order` fields.
+  Includes `is-managed`, `managed-order`, `managed-name`,
+  `displayable-window-count`, `displayable-windows`, and `displayable-apps`
+  fields for consumers that want managed-space presentation data without a
+  separate window query.
 
 - `managed_spaces_changed`
-  Signal emitted after managed topology or namespace state changes.
+  Signal emitted after the derived managed-space presentation state changes.
+
+- `managed_space_focused`
+  Signal emitted when the active managed space changes.
 
 ## Validation
 

@@ -53,6 +53,7 @@ extern bool g_verbose;
 #define COMMAND_CONFIG_EXTERNAL_BAR          "external_bar"
 #define COMMAND_CONFIG_SKIP_SPACE_ANIMATION  "skip_window_focus_animation"
 #define COMMAND_CONFIG_MANAGED_SPACES        "managed_spaces"
+#define COMMAND_CONFIG_MANAGED_SPACE_NAMES   "managed_space_names"
 
 #define SELECTOR_CONFIG_SPACE                "--space"
 
@@ -1190,6 +1191,13 @@ static void handle_domain_config(FILE *rsp, struct token domain, char *message)
                 managed_space_set_enabled(&g_managed_space, true);
             } else {
                 daemon_fail(rsp, "unknown value '%.*s' given to command '%.*s' for domain '%.*s'\n", value.length, value.text, command.length, command.text, domain.length, domain.text);
+            }
+        } else if (token_equals(command, COMMAND_CONFIG_MANAGED_SPACE_NAMES)) {
+            struct token value = get_token(&message);
+            if (!token_is_valid(value)) {
+                managed_space_write_names(rsp, &g_managed_space);
+            } else {
+                managed_space_set_names(&g_managed_space, value.text);
             }
         } else if (token_equals(command, COMMAND_CONFIG_MFF)) {
             struct token value = get_token(&message);

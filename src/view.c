@@ -977,6 +977,38 @@ void view_serialize(FILE *rsp, struct view *view, uint64_t flags)
         did_output = true;
     }
 
+    if (flags & SPACE_PROPERTY_MANAGED_NAME) {
+        if (did_output) fprintf(rsp, ",\n");
+
+        char *name = managed_space_name_for_sid(&g_managed_space, view->sid);
+        char *escaped_name = ts_string_escape(name);
+        fprintf(rsp, "\t\"managed-name\":\"%s\"", escaped_name ? escaped_name : name);
+        did_output = true;
+    }
+
+    if (flags & SPACE_PROPERTY_DISPLAYABLE_WINDOW_COUNT) {
+        if (did_output) fprintf(rsp, ",\n");
+
+        fprintf(rsp, "\t\"displayable-window-count\":%d", managed_space_displayable_window_count(view->sid));
+        did_output = true;
+    }
+
+    if (flags & SPACE_PROPERTY_DISPLAYABLE_WINDOWS) {
+        if (did_output) fprintf(rsp, ",\n");
+
+        fprintf(rsp, "\t\"displayable-windows\":");
+        managed_space_serialize_displayable_windows(rsp, view->sid);
+        did_output = true;
+    }
+
+    if (flags & SPACE_PROPERTY_DISPLAYABLE_APPS) {
+        if (did_output) fprintf(rsp, ",\n");
+
+        fprintf(rsp, "\t\"displayable-apps\":");
+        managed_space_serialize_displayable_apps(rsp, view->sid);
+        did_output = true;
+    }
+
     fprintf(rsp, "\n}");
 }
 

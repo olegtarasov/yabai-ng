@@ -180,13 +180,26 @@ Enable output of debug information to stdout.
 .RS 4
 Enable yabai\-ng managed space reconciliation.
 .br
-When turned on, yabai snapshots all current non\-fullscreen user spaces as
-the managed set in Mission Control order. Future spaces created through
+When turned on, yabai snapshots current non\-fullscreen user spaces as the
+managed set in Mission Control order. If \f(CRmanaged_space_names\fP is
+configured, yabai first ensures at least that many normal user spaces exist,
+snapshots only the first configured\-name count, and reconciles additional
+normal spaces away. Future spaces created through
 \f(CRyabai \-m space \-\-create\fP are added to the managed set, and spaces
 destroyed through \f(CRyabai \-m space \-\-destroy\fP are removed from it.
 .br
 Native fullscreen spaces are exempt and are never moved or destroyed by
 managed mode.
+.RE
+.sp
+\fBmanaged_space_names\fP [\fI<comma\-separated names>\fP]
+.RS 4
+Configure optional managed slot names.
+.br
+Numeric names are exposed as managed names only. Non\-numeric names are also
+applied as ordinary yabai space labels for selectors and rules.
+.br
+Example: \f(CR1,2,3,4,5,6,7,8,9,A,B,C,D,E,F,G,H,I,J,K,L,M,N,O,P,Q,R,S,T,U,V,W,X,Y,Z\fP.
 .RE
 .sp
 \fBexternal_bar\fP [\fI<main|all|off>:<top_padding>:<bottom_padding>\fP]
@@ -797,7 +810,11 @@ SPACE
     "is\-visible": bool,
     "is\-native\-fullscreen": bool,
     "is\-managed": bool,
-    "managed\-order": number
+    "managed\-order": number,
+    "managed\-name": string,
+    "displayable\-window\-count": number,
+    "displayable\-windows": array of number,
+    "displayable\-apps": array of string
 }
 .fam
 .fi
@@ -900,8 +917,33 @@ MANAGED SPACES
     "topology\-grace": bool,
     "last\-repaired\-window\-count": number,
     "active\-managed\-order": number,
+    "managed\-space\-names": array of string,
     "spaces": array of object,
     "windows": array of object
+}
+.fam
+.fi
+.if n .RE
+.sp
+Each managed space object contains:
+.sp
+.if n .RS 4
+.nf
+.fam C
+{
+    "order": number,
+    "id": number,
+    "uuid": string,
+    "index": number,
+    "name": string,
+    "label": string,
+    "display": number,
+    "preferred\-display": number,
+    "preferred\-display\-uuid": string,
+    "preferred\-display\-active": bool,
+    "missing": bool,
+    "native\-fullscreen": bool,
+    "window\-count": number
 }
 .fam
 .fi
@@ -1337,12 +1379,20 @@ Triggered when macOS wakes from sleep.
 .sp
 \fBmanaged_spaces_changed\fP
 .RS 4
-Triggered after managed mode reaches a stable reconciliation pass that
-changed managed topology or repaired window namespace state.
+Triggered after managed mode reaches a stable reconciliation pass and the
+derived managed\-space presentation state changed.
 .br
 Passes four arguments: $YABAI_MANAGED_SPACE_COUNT,
 $YABAI_MANAGED_EXTRA_SPACE_COUNT, $YABAI_MANAGED_REPAIRED_WINDOW_COUNT,
 $YABAI_MANAGED_ACTIVE_ORDER
+.RE
+.sp
+\fBmanaged_space_focused\fP
+.RS 4
+Triggered when the active managed space changes.
+.br
+Passes four arguments: $YABAI_SPACE_INDEX, $YABAI_DISPLAY_INDEX,
+$YABAI_MANAGED_ORDER, $YABAI_MANAGED_SPACE_NAME
 .RE
 .SS "ACTION"
 .sp

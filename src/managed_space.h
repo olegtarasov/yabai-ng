@@ -23,7 +23,11 @@ struct managed_space
     bool is_reconciling;
     bool pending_reconcile;
     bool topology_grace;
+    bool replacement_retry_posted;
     int pending_user_creates;
+    int pending_replacement_order;
+    int pending_replacement_retries;
+    int last_replacement_error;
     int last_extra_count;
     int last_repaired_window_count;
     int last_managed_count;

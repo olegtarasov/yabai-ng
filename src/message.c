@@ -2765,6 +2765,8 @@ static bool parse_rule(FILE *rsp, char **message, struct rule *rule, struct toke
                 rule->effects.manage = RULE_PROP_ON;
             } else if (string_equals(value, ARGUMENT_COMMON_VAL_OFF)) {
                 rule->effects.manage = RULE_PROP_OFF;
+            } else if (string_equals(value, "tab")) {
+                rule->effects.manage = RULE_PROP_TAB;
             } else {
                 daemon_fail(rsp, "invalid value '%s' for key '%s'\n", value, key);
                 did_parse = false;

@@ -109,10 +109,16 @@ void window_manager_apply_manage_rule_effects_to_window(struct space_manager *sm
 {
     if (effects->manage == RULE_PROP_ON) {
         window_set_rule_flag(window, WINDOW_RULE_MANAGED);
+        window_clear_rule_flag(window, WINDOW_RULE_TAB);
         window_manager_make_window_floating(sm, wm, window, false, true);
     } else if (effects->manage == RULE_PROP_OFF) {
         window_clear_rule_flag(window, WINDOW_RULE_MANAGED);
+        window_clear_rule_flag(window, WINDOW_RULE_TAB);
         window_manager_make_window_floating(sm, wm, window, true, true);
+    } else if (effects->manage == RULE_PROP_TAB) {
+        window_set_rule_flag(window, WINDOW_RULE_MANAGED);
+        window_set_rule_flag(window, WINDOW_RULE_TAB);
+        window_clear_flag(window, WINDOW_FLOAT);
     }
 }
 
@@ -176,7 +182,7 @@ void window_manager_apply_manage_rules_to_window(struct space_manager *sm, struc
     for (int i = 0; i < buf_len(wm->rules); ++i) {
         if (one_shot_rules || !rule_check_flag(&wm->rules[i], RULE_ONE_SHOT)) {
             if (window_manager_rule_matches_window(&wm->rules[i], window, window_title, window_role, window_subrole)) {
-                if (wm->rules[i].effects.manage == RULE_PROP_ON) {
+                if (wm->rules[i].effects.manage == RULE_PROP_ON || wm->rules[i].effects.manage == RULE_PROP_TAB) {
                     if (!rule_check_flag(&wm->rules[i], RULE_ROLE_VALID)    && !string_equals(window_role   , "AXWindow"))         continue;
                     if (!rule_check_flag(&wm->rules[i], RULE_SUBROLE_VALID) && !string_equals(window_subrole, "AXStandardWindow")) continue;
                 }
@@ -273,6 +279,7 @@ bool window_manager_should_manage_window(struct window *window)
 {
     if (!window->is_root)                           return false;
     if (window_check_flag(window, WINDOW_FLOAT))    return false;
+    if (window_check_flag(window, WINDOW_TAB))      return false;
     if (window_is_sticky(window->id))               return false;
     if (window_check_flag(window, WINDOW_MINIMIZE)) return false;
     if (window->application->is_hidden)             return false;
@@ -2554,6 +2561,7 @@ static void window_manager_validate_windows_on_space(struct window_manager *wm, 
         if (!found) {
             struct window *window = window_manager_find_window(wm, view_window_list[i]);
             if (!window) continue;
+            if (native_tab_should_preserve_parent(wm, window)) continue;
 
             //
             // @cleanup

@@ -606,7 +606,8 @@ WINDOW
     "is-hidden": bool,
     "is-floating": bool,
     "is-sticky": bool,
-    "is-grabbed": bool
+    "is-grabbed": bool,
+    "is-tab": bool
 }
 ----
 
@@ -727,9 +728,10 @@ ARGUMENT
 *space='[^]<SPACE_SEL>'*::
     Send window to space. If '^' is present, follow focus.
 
-*manage='<BOOL_SEL>'*::
+*manage='<BOOL_SEL>|tab'*::
     Window should be managed (tile vs float). +
-    Most windows will be managed automatically, so this should mainly be used to make a window float.
+    Most windows will be managed automatically, so this should mainly be used to make a window float. +
+    Specify the value 'tab' to manage real windows while detecting native macOS tab children and excluding them from tiling.
 
 *sticky='<BOOL_SEL>'*::
     Window appears on all spaces. +
@@ -779,7 +781,7 @@ DATAFORMAT
     "space": number,
     "follow_space": bool,
     "opacity": number,
-    "manage": bool (optional),
+    "manage": bool|string (optional),
     "sticky": bool (optional),
     "mouse_follows_focus": bool (optional),
     "sub-layer": string,

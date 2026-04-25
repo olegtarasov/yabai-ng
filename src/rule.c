@@ -47,7 +47,7 @@ void rule_serialize(FILE *rsp, struct rule *rule, int index)
             rule->effects.sid ? space_manager_mission_control_index(rule->effects.sid) : 0,
             json_bool(rule_effects_check_flag(&rule->effects, RULE_FOLLOW_SPACE)),
             rule->effects.opacity,
-            json_optional_bool(rule->effects.manage),
+            rule->effects.manage == RULE_PROP_TAB ? "\"tab\"" : json_optional_bool(rule->effects.manage),
             json_optional_bool(rule->effects.sticky),
             json_optional_bool(rule->effects.mff),
             rule_effects_check_flag(&rule->effects, RULE_LAYER) ? layer_str[rule->effects.layer] : "",

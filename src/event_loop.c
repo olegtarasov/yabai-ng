@@ -579,7 +579,9 @@ static EVENT_HANDLER(WINDOW_CREATED)
         }
     }
 
-    if (window_manager_should_manage_window(window) && !window_manager_find_managed_window(&g_window_manager, window)) {
+    bool native_tab = native_tab_handle_window_created(&g_window_manager, window);
+
+    if (!native_tab && window_manager_should_manage_window(window) && !window_manager_find_managed_window(&g_window_manager, window)) {
         uint64_t sid;
 
         if (g_window_manager.window_origin_mode == WINDOW_ORIGIN_DEFAULT) {
@@ -616,10 +618,13 @@ static EVENT_HANDLER(WINDOW_DESTROYED)
     debug("%s: %s %d\n", __FUNCTION__, window->application ? window->application->name : "<unknown>", window->id);
 
     struct view *view = window_manager_find_managed_window(&g_window_manager, window);
+    uint64_t destroyed_sid = view ? view->sid : 0;
     if (view) {
         space_manager_untile_window(view, window);
         window_manager_remove_managed_window(&g_window_manager, window->id);
     }
+
+    native_tab_handle_window_destroyed(&g_space_manager, &g_window_manager, window, destroyed_sid);
 
     if (g_mouse_state.window == window) g_mouse_state.window = NULL;
     if (g_mouse_state.ffm_window_id == window->id) g_mouse_state.ffm_window_id = 0;
@@ -707,6 +712,10 @@ static EVENT_HANDLER(WINDOW_MOVED)
     bool windowed_fullscreen = CGRectEqualToRect(window->windowed_frame, window->frame);
     window->frame.origin = new_origin;
 
+    if (native_tab_handle_window_moved(&g_space_manager, &g_window_manager, window)) {
+        return;
+    }
+
     if (!windowed_fullscreen) {
         window_clear_flag(window, WINDOW_WINDOWED);
 
@@ -787,6 +796,10 @@ static EVENT_HANDLER(WINDOW_RESIZED)
 
     bool windowed_fullscreen = CGRectEqualToRect(window->windowed_frame, window->frame);
     window->frame = new_frame;
+
+    if (native_tab_handle_window_resized(&g_space_manager, &g_window_manager, window)) {
+        return;
+    }
 
     if (!was_fullscreen && is_fullscreen) {
         struct view *view = window_manager_find_managed_window(&g_window_manager, window);

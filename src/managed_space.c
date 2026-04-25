@@ -342,12 +342,31 @@ bool managed_space_window_is_displayable(struct window *window)
     if (!window_is_standard(window)) return false;
     if (window_check_flag(window, WINDOW_MINIMIZE)) return false;
     if (window_check_flag(window, WINDOW_FULLSCREEN)) return false;
+    if (window_check_flag(window, WINDOW_TAB)) return false;
     return true;
 }
 
 static bool managed_space_window_is_actionable(struct window *window)
 {
     return managed_space_window_is_displayable(window);
+}
+
+static bool managed_space_window_id_in_list(uint32_t wid, uint32_t *window_list, int window_count)
+{
+    for (int i = 0; i < window_count; ++i) {
+        if (window_list[i] == wid) return true;
+    }
+
+    return false;
+}
+
+static bool managed_space_window_is_preserved_native_tab_parent(struct window *window, uint32_t *window_list, int window_count)
+{
+    if (!window) return false;
+    if (!managed_space_window_is_displayable(window)) return false;
+    if (!native_tab_should_preserve_parent(&g_window_manager, window)) return false;
+    if (managed_space_window_id_in_list(window->id, window_list, window_count)) return false;
+    return true;
 }
 
 int managed_space_displayable_window_count(uint64_t sid)
@@ -359,6 +378,16 @@ int managed_space_displayable_window_count(uint64_t sid)
     for (int i = 0; i < raw_window_count; ++i) {
         struct window *window = window_manager_find_window(&g_window_manager, window_list[i]);
         if (managed_space_window_is_displayable(window)) ++result;
+    }
+
+    struct view *view = space_manager_query_view(&g_space_manager, sid);
+    if (view) {
+        int view_window_count = 0;
+        uint32_t *view_window_list = view_find_window_list(view, &view_window_count);
+        for (int i = 0; i < view_window_count; ++i) {
+            struct window *window = window_manager_find_window(&g_window_manager, view_window_list[i]);
+            if (managed_space_window_is_preserved_native_tab_parent(window, window_list, raw_window_count)) ++result;
+        }
     }
 
     return result;
@@ -378,6 +407,20 @@ void managed_space_serialize_displayable_windows(FILE *rsp, uint64_t sid)
         if (output_count++) fprintf(rsp, ", ");
         fprintf(rsp, "%d", window->id);
     }
+
+    struct view *view = space_manager_query_view(&g_space_manager, sid);
+    if (view) {
+        int view_window_count = 0;
+        uint32_t *view_window_list = view_find_window_list(view, &view_window_count);
+        for (int i = 0; i < view_window_count; ++i) {
+            struct window *window = window_manager_find_window(&g_window_manager, view_window_list[i]);
+            if (!managed_space_window_is_preserved_native_tab_parent(window, window_list, raw_window_count)) continue;
+
+            if (output_count++) fprintf(rsp, ", ");
+            fprintf(rsp, "%d", window->id);
+        }
+    }
+
     fprintf(rsp, "]");
 }
 
@@ -410,6 +453,25 @@ void managed_space_serialize_displayable_apps(FILE *rsp, uint64_t sid)
         if (output_count++) fprintf(rsp, ", ");
         fprintf(rsp, "\"%s\"", escaped_app ? escaped_app : window->application->name);
     }
+
+    struct view *view = space_manager_query_view(&g_space_manager, sid);
+    if (view) {
+        int view_window_count = 0;
+        uint32_t *view_window_list = view_find_window_list(view, &view_window_count);
+        for (int i = 0; i < view_window_count; ++i) {
+            struct window *window = window_manager_find_window(&g_window_manager, view_window_list[i]);
+            if (!managed_space_window_is_preserved_native_tab_parent(window, window_list, raw_window_count)) continue;
+            if (!window->application || !window->application->name) continue;
+            if (managed_space_app_seen(apps, window->application->name)) continue;
+
+            buf_push(apps, window->application->name);
+
+            char *escaped_app = ts_string_escape(window->application->name);
+            if (output_count++) fprintf(rsp, ", ");
+            fprintf(rsp, "\"%s\"", escaped_app ? escaped_app : window->application->name);
+        }
+    }
+
     fprintf(rsp, "]");
 
     buf_free(apps);
@@ -915,6 +977,21 @@ static uint64_t managed_space_presentation_hash(struct managed_space *ms)
 
             buf_push(apps, window->application->name);
             hash = managed_space_hash_string(hash, window->application->name);
+        }
+
+        struct view *view = space_manager_query_view(&g_space_manager, sid);
+        if (view) {
+            int view_window_count = 0;
+            uint32_t *view_window_list = view_find_window_list(view, &view_window_count);
+            for (int j = 0; j < view_window_count; ++j) {
+                struct window *window = window_manager_find_window(&g_window_manager, view_window_list[j]);
+                if (!managed_space_window_is_preserved_native_tab_parent(window, window_list, raw_window_count)) continue;
+                if (!window->application || !window->application->name) continue;
+                if (managed_space_app_seen(apps, window->application->name)) continue;
+
+                buf_push(apps, window->application->name);
+                hash = managed_space_hash_string(hash, window->application->name);
+            }
         }
         buf_free(apps);
     }

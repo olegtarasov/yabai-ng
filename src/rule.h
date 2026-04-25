@@ -4,6 +4,7 @@
 #define RULE_PROP_UD  0
 #define RULE_PROP_ON  1
 #define RULE_PROP_OFF 2
+#define RULE_PROP_TAB 3
 
 enum rule_flag
 {

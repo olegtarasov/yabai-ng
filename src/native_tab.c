@@ -44,6 +44,47 @@ static bool native_tab_parent_has_children(struct window_manager *wm, struct win
     return false;
 }
 
+static uint32_t native_tab_group_id(struct window *window)
+{
+    if (!window) return 0;
+    if (!window_check_rule_flag(window, WINDOW_RULE_TAB)) return 0;
+    if (window_check_flag(window, WINDOW_TAB)) return window->tab_parent_id;
+    if (window_check_flag(window, WINDOW_TAB_PARENT)) return window->id;
+    return 0;
+}
+
+static bool native_tab_window_is_in_group(struct window *window, uint32_t group_id)
+{
+    if (!group_id) return false;
+    if (window_check_flag(window, WINDOW_TAB)) return window->tab_parent_id == group_id;
+    return window->id == group_id;
+}
+
+bool native_tab_windows_share_group(struct window *a, struct window *b)
+{
+    if (!a || !b) return false;
+    if (a->application != b->application) return false;
+
+    uint32_t a_group_id = native_tab_group_id(a);
+    uint32_t b_group_id = native_tab_group_id(b);
+    return a_group_id && a_group_id == b_group_id;
+}
+
+bool native_tab_set_group_opacity(struct window_manager *wm, struct window *window, float opacity)
+{
+    uint32_t group_id = native_tab_group_id(window);
+    if (!group_id) return false;
+
+    table_for (struct window *candidate, wm->window, {
+        if (candidate->application != window->application) continue;
+        if (!native_tab_window_is_in_group(candidate, group_id)) continue;
+
+        window_manager_set_window_opacity(wm, candidate, opacity);
+    })
+
+    return true;
+}
+
 static void native_tab_refresh_parent_flag(struct window_manager *wm, struct window *parent, uint32_t ignored_child_id)
 {
     if (!parent) return;
@@ -192,6 +233,9 @@ bool native_tab_handle_window_created(struct window_manager *wm, struct window *
     debug("%s: native tab detected for %s %d with parent %d\n", __FUNCTION__, window->application->name, window->id, parent->id);
     native_tab_mark_child(window, parent);
     native_tab_sync_children_to_parent(wm, parent);
+    if (native_tab_focused_window(wm, window)) {
+        native_tab_set_group_opacity(wm, window, wm->active_window_opacity);
+    }
     return true;
 }
 

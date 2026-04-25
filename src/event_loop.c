@@ -37,10 +37,15 @@ static void window_did_receive_focus(struct window_manager *wm, struct mouse_sta
 {
     struct window *focused_window = window_manager_find_window(wm, wm->focused_window_id);
     if (focused_window && focused_window != window && window_space(focused_window->id) == window_space(window->id)) {
-        window_manager_set_window_opacity(wm, focused_window, g_window_manager.normal_window_opacity);
+        if (!native_tab_windows_share_group(focused_window, window) &&
+            !native_tab_set_group_opacity(wm, focused_window, g_window_manager.normal_window_opacity)) {
+            window_manager_set_window_opacity(wm, focused_window, g_window_manager.normal_window_opacity);
+        }
     }
 
-    window_manager_set_window_opacity(wm, window, wm->active_window_opacity);
+    if (!native_tab_set_group_opacity(wm, window, wm->active_window_opacity)) {
+        window_manager_set_window_opacity(wm, window, wm->active_window_opacity);
+    }
 
     if (wm->focused_window_id != window->id) {
         if (ms->ffm_window_id != window->id) {
@@ -73,7 +78,11 @@ static void window_did_receive_focus(struct window_manager *wm, struct mouse_sta
 static void window_did_receive_native_tab_focus(struct window *window)
 {
     struct window *focused_window = native_tab_focused_window(&g_window_manager, window);
-    if (!focused_window || focused_window->id == g_window_manager.focused_window_id) return;
+    if (!focused_window) return;
+    if (focused_window->id == g_window_manager.focused_window_id) {
+        native_tab_set_group_opacity(&g_window_manager, focused_window, g_window_manager.active_window_opacity);
+        return;
+    }
 
     window_did_receive_focus(&g_window_manager, &g_mouse_state, focused_window);
     event_signal_push(SIGNAL_WINDOW_FOCUSED, focused_window);

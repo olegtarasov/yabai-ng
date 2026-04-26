@@ -55,25 +55,26 @@ if [ ! -w "$MAN_DIR" ]; then
     exit 1
 fi
 
-AUTHOR="asmvik"
-NAME="yabai"
-VERSION="7.1.24"
-EXPECTED_HASH="627487c6c390468ea86795198ecf2eab0dd90a6645f4a42225f9720b95b94a43"
-TMP_DIR="./${AUTHOR}-${NAME}-v${VERSION}-installer"
+AUTHOR="olegtarasov"
+REPO="yabai-ng"
+BINARY="yabai"
+VERSION="26.0.0"
+EXPECTED_HASH=""
+TMP_DIR="./${AUTHOR}-${REPO}-v${VERSION}-installer"
 
 mkdir $TMP_DIR
 pushd $TMP_DIR
 
-curl --location --remote-name https://github.com/${AUTHOR}/${NAME}/releases/download/v${VERSION}/${NAME}-v${VERSION}.tar.gz
-FILE_HASH=$(shasum -a 256 ./${NAME}-v${VERSION}.tar.gz | cut -d " " -f 1)
+curl --location --remote-name https://github.com/${AUTHOR}/${REPO}/releases/download/v${VERSION}/${REPO}-v${VERSION}.tar.gz
+FILE_HASH=$(shasum -a 256 ./${REPO}-v${VERSION}.tar.gz | cut -d " " -f 1)
 
 if [ "$FILE_HASH" = "$EXPECTED_HASH" ]; then
     echo "Hash verified. Preparing files.."
-    tar -xzvf ${NAME}-v${VERSION}.tar.gz
-    rm ${BIN_DIR}/${NAME}
-    rm ${MAN_DIR}/${NAME}.1
-    cp -v ./archive/bin/${NAME} ${BIN_DIR}/${NAME}
-    cp -v ./archive/doc/${NAME}.1 ${MAN_DIR}/${NAME}.1
+    tar -xzvf ${REPO}-v${VERSION}.tar.gz
+    rm ${BIN_DIR}/${BINARY}
+    rm ${MAN_DIR}/${BINARY}.1
+    cp -v ./archive/bin/${BINARY} ${BIN_DIR}/${BINARY}
+    cp -v ./archive/doc/${BINARY}.1 ${MAN_DIR}/${BINARY}.1
     echo "Finished copying files.."
     echo ""
     echo "If you want yabai to be managed by launchd (start automatically upon login):"
@@ -88,7 +89,7 @@ if [ "$FILE_HASH" = "$EXPECTED_HASH" ]; then
     echo "Sudoers file configuration row:"
     echo "  $(whoami) ALL=(root) NOPASSWD: sha256:$(shasum -a 256 ${BIN_DIR}/yabai | cut -d " " -f 1) ${BIN_DIR}/yabai --load-sa"
     echo ""
-    echo "README: https://github.com/asmvik/yabai/wiki/Installing-yabai-(latest-release)#configure-scripting-addition"
+    echo "README: https://github.com/olegtarasov/yabai-ng#installation-and-configuration"
 else
     echo "Hash does not match the expected value.. abort."
     echo "Expected hash: $EXPECTED_HASH"

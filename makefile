@@ -1,6 +1,13 @@
 FRAMEWORK_PATH = -F/System/Library/PrivateFrameworks
 FRAMEWORK      = -framework Carbon -framework Cocoa -framework CoreServices -framework CoreVideo -framework SkyLight
 CLI_FLAGS      =
+VERSION        ?= 26.0.0
+RELEASE_NAME   ?= yabai-ng
+VERSION_PARTS  := $(subst ., ,$(VERSION))
+VERSION_MAJOR  := $(word 1,$(VERSION_PARTS))
+VERSION_MINOR  := $(word 2,$(VERSION_PARTS))
+VERSION_PATCH  := $(word 3,$(VERSION_PARTS))
+VERSION_FLAGS  = -DMAJOR=$(VERSION_MAJOR) -DMINOR=$(VERSION_MINOR) -DPATCH=$(VERSION_PATCH)
 BUILD_FLAGS    = -std=c11 -Wall -Wextra -g -O0 -fvisibility=hidden -mmacosx-version-min=11.0 -fno-objc-arc -arch x86_64 -arch arm64 -sectcreate __TEXT __info_plist $(INFO_PLIST)
 BUILD_PATH     = ./bin
 DOC_PATH       = ./doc
@@ -43,8 +50,8 @@ icon:
 	python3 $(SCRIPT_PATH)/seticon.py $(ASSET_PATH)/icon/2x/icon-512px@2x.png $(BUILD_PATH)/yabai
 
 publish:
-	sed -i '' "60s/^VERSION=.*/VERSION=\"$(shell $(BUILD_PATH)/yabai --version | cut -d "v" -f 2)\"/" $(SCRIPT_PATH)/install.sh
-	sed -i '' "61s/^EXPECTED_HASH=.*/EXPECTED_HASH=\"$(shell shasum -a 256 $(BUILD_PATH)/$(shell $(BUILD_PATH)/yabai --version).tar.gz | cut -d " " -f 1)\"/" $(SCRIPT_PATH)/install.sh
+	sed -i '' "s/^VERSION=.*/VERSION=\"$(VERSION)\"/" $(SCRIPT_PATH)/install.sh
+	sed -i '' "s/^EXPECTED_HASH=.*/EXPECTED_HASH=\"$(shell shasum -a 256 $(BUILD_PATH)/$(RELEASE_NAME)-v$(VERSION).tar.gz | cut -d " " -f 1)\"/" $(SCRIPT_PATH)/install.sh
 
 archive: man install sign icon
 	rm -rf $(ARCH_PATH)
@@ -52,7 +59,8 @@ archive: man install sign icon
 	cp -r $(BUILD_PATH) $(ARCH_PATH)/
 	cp -r $(DOC_PATH) $(ARCH_PATH)/
 	cp -r $(SMP_PATH) $(ARCH_PATH)/
-	tar -cvzf $(BUILD_PATH)/$(shell $(BUILD_PATH)/yabai --version).tar.gz $(ARCH_PATH)
+	test "$$($(BUILD_PATH)/yabai --version)" = "yabai-v$(VERSION)"
+	tar -cvzf $(BUILD_PATH)/$(RELEASE_NAME)-v$(VERSION).tar.gz $(ARCH_PATH)
 	rm -rf $(ARCH_PATH)
 
 sign:
@@ -66,4 +74,4 @@ clean: clean-build
 
 $(BUILD_PATH)/yabai: $(YABAI_SRC)
 	mkdir -p $(BUILD_PATH)
-	xcrun clang $^ $(BUILD_FLAGS) $(CLI_FLAGS) $(FRAMEWORK_PATH) $(FRAMEWORK) -o $@
+	xcrun clang $^ $(BUILD_FLAGS) $(VERSION_FLAGS) $(CLI_FLAGS) $(FRAMEWORK_PATH) $(FRAMEWORK) -o $@

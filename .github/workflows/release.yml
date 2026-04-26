@@ -1,0 +1,235 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: write
+
+env:
+  RELEASE_NAME: yabai-ng
+  TAP_REPO: olegtarasov/homebrew-tap
+  YABAI_CERT: yabai-cert
+
+jobs:
+  release:
+    name: Build and publish
+    runs-on: macos-latest
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Validate release tag
+        id: version
+        shell: bash
+        run: |
+          tag="${GITHUB_REF_NAME}"
+          if [[ ! "${tag}" =~ ^v([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
+            echo "Release tags must match vX.Y.Z; got ${tag}" >&2
+            exit 1
+          fi
+
+          version="${tag#v}"
+          echo "version=${version}" >> "${GITHUB_OUTPUT}"
+          echo "tag=${tag}" >> "${GITHUB_OUTPUT}"
+
+      - name: Install build dependencies
+        run: |
+          sudo gem install asciidoctor --no-document
+          python3 -m pip install --user --break-system-packages pyobjc-framework-Cocoa
+
+      - name: Import signing certificate
+        env:
+          YABAI_CERT_P12_BASE64: ${{ secrets.YABAI_CERT_P12_BASE64 }}
+          YABAI_CERT_PASSWORD: ${{ secrets.YABAI_CERT_PASSWORD }}
+        shell: bash
+        run: |
+          if [[ -z "${YABAI_CERT_P12_BASE64}" || -z "${YABAI_CERT_PASSWORD}" ]]; then
+            echo "YABAI_CERT_P12_BASE64 and YABAI_CERT_PASSWORD secrets must be set" >&2
+            exit 1
+          fi
+
+          cert_path="${RUNNER_TEMP}/yabai-cert.p12"
+          cert_pem="${RUNNER_TEMP}/yabai-cert.pem"
+          keychain_path="${RUNNER_TEMP}/yabai-signing.keychain-db"
+          keychain_password="$(openssl rand -hex 24)"
+
+          printf "%s" "${YABAI_CERT_P12_BASE64}" | base64 -D > "${cert_path}"
+
+          security create-keychain -p "${keychain_password}" "${keychain_path}"
+          security set-keychain-settings -lut 21600 "${keychain_path}"
+          security unlock-keychain -p "${keychain_password}" "${keychain_path}"
+          security import "${cert_path}" -k "${keychain_path}" -P "${YABAI_CERT_PASSWORD}" -A -T /usr/bin/codesign
+          security find-certificate -c "${YABAI_CERT}" -p "${keychain_path}" > "${cert_pem}"
+          security add-trusted-cert -r trustRoot -p codeSign -k "${keychain_path}" "${cert_pem}"
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "${keychain_password}" "${keychain_path}"
+          security list-keychains -d user -s "${keychain_path}" $(security list-keychains -d user | tr -d '"')
+          security find-identity -v -p codesigning "${keychain_path}" | grep "\"${YABAI_CERT}\""
+
+      - name: Build, test, and package
+        id: build
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          make clean-build
+          make VERSION="${VERSION}"
+          make -C tests
+          make archive VERSION="${VERSION}" RELEASE_NAME="${RELEASE_NAME}"
+
+          asset="bin/${RELEASE_NAME}-v${VERSION}.tar.gz"
+          sha256="$(shasum -a 256 "${asset}" | cut -d " " -f 1)"
+
+          test -f "${asset}"
+          test "$(./bin/yabai --version)" = "yabai-v${VERSION}"
+
+          echo "asset=${asset}" >> "${GITHUB_OUTPUT}"
+          echo "sha256=${sha256}" >> "${GITHUB_OUTPUT}"
+
+      - name: Create release notes
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          ruby <<'RUBY' > "${RUNNER_TEMP}/release-notes.md"
+          version = ENV.fetch("VERSION")
+          changelog = File.read("CHANGELOG.md")
+          entry = changelog.match(/^## \[#{Regexp.escape(version)}\].*?(?=^## \[|\z)/m)
+          puts(entry ? entry[0].strip : "Version #{version}")
+          RUBY
+
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.version.outputs.tag }}
+          ASSET: ${{ steps.build.outputs.asset }}
+        run: |
+          gh release create "${TAG}" "${ASSET}" \
+            --repo "${GITHUB_REPOSITORY}" \
+            --title "${TAG}" \
+            --notes-file "${RUNNER_TEMP}/release-notes.md" \
+            --verify-tag
+
+      - name: Update installer script on master
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          SHA256: ${{ steps.build.outputs.sha256 }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git fetch origin master
+          master_dir="${RUNNER_TEMP}/yabai-ng-master"
+          git worktree add "${master_dir}" origin/master
+          cd "${master_dir}"
+
+          ruby -0pi -e 'gsub(/^VERSION=.*/, "VERSION=\"#{ENV.fetch("VERSION")}\""); gsub(/^EXPECTED_HASH=.*/, "EXPECTED_HASH=\"#{ENV.fetch("SHA256")}\"")' scripts/install.sh
+          git diff --check
+
+          git add scripts/install.sh
+          if git diff --cached --quiet; then
+            echo "Installer script is already current"
+            exit 0
+          fi
+
+          git commit -m "Update installer for v${VERSION}"
+          git push origin HEAD:master
+
+      - name: Update Homebrew tap
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          SHA256: ${{ steps.build.outputs.sha256 }}
+          HOMEBREW_TAP_DEPLOY_KEY: ${{ secrets.HOMEBREW_TAP_DEPLOY_KEY }}
+        shell: bash
+        run: |
+          if [[ -z "${HOMEBREW_TAP_DEPLOY_KEY}" ]]; then
+            echo "HOMEBREW_TAP_DEPLOY_KEY secret must be set" >&2
+            exit 1
+          fi
+
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          printf "%s\n" "${HOMEBREW_TAP_DEPLOY_KEY}" > ~/.ssh/yabai-ng-release
+          chmod 600 ~/.ssh/yabai-ng-release
+          ssh-keyscan github.com >> ~/.ssh/known_hosts
+
+          eval "$(ssh-agent -s)"
+          ssh-add ~/.ssh/yabai-ng-release
+
+          tap_dir="${RUNNER_TEMP}/homebrew-tap"
+          git clone "git@github.com:${TAP_REPO}.git" "${tap_dir}"
+          cd "${tap_dir}"
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          mkdir -p Formula
+          cat > Formula/yabai-ng.rb <<'RUBY'
+          class YabaiNg < Formula
+            desc "Personal fork of yabai with managed spaces"
+            homepage "https://github.com/olegtarasov/yabai-ng"
+            url "https://github.com/olegtarasov/yabai-ng/releases/download/v__VERSION__/yabai-ng-v__VERSION__.tar.gz"
+            sha256 "__SHA256__"
+            head "https://github.com/olegtarasov/yabai-ng.git", branch: "master"
+
+            depends_on :macos => :big_sur
+
+            conflicts_with "yabai", because: "both install a yabai binary"
+
+            def install
+              if build.head?
+                system "make", "-j1", "install"
+                system "codesign", "-fs", "-", "#{buildpath}/bin/yabai"
+                bin.install "#{buildpath}/bin/yabai"
+                (pkgshare/"examples").install "#{buildpath}/examples/yabairc"
+                (pkgshare/"examples").install "#{buildpath}/examples/skhdrc"
+                man1.install "#{buildpath}/doc/yabai.1"
+              else
+                bin.install "archive/bin/yabai"
+                (pkgshare/"examples").install "archive/examples/yabairc"
+                (pkgshare/"examples").install "archive/examples/skhdrc"
+                man1.install "archive/doc/yabai.1"
+              end
+            end
+
+            def caveats; <<~EOS
+              Copy the example configuration into your home directory:
+                cp #{opt_pkgshare}/examples/yabairc ~/.yabairc
+                cp #{opt_pkgshare}/examples/skhdrc ~/.skhdrc
+
+              If you want yabai to be managed by launchd (start automatically upon login):
+                yabai --start-service
+
+              When running as a launchd service logs will be found in:
+                /tmp/yabai_<user>.[out|err].log
+
+              If you are using the scripting-addition; remember to update your sudoers file:
+                sudo visudo -f /private/etc/sudoers.d/yabai
+
+              Build the configuration row by running:
+                echo "$(whoami) ALL=(root) NOPASSWD: sha256:$(shasum -a 256 $(\which yabai) | cut -d " " -f 1) $(\which yabai) --load-sa"
+
+              README: https://github.com/olegtarasov/yabai-ng#installation-and-configuration
+              EOS
+            end
+
+            test do
+              assert_match "yabai-v#{version}", shell_output("#{bin}/yabai --version")
+            end
+          end
+          RUBY
+
+          ruby -0pi -e 'gsub("__VERSION__", ENV.fetch("VERSION")); gsub("__SHA256__", ENV.fetch("SHA256"))' Formula/yabai-ng.rb
+          ruby -c Formula/yabai-ng.rb
+
+          git add Formula/yabai-ng.rb
+          if git diff --cached --quiet; then
+            echo "Formula is already current"
+            exit 0
+          fi
+
+          git commit -m "Update yabai-ng to v${VERSION}"
+          git push

@@ -6,6 +6,16 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [26.0.0] - 2026-04-26
+### Added
+- Added managed spaces as a fork-owned subsystem for reconciling macOS spaces inside yabai.
+- Added tag-driven GitHub release infrastructure for building and publishing `yabai-ng` archives.
+- Added Homebrew tap publishing for the `yabai-ng` formula.
+
+### Changed
+- Release versioning for this fork now starts at `26.0.0` to avoid colliding with upstream yabai versions.
+- Release builds are signed with a self-signed `yabai-cert` identity, matching upstream yabai's signing style.
+
 ## [7.1.24] - 2026-04-24
 ### Changed
 - Properly reset *focus follows mouse* window id upon window close [#2217](https://github.com/asmvik/yabai/issues/2217)

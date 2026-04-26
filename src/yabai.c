@@ -20,9 +20,17 @@
 #define HELP_OPT_LONG           "--help"
 #define HELP_OPT_SHRT           "-h"
 
-#define MAJOR  7
-#define MINOR  1
-#define PATCH 24
+#ifndef MAJOR
+#define MAJOR  26
+#endif
+
+#ifndef MINOR
+#define MINOR  0
+#endif
+
+#ifndef PATCH
+#define PATCH 0
+#endif
 
 struct signal *g_signal_event[SIGNAL_TYPE_COUNT];
 struct process_manager g_process_manager;
@@ -197,7 +205,7 @@ static void parse_arguments(int argc, char **argv)
                         "    --version, -v          Print version to stdout and exit.\n"
                         "    --help, -h             Print options to stdout and exit.\n"
                         "Type `man yabai` for more information, or visit: "
-                        "https://github.com/asmvik/yabai/blob/v%d.%d.%d/doc/yabai.asciidoc\n", MAJOR, MINOR, PATCH);
+                        "https://github.com/olegtarasov/yabai-ng/blob/v%d.%d.%d/doc/yabai.asciidoc\n", MAJOR, MINOR, PATCH);
         exit(EXIT_SUCCESS);
     }
 

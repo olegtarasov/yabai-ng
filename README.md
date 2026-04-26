@@ -6,20 +6,20 @@
   <b>Tiling window management for the Mac.</b>
 </p>
 <p align="center">
-  <a href="https://github.com/asmvik/yabai/blob/master/LICENSE.txt">
-    <img src="https://img.shields.io/github/license/asmvik/yabai.svg?color=green" alt="License Badge">
+  <a href="https://github.com/olegtarasov/yabai-ng/blob/master/LICENSE.txt">
+    <img src="https://img.shields.io/github/license/olegtarasov/yabai-ng.svg?color=green" alt="License Badge">
   </a>
-  <a href="https://github.com/asmvik/yabai/blob/master/doc/yabai.asciidoc">
+  <a href="https://github.com/olegtarasov/yabai-ng/blob/master/doc/yabai.asciidoc">
     <img src="https://img.shields.io/badge/view-documentation-green.svg" alt="Documentation Badge">
   </a>
-  <a href="https://github.com/asmvik/yabai/wiki">
-    <img src="https://img.shields.io/badge/view-wiki-green.svg" alt="Wiki Badge">
+  <a href="https://github.com/olegtarasov/yabai-ng">
+    <img src="https://img.shields.io/badge/view-repository-green.svg" alt="Repository Badge">
   </a>
-  <a href="https://github.com/asmvik/yabai/blob/master/CHANGELOG.md">
+  <a href="https://github.com/olegtarasov/yabai-ng/blob/master/CHANGELOG.md">
     <img src="https://img.shields.io/badge/view-changelog-green.svg" alt="Changelog Badge">
   </a>
-  <a href="https://github.com/asmvik/yabai/releases">
-    <img src="https://img.shields.io/github/commits-since/asmvik/yabai/latest.svg?color=green" alt="Version Badge">
+  <a href="https://github.com/olegtarasov/yabai-ng/releases">
+    <img src="https://img.shields.io/github/commits-since/olegtarasov/yabai-ng/latest.svg?color=green" alt="Version Badge">
   </a>
 </p>
 
@@ -27,7 +27,7 @@
 
 <img align="right" width="40%" src="assets/screenshot.png" alt="Screenshot">
 
-yabai is a window management utility that is designed to work as an extension to the built-in window manager of macOS.
+yabai-ng is a personal fork of yabai, a window management utility that is designed to work as an extension to the built-in window manager of macOS.
 yabai allows you to control your windows, spaces and displays freely using an intuitive command line interface and optionally set user-defined keyboard shortcuts using [&nearr;&nbsp;skhd][gh-skhd] and other third-party software.
 
 The primary function of yabai is tiling window management; automatically modifying your window layout using a binary space partitioning algorithm to allow you to focus on the content of your windows without distractions.
@@ -35,8 +35,8 @@ Additional features of yabai include focus-follows-mouse, disabling animations f
 
 ## Installation and Configuration
 
-- The [&nearr;&nbsp;yabai&nbsp;wiki][yabai-wiki] has both brief and detailed installation instructions for multiple installation methods, and also explains how to uninstall yabai completely.
-- Sample configuration files can be found in the [&nearr;&nbsp;examples][yabai-examples] directory. Refer to the [&nearr;&nbsp;documentation][yabai-docs] or the wiki for further information.
+- The [&nearr;&nbsp;yabai-ng&nbsp;repository][yabai-repository] has installation instructions and release artifacts for this fork.
+- Sample configuration files can be found in the [&nearr;&nbsp;examples][yabai-examples] directory. Refer to the [&nearr;&nbsp;documentation][yabai-docs] or this repository for further information.
 - Keyboard shortcuts can be defined with [&nearr;&nbsp;skhd][gh-skhd] or any other suitable software you may prefer.
 
 ## Requirements and Caveats
@@ -60,7 +60,7 @@ Please also take note of the following caveats.
 |System&nbsp;Integrity&nbsp;Protection (Optional)|System Integrity Protection can be (partially) disabled for yabai to inject a scripting addition into Dock.app for controlling windows with functions that require elevated privileges. This enables control of the window server, which is the sole owner of all window connections, and enables additional features of yabai.|
 |Code&nbsp;Signing|When building from source (or installing from HEAD), it is necessary to codesign the binary so it retains its accessibility and automation privileges when updated or rebuilt.|
 |Finder&nbsp;Desktop|Some people disable the Finder Desktop window using an undocumented defaults write command. This breaks focusing of empty spaces and should be avoided when using yabai. To re-activate the Finder Desktop, run: "defaults write com.apple.finder CreateDesktop -bool true".|
-|NSDocument-based&nbsp;Applications|Windows that utilize native macOS tabs such as Terminal and Finder, [do not behave correctly when creating tabs](https://github.com/asmvik/yabai/issues/68). Avoid creating tabs in these applications, consider alternatives that do not use NSDocument's tab system, or make these windows float using rules.|
+|NSDocument-based&nbsp;Applications|Windows that utilize native macOS tabs such as Terminal and Finder do not behave correctly when creating tabs. Avoid creating tabs in these applications, consider alternatives that do not use NSDocument's tab system, or make these windows float using rules.|
 |System&nbsp;Preferences&nbsp;(macOS 11.x, 12.x)|In the Mission Control pane, the setting "Automatically rearrange Spaces based on most recent use" should be disabled for commands that rely on the ordering of spaces to work reliably.|
 |System&nbsp;Settings&nbsp;(macOS 13.x, 14.x, 15.x, 26.x)|In the Desktop & Dock tab, inside the Mission Control pane, the setting "Automatically rearrange Spaces based on most recent use" should be disabled for commands that rely on the ordering of spaces to work reliably.|
 |System&nbsp;Settings&nbsp;(macOS 14.x, 15.x, 26.x)|In the Desktop & Dock tab, inside the Desktop & Stage Manager pane, the setting "Show Items On Desktop" should be enabled for display and space focus commands to work reliably in multi-display configurations.|
@@ -83,9 +83,9 @@ You acknowledge that you understand the potential risk that may come from disabl
 
 <!-- Project internal links -->
 [yabai-license]: LICENSE.txt
-[yabai-examples]: https://github.com/asmvik/yabai/tree/master/examples
-[yabai-wiki]: https://github.com/asmvik/yabai/wiki
-[yabai-docs]: https://github.com/asmvik/yabai/blob/master/doc/yabai.asciidoc
+[yabai-examples]: https://github.com/olegtarasov/yabai-ng/tree/master/examples
+[yabai-repository]: https://github.com/olegtarasov/yabai-ng
+[yabai-docs]: https://github.com/olegtarasov/yabai-ng/blob/master/doc/yabai.asciidoc
 
 <!-- Links to other GitHub projects/users -->
 [gh-skhd]: https://github.com/asmvik/skhd

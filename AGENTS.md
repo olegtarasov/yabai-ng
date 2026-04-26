@@ -84,6 +84,22 @@ Run the relevant checks before handing work back:
 For runtime changes, validate with a local yabai instance before recommending
 installation or service restart.
 
+## Release Checklist
+
+When asked to cut a new `yabai-ng` release:
+
+- Update `CHANGELOG.md` with a new `## [X.Y.Z] - YYYY-MM-DD` entry.
+- Confirm the default `VERSION` in `makefile` and the fallback version in
+  `src/yabai.c` match the release when appropriate.
+- Run `make clean-build && make`, `make -C tests`, and `git diff --check`.
+- Confirm GitHub secrets exist for `YABAI_CERT_P12_BASE64`,
+  `YABAI_CERT_PASSWORD`, and `HOMEBREW_TAP_DEPLOY_KEY`.
+- Commit and push `master` before tagging.
+- Create an annotated tag with `git tag -a vX.Y.Z -m "Release vX.Y.Z"`.
+- Push the tag with `git push origin vX.Y.Z` and watch the release workflow.
+- Verify the GitHub release asset, installer hash update, and
+  `olegtarasov/homebrew-tap` formula update.
+
 ## Commit Checkpoints
 
 Create a git commit when a task is finished or when you reach a risky

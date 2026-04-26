@@ -28,7 +28,11 @@ typedef TEST_SIG(function);
     TEST_ENTRY(stack_focus_inside_boundary_falls_through)       \
     TEST_ENTRY(stack_focus_inside_disabled_falls_through)       \
     TEST_ENTRY(stack_focus_inside_vertical_falls_through)       \
-    TEST_ENTRY(stack_focus_inside_single_window_falls_through)
+    TEST_ENTRY(stack_focus_inside_single_window_falls_through)  \
+    TEST_ENTRY(stack_insert_source_after_right_side_target_edge)\
+    TEST_ENTRY(stack_insert_source_before_left_side_target_edge)\
+    TEST_ENTRY(stack_remove_non_active_source_preserves_logical_order_and_active)\
+    TEST_ENTRY(stack_window_rejects_same_stack)
 
 static struct {
     char *name;

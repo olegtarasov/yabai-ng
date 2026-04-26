@@ -824,6 +824,22 @@ struct window_node *view_remove_window_node(struct view *view, struct window *wi
     return parent;
 }
 
+void view_stack_window_node_at_index(struct window_node *node, struct window *window, int insert_index)
+{
+    uint32_t active_window_id = node->window_order[0];
+
+    if (insert_index < 0) insert_index = 0;
+    if (insert_index > node->window_count) insert_index = node->window_count;
+    if (insert_index < node->window_count) {
+        memmove(node->window_list + insert_index + 1, node->window_list + insert_index, sizeof(uint32_t) * (node->window_count - insert_index));
+    }
+
+    node->window_list[insert_index] = window->id;
+    ++node->window_count;
+    node->recent_window_id = active_window_id;
+    window_node_rebuild_window_order(node, window->id);
+}
+
 void view_stack_window_node(struct window_node *node, struct window *window)
 {
     int insert_index = node->window_count;
@@ -836,14 +852,7 @@ void view_stack_window_node(struct window_node *node, struct window *window)
         }
     }
 
-    if (insert_index < node->window_count) {
-        memmove(node->window_list + insert_index + 1, node->window_list + insert_index, sizeof(uint32_t) * (node->window_count - insert_index));
-    }
-
-    node->window_list[insert_index] = window->id;
-    ++node->window_count;
-    node->recent_window_id = active_window_id;
-    window_node_rebuild_window_order(node, window->id);
+    view_stack_window_node_at_index(node, window, insert_index);
 }
 
 struct window_node *view_add_window_node_with_insertion_point(struct view *view, struct window *window, uint32_t insertion_point)

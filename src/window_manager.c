@@ -1831,37 +1831,85 @@ enum window_op_error window_manager_set_window_insertion(struct space_manager *s
     return WINDOW_OP_ERROR_SUCCESS;
 }
 
+static float window_node_center_x(struct window_node *node)
+{
+    return node->area.x + node->area.w * 0.5f;
+}
+
+static bool window_node_is_after_in_leaf_order(struct window_node *source, struct window_node *target)
+{
+    if (!source || !target) return false;
+
+    for (struct window_node *node = window_node_find_next_leaf(target); node; node = window_node_find_next_leaf(node)) {
+        if (node == source) return true;
+    }
+
+    return false;
+}
+
+static bool window_manager_stack_source_after_target(struct window_node *source_node, struct window_node *target_node, struct window *source)
+{
+    float source_center_x = source_node ? window_node_center_x(source_node) : CGRectGetMidX(source->frame);
+    float target_center_x = window_node_center_x(target_node);
+
+    if (source_center_x > target_center_x) return true;
+    if (source_center_x < target_center_x) return false;
+
+    return window_node_is_after_in_leaf_order(source_node, target_node);
+}
+
 enum window_op_error window_manager_stack_window(struct space_manager *sm, struct window_manager *wm, struct window *a, struct window *b)
 {
     TIME_FUNCTION;
 
     if (a->id == b->id) return WINDOW_OP_ERROR_SAME_WINDOW;
 
-    struct view *a_view = window_manager_find_managed_window(wm, a);
-    if (!a_view) return WINDOW_OP_ERROR_INVALID_SRC_NODE;
-
     struct view *b_view = window_manager_find_managed_window(wm, b);
-    if (b_view) {
-        space_manager_untile_window(b_view, b);
-        window_manager_remove_managed_window(wm, b->id);
-        window_manager_purify_window(wm, b);
-    } else if (window_check_flag(b, WINDOW_FLOAT)) {
-        if (!window_manager_is_window_eligible(b)) return WINDOW_OP_ERROR_INVALID_SRC_NODE;
-        window_clear_flag(b, WINDOW_FLOAT);
-        if (window_check_flag(b, WINDOW_STICKY)) window_manager_make_window_sticky(sm, wm, b, false);
+    if (!b_view) return WINDOW_OP_ERROR_INVALID_DST_NODE;
+
+    struct window_node *b_node = view_find_window_node(b_view, b->id);
+    if (!b_node) return WINDOW_OP_ERROR_INVALID_DST_NODE;
+
+    struct view *a_view = window_manager_find_managed_window(wm, a);
+    struct window_node *a_node = a_view ? view_find_window_node(a_view, a->id) : NULL;
+    if (a_view && !a_node) return WINDOW_OP_ERROR_INVALID_SRC_NODE;
+    if (a_node == b_node) return WINDOW_OP_ERROR_SAME_STACK;
+    if (b_node->window_count+1 >= NODE_MAX_WINDOW_COUNT) return WINDOW_OP_ERROR_MAX_STACK;
+
+    bool insert_after_target = window_manager_stack_source_after_target(a_node, b_node, a);
+    bool source_was_focused = wm->focused_window_id == a->id;
+
+    if (a_view) {
+        space_manager_untile_window(a_view, a);
+        window_manager_remove_managed_window(wm, a->id);
+        window_manager_purify_window(wm, a);
+    } else if (window_check_flag(a, WINDOW_FLOAT)) {
+        if (!window_manager_is_window_eligible(a)) return WINDOW_OP_ERROR_INVALID_SRC_NODE;
+        window_clear_flag(a, WINDOW_FLOAT);
+        if (window_check_flag(a, WINDOW_STICKY)) window_manager_make_window_sticky(sm, wm, a, false);
+    } else {
+        return WINDOW_OP_ERROR_INVALID_SRC_NODE;
     }
 
-    struct window_node *a_node = view_find_window_node(a_view, a->id);
-    if (a_node->window_count+1 >= NODE_MAX_WINDOW_COUNT) return WINDOW_OP_ERROR_MAX_STACK;
+    if (window_space(a->id) != b_view->sid) {
+        space_manager_move_window_to_space(b_view->sid, a);
+    }
 
-    view_stack_window_node(a_node, b);
-    window_manager_add_managed_window(wm, b, a_view);
-    window_manager_adjust_layer(b, LAYER_BELOW);
-    window_node_order_stack_windows(a_node);
+    b_node = view_find_window_node(b_view, b->id);
+    if (!b_node) return WINDOW_OP_ERROR_INVALID_DST_NODE;
 
-    struct area area = a_node->zoom ? a_node->zoom->area : a_node->area;
-    window_manager_animate_window((struct window_capture) { b, area.x, area.y, area.w, area.h });
-    event_signal_push(SIGNAL_SPACE_STACKS_CHANGED, (void *)(uintptr_t) a_view->sid);
+    view_stack_window_node_at_index(b_node, a, insert_after_target ? b_node->window_count : 0);
+    window_manager_add_managed_window(wm, a, b_view);
+    window_manager_adjust_layer(a, LAYER_BELOW);
+    window_node_order_stack_windows(b_node);
+
+    struct area area = b_node->zoom ? b_node->zoom->area : b_node->area;
+    window_manager_animate_window((struct window_capture) { a, area.x, area.y, area.w, area.h });
+    if (source_was_focused) {
+        window_manager_focus_window_with_raise(&a->application->psn, a->id, a->ref);
+    }
+
+    event_signal_push(SIGNAL_SPACE_STACKS_CHANGED, (void *)(uintptr_t) b_view->sid);
     return WINDOW_OP_ERROR_SUCCESS;
 }
 

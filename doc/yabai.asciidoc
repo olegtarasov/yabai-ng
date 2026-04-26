@@ -435,7 +435,7 @@ COMMAND
     Re-insert the selected window, splitting the given window.
 
 *--stack* '<WINDOW_SEL>'::
-    Stack the given window on top of the selected window. +
+    Stack the selected window on top of the given window and make the selected window the front stack member. +
     Any kind of warp operation performed on a stacked window will unstack it.
 
 *--insert* '<DIR_SEL>|stack'::

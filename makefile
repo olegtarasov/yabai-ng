@@ -1,7 +1,7 @@
 FRAMEWORK_PATH = -F/System/Library/PrivateFrameworks
 FRAMEWORK      = -framework Carbon -framework Cocoa -framework CoreServices -framework CoreVideo -framework SkyLight
 CLI_FLAGS      =
-VERSION        ?= 26.0.0
+VERSION        ?= 26.1.0
 RELEASE_NAME   ?= yabai-ng
 VERSION_PARTS  := $(subst ., ,$(VERSION))
 VERSION_MAJOR  := $(word 1,$(VERSION_PARTS))

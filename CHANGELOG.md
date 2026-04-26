@@ -5,8 +5,25 @@ All notable changes to this project will be documented in this file.
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+
+## [26.1.0] - 2026-04-26
 ### Added
 - Added `next_fullscreen` and `prev_fullscreen` `SPACE_SEL` values for navigating native macOS fullscreen spaces from managed spaces.
+- Added native stack presentation data to `query --spaces`, including stack window titles, active stack members, logical window order, and stack leaf frames for bar integrations.
+- Added `space_stacks_changed` signals for stack membership, order, active-window, title, and geometry presentation changes.
+- Added stable logical stack order so focusing a stack member no longer changes its logical position.
+- Added per-stack recent tracking for `stack.recent` after logical order and active/front order were separated.
+- Added `focus_inside_stacks` to let horizontal `window --focus east|west` traverse stack members before leaving the stack leaf.
+- Added managed/native-fullscreen presentation fields for consumers that render managed spaces and fullscreen spaces from a single space query.
+- Added modifier-specific mouse drop action configuration.
+- Added development symlink setup with `make dev-setup`.
+
+### Changed
+- Stack queries now expose active/front state separately from logical order so consumers can keep stable UI ordering while highlighting the active stack member.
+- Stack movement and same-stack swap behavior now preserve logical stack state and focus semantics.
+- Native tab handling is more reliable for apps whose tabbed windows need to be managed as tabs.
+- Managed-space presentation now includes native fullscreen spaces and displayable app/window summaries.
+- Homebrew release workflow paths were corrected after the initial `26.0.0` release.
 
 ## [26.0.0] - 2026-04-26
 ### Added

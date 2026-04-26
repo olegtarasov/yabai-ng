@@ -982,6 +982,14 @@ static EVENT_HANDLER(WINDOW_TITLE_CHANGED)
     window->title = window_title(window);
     window_did_receive_native_tab_focus(window);
 
+    struct view *view = window_manager_find_managed_window(&g_window_manager, window);
+    if (view) {
+        struct window_node *node = view_find_window_node(view, window->id);
+        if (node && node->window_count > 1) {
+            event_signal_push(SIGNAL_SPACE_STACKS_CHANGED, (void *)(uintptr_t) view->sid);
+        }
+    }
+
     event_signal_push(SIGNAL_WINDOW_TITLE_CHANGED, window);
 }
 

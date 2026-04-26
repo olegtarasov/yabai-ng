@@ -382,6 +382,25 @@ void event_signal_push(enum signal_type type, void *context)
         snprintf(es->arg_name[3],  arg_size, "%s", "YABAI_MANAGED_SPACE_NAME");
         snprintf(es->arg_value[3], arg_size, "%s", managed_space_active_name(managed_space));
     } break;
+    case SIGNAL_SPACE_STACKS_CHANGED: {
+        uint64_t sid = (uint64_t)(uintptr_t) context;
+        int index = space_manager_mission_control_index(sid);
+        int display = display_manager_display_id_arrangement(space_display_id(sid));
+
+        es->arg_name[0]  = ts_alloc_unaligned(arg_size);
+        es->arg_value[0] = ts_alloc_unaligned(arg_size);
+        es->arg_name[1]  = ts_alloc_unaligned(arg_size);
+        es->arg_value[1] = ts_alloc_unaligned(arg_size);
+        es->arg_name[2]  = ts_alloc_unaligned(arg_size);
+        es->arg_value[2] = ts_alloc_unaligned(arg_size);
+
+        snprintf(es->arg_name[0],  arg_size, "%s",   "YABAI_SPACE_ID");
+        snprintf(es->arg_value[0], arg_size, "%lld", sid);
+        snprintf(es->arg_name[1],  arg_size, "%s", "YABAI_SPACE_INDEX");
+        snprintf(es->arg_value[1], arg_size, "%d", index);
+        snprintf(es->arg_name[2],  arg_size, "%s", "YABAI_DISPLAY_INDEX");
+        snprintf(es->arg_value[2], arg_size, "%d", display);
+    } break;
     }
 }
 

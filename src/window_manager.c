@@ -1833,6 +1833,7 @@ enum window_op_error window_manager_stack_window(struct space_manager *sm, struc
 
     struct area area = a_node->zoom ? a_node->zoom->area : a_node->area;
     window_manager_animate_window((struct window_capture) { b, area.x, area.y, area.w, area.h });
+    event_signal_push(SIGNAL_SPACE_STACKS_CHANGED, (void *)(uintptr_t) a_view->sid);
     return WINDOW_OP_ERROR_SUCCESS;
 }
 
@@ -2005,6 +2006,7 @@ enum window_op_error window_manager_swap_window(struct space_manager *sm, struct
             window_manager_focus_window_with_raise(&a->application->psn, a->id, a->ref);
         }
 
+        event_signal_push(SIGNAL_SPACE_STACKS_CHANGED, (void *)(uintptr_t) a_view->sid);
         return WINDOW_OP_ERROR_SUCCESS;
     }
 
@@ -2042,6 +2044,7 @@ enum window_op_error window_manager_swap_window(struct space_manager *sm, struct
         }
     }
 
+    bool swaps_stack = a_node->window_count > 1 || b_node->window_count > 1;
     window_node_swap_window_list(a_node, b_node);
     struct window_capture *window_list = NULL;
 
@@ -2058,6 +2061,12 @@ enum window_op_error window_manager_swap_window(struct space_manager *sm, struct
     }
 
     window_manager_animate_window_list(window_list, ts_buf_len(window_list));
+    if (swaps_stack) {
+        event_signal_push(SIGNAL_SPACE_STACKS_CHANGED, (void *)(uintptr_t) a_view->sid);
+        if (a_view->sid != b_view->sid) {
+            event_signal_push(SIGNAL_SPACE_STACKS_CHANGED, (void *)(uintptr_t) b_view->sid);
+        }
+    }
     return WINDOW_OP_ERROR_SUCCESS;
 }
 

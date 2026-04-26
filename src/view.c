@@ -618,6 +618,11 @@ struct window_node *view_find_window_node(struct view *view, uint32_t window_id)
     return NULL;
 }
 
+static void view_signal_space_stacks_changed(struct view *view)
+{
+    event_signal_push(SIGNAL_SPACE_STACKS_CHANGED, (void *)(uintptr_t) view->sid);
+}
+
 struct window_node *view_remove_window_node(struct view *view, struct window *window)
 {
     struct window_node *node = view_find_window_node(view, window->id);
@@ -647,6 +652,7 @@ struct window_node *view_remove_window_node(struct view *view, struct window *wi
             view->insertion_point = node->window_order[0];
         }
 
+        view_signal_space_stacks_changed(view);
         return NULL;
     }
 
@@ -777,6 +783,7 @@ struct window_node *view_add_window_node_with_insertion_point(struct view *view,
 
                 if (do_stack) {
                     view_stack_window_node(leaf, window);
+                    view_signal_space_stacks_changed(view);
                     return leaf;
                 }
             }
@@ -805,6 +812,7 @@ struct window_node *view_add_window_node_with_insertion_point(struct view *view,
         return leaf;
     } else if (view->layout == VIEW_STACK) {
         view_stack_window_node(view->root, window);
+        view_signal_space_stacks_changed(view);
         return view->root;
     }
 
@@ -835,6 +843,52 @@ uint32_t *view_find_window_list(struct view *view, int *window_count)
     }
 
     return window_list;
+}
+
+static void view_serialize_stack_window(FILE *rsp, uint32_t wid)
+{
+    struct window *window = window_manager_find_window(&g_window_manager, wid);
+    char *app = window && window->application ? window->application->name : "";
+    char *title = window ? window_title_ts(window) : ts_string_copy("");
+
+    char *escaped_app = ts_string_escape(app);
+    char *escaped_title = ts_string_escape(title);
+
+    fprintf(rsp,
+            "{"
+            "\"id\":%d,"
+            "\"app\":\"%s\","
+            "\"title\":\"%s\""
+            "}",
+            wid,
+            escaped_app ? escaped_app : app,
+            escaped_title ? escaped_title : title);
+}
+
+static void view_serialize_stacks(FILE *rsp, struct view *view)
+{
+    int stack_index = 0;
+    fprintf(rsp, "[");
+
+    for (struct window_node *node = window_node_find_first_leaf(view->root);
+         node;
+         node = window_node_find_next_leaf(node)) {
+        if (node->window_count <= 1) continue;
+
+        if (stack_index) fprintf(rsp, ",");
+        fprintf(rsp, "{");
+        fprintf(rsp, "\"index\":%d,", ++stack_index);
+        fprintf(rsp, "\"windows\":[");
+
+        for (int i = 0; i < node->window_count; ++i) {
+            if (i) fprintf(rsp, ",");
+            view_serialize_stack_window(rsp, node->window_list[i]);
+        }
+
+        fprintf(rsp, "]}");
+    }
+
+    fprintf(rsp, "]");
 }
 
 bool view_is_invalid(struct view *view)
@@ -1006,6 +1060,14 @@ void view_serialize(FILE *rsp, struct view *view, uint64_t flags)
 
         fprintf(rsp, "\t\"displayable-apps\":");
         managed_space_serialize_displayable_apps(rsp, view->sid);
+        did_output = true;
+    }
+
+    if (flags & SPACE_PROPERTY_STACKS) {
+        if (did_output) fprintf(rsp, ",\n");
+
+        fprintf(rsp, "\t\"stacks\":");
+        view_serialize_stacks(rsp, view);
         did_output = true;
     }
 

@@ -568,7 +568,15 @@ SPACE
     "managed-name": string,
     "displayable-window-count": number,
     "displayable-windows": array of number,
-    "displayable-apps": array of string
+    "displayable-apps": array of string,
+    "stacks": array of object {
+        "index": number,
+        "windows": array of object {
+            "id": number,
+            "app": string,
+            "title": string
+        }
+    }
 }
 ----
 
@@ -966,6 +974,11 @@ EVENT
     Triggered when the active managed or native fullscreen space changes. +
     Passes four arguments: $YABAI_SPACE_INDEX, $YABAI_DISPLAY_INDEX,
     $YABAI_MANAGED_ORDER, $YABAI_MANAGED_SPACE_NAME
+
+*space_stacks_changed*::
+    Triggered when a space's stack presentation changes. +
+    Passes three arguments: $YABAI_SPACE_ID, $YABAI_SPACE_INDEX,
+    $YABAI_DISPLAY_INDEX
 
 ACTION
 ^^^^^^

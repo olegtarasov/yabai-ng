@@ -55,7 +55,6 @@ jobs:
           fi
 
           cert_path="${RUNNER_TEMP}/yabai-cert.p12"
-          cert_pem="${RUNNER_TEMP}/yabai-cert.pem"
           keychain_path="${RUNNER_TEMP}/yabai-signing.keychain-db"
           keychain_password="$(openssl rand -hex 24)"
 
@@ -65,11 +64,17 @@ jobs:
           security set-keychain-settings -lut 21600 "${keychain_path}"
           security unlock-keychain -p "${keychain_password}" "${keychain_path}"
           security import "${cert_path}" -k "${keychain_path}" -P "${YABAI_CERT_PASSWORD}" -A -T /usr/bin/codesign
-          security find-certificate -c "${YABAI_CERT}" -p "${keychain_path}" > "${cert_pem}"
-          security add-trusted-cert -r trustRoot -p codeSign -k "${keychain_path}" "${cert_pem}"
           security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "${keychain_password}" "${keychain_path}"
           security list-keychains -d user -s "${keychain_path}" $(security list-keychains -d user | tr -d '"')
-          security find-identity -v -p codesigning "${keychain_path}" | grep "\"${YABAI_CERT}\""
+
+          signing_identity="$(security find-certificate -c "${YABAI_CERT}" -Z "${keychain_path}" | awk '/SHA-1 hash:/ { print $3; exit }')"
+          if [[ -z "${signing_identity}" ]]; then
+            echo "Could not find imported ${YABAI_CERT} certificate" >&2
+            exit 1
+          fi
+
+          echo "YABAI_CERT=${signing_identity}" >> "${GITHUB_ENV}"
+          echo "Imported ${YABAI_CERT} signing certificate"
 
       - name: Build, test, and package
         id: build

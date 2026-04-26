@@ -894,7 +894,7 @@ static struct selector parse_space_selector(FILE *rsp, char **message, uint64_t 
     return result;
 }
 
-static enum space_op_error space_manager_focus_selector(uint64_t acting_sid, struct selector *selector, bool switch_space)
+static enum space_op_error space_manager_focus_selector(struct selector *selector, bool switch_space)
 {
     enum space_op_error result;
 
@@ -902,10 +902,6 @@ static enum space_op_error space_manager_focus_selector(uint64_t acting_sid, str
         result = space_manager_switch_space(selector->sid);
     } else {
         result = space_manager_focus_space(selector->sid);
-    }
-
-    if (result == SPACE_OP_ERROR_SUCCESS && selector->space_selector == SPACE_SELECTOR_NEXT_FULLSCREEN) {
-        managed_space_note_fullscreen_navigation(&g_managed_space, acting_sid, selector->sid);
     }
 
     return result;
@@ -1841,7 +1837,7 @@ static void handle_domain_space(FILE *rsp, struct token domain, char *message)
         if (token_equals(command, COMMAND_SPACE_FOCUS)) {
             struct selector selector = parse_space_selector(rsp, &message, acting_sid, false);
             if (selector.did_parse && selector.sid) {
-                enum space_op_error result = space_manager_focus_selector(acting_sid, &selector, false);
+                enum space_op_error result = space_manager_focus_selector(&selector, false);
                 if (result == SPACE_OP_ERROR_SAME_SPACE) {
                     daemon_fail(rsp, "cannot focus an already focused space.\n");
                 } else if (result == SPACE_OP_ERROR_DISPLAY_IS_ANIMATING) {
@@ -1855,7 +1851,7 @@ static void handle_domain_space(FILE *rsp, struct token domain, char *message)
         } else if (token_equals(command, COMMAND_SPACE_SWITCH)) {
             struct selector selector = parse_space_selector(rsp, &message, acting_sid, false);
             if (selector.did_parse && selector.sid) {
-                enum space_op_error result = space_manager_focus_selector(acting_sid, &selector, true);
+                enum space_op_error result = space_manager_focus_selector(&selector, true);
                 if (result == SPACE_OP_ERROR_SAME_SPACE) {
                     daemon_fail(rsp, "cannot focus an already focused space.\n");
                 } else if (result == SPACE_OP_ERROR_DISPLAY_IS_ANIMATING) {

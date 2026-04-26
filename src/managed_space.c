@@ -54,7 +54,7 @@ static void managed_space_clear(struct managed_space *ms)
     ms->last_repaired_window_count = 0;
     ms->last_managed_count = 0;
     ms->last_active_order = 0;
-    ms->last_focused_order = 0;
+    ms->last_focused_sid = 0;
     ms->last_presentation_hash = 0;
     managed_space_clear_fullscreen_origin(ms);
     ms->topology_grace = false;
@@ -355,6 +355,26 @@ bool managed_space_window_is_displayable(struct window *window)
     return true;
 }
 
+static bool managed_space_fullscreen_window_is_displayable(struct window *window)
+{
+    if (!window) return false;
+    if (!window->id) return false;
+    if (!window->application) return false;
+    if (window->application->is_hidden) return false;
+    if (!window->is_root) return false;
+    if (!window_is_standard(window)) return false;
+    if (window_check_flag(window, WINDOW_MINIMIZE)) return false;
+    if (window_check_flag(window, WINDOW_TAB)) return false;
+    return true;
+}
+
+static bool managed_space_window_is_displayable_for_space(uint64_t sid, struct window *window)
+{
+    return space_is_fullscreen(sid)
+        ? managed_space_fullscreen_window_is_displayable(window)
+        : managed_space_window_is_displayable(window);
+}
+
 static bool managed_space_window_is_actionable(struct window *window)
 {
     return managed_space_window_is_displayable(window);
@@ -383,14 +403,15 @@ int managed_space_displayable_window_count(uint64_t sid)
     int raw_window_count = 0;
     int result = 0;
     uint32_t *window_list = space_window_list(sid, &raw_window_count, true);
+    bool is_fullscreen_space = space_is_fullscreen(sid);
 
     for (int i = 0; i < raw_window_count; ++i) {
         struct window *window = window_manager_find_window(&g_window_manager, window_list[i]);
-        if (managed_space_window_is_displayable(window)) ++result;
+        if (managed_space_window_is_displayable_for_space(sid, window)) ++result;
     }
 
-    struct view *view = space_manager_query_view(&g_space_manager, sid);
-    if (view) {
+    struct view *view = is_fullscreen_space ? NULL : space_manager_query_view(&g_space_manager, sid);
+    if (!is_fullscreen_space && view) {
         int view_window_count = 0;
         uint32_t *view_window_list = view_find_window_list(view, &view_window_count);
         for (int i = 0; i < view_window_count; ++i) {
@@ -407,18 +428,19 @@ void managed_space_serialize_displayable_windows(FILE *rsp, uint64_t sid)
     int raw_window_count = 0;
     int output_count = 0;
     uint32_t *window_list = space_window_list(sid, &raw_window_count, true);
+    bool is_fullscreen_space = space_is_fullscreen(sid);
 
     fprintf(rsp, "[");
     for (int i = 0; i < raw_window_count; ++i) {
         struct window *window = window_manager_find_window(&g_window_manager, window_list[i]);
-        if (!managed_space_window_is_displayable(window)) continue;
+        if (!managed_space_window_is_displayable_for_space(sid, window)) continue;
 
         if (output_count++) fprintf(rsp, ", ");
         fprintf(rsp, "%d", window->id);
     }
 
-    struct view *view = space_manager_query_view(&g_space_manager, sid);
-    if (view) {
+    struct view *view = is_fullscreen_space ? NULL : space_manager_query_view(&g_space_manager, sid);
+    if (!is_fullscreen_space && view) {
         int view_window_count = 0;
         uint32_t *view_window_list = view_find_window_list(view, &view_window_count);
         for (int i = 0; i < view_window_count; ++i) {
@@ -448,11 +470,12 @@ void managed_space_serialize_displayable_apps(FILE *rsp, uint64_t sid)
     int output_count = 0;
     char **apps = NULL;
     uint32_t *window_list = space_window_list(sid, &raw_window_count, true);
+    bool is_fullscreen_space = space_is_fullscreen(sid);
 
     fprintf(rsp, "[");
     for (int i = 0; i < raw_window_count; ++i) {
         struct window *window = window_manager_find_window(&g_window_manager, window_list[i]);
-        if (!managed_space_window_is_displayable(window)) continue;
+        if (!managed_space_window_is_displayable_for_space(sid, window)) continue;
         if (!window->application || !window->application->name) continue;
         if (managed_space_app_seen(apps, window->application->name)) continue;
 
@@ -463,8 +486,8 @@ void managed_space_serialize_displayable_apps(FILE *rsp, uint64_t sid)
         fprintf(rsp, "\"%s\"", escaped_app ? escaped_app : window->application->name);
     }
 
-    struct view *view = space_manager_query_view(&g_space_manager, sid);
-    if (view) {
+    struct view *view = is_fullscreen_space ? NULL : space_manager_query_view(&g_space_manager, sid);
+    if (!is_fullscreen_space && view) {
         int view_window_count = 0;
         uint32_t *view_window_list = view_find_window_list(view, &view_window_count);
         for (int i = 0; i < view_window_count; ++i) {
@@ -965,6 +988,7 @@ static uint64_t managed_space_presentation_hash(struct managed_space *ms)
         int displayable_count = sid ? managed_space_displayable_window_count(sid) : 0;
         bool should_render = sid && (space_is_visible(sid) || displayable_count > 0);
 
+        hash = managed_space_hash_u64(hash, 1);
         hash = managed_space_hash_u64(hash, entry->order);
         hash = managed_space_hash_u64(hash, sid ? space_manager_mission_control_index(sid) : 0);
         hash = managed_space_hash_u64(hash, sid ? display_manager_display_id_arrangement(space_display_id(sid)) : 0);
@@ -980,7 +1004,7 @@ static uint64_t managed_space_presentation_hash(struct managed_space *ms)
         uint32_t *window_list = space_window_list(sid, &raw_window_count, true);
         for (int j = 0; j < raw_window_count; ++j) {
             struct window *window = window_manager_find_window(&g_window_manager, window_list[j]);
-            if (!managed_space_window_is_displayable(window)) continue;
+            if (!managed_space_window_is_displayable_for_space(sid, window)) continue;
             if (!window->application || !window->application->name) continue;
             if (managed_space_app_seen(apps, window->application->name)) continue;
 
@@ -1001,6 +1025,36 @@ static uint64_t managed_space_presentation_hash(struct managed_space *ms)
                 buf_push(apps, window->application->name);
                 hash = managed_space_hash_string(hash, window->application->name);
             }
+        }
+        buf_free(apps);
+    }
+
+    for (int index = 1;; ++index) {
+        uint64_t sid = space_manager_mission_control_space(index);
+        if (!sid) break;
+        if (!space_is_user(sid)) continue;
+        if (!space_is_fullscreen(sid)) continue;
+
+        int displayable_count = managed_space_displayable_window_count(sid);
+        bool should_render = space_is_visible(sid) || displayable_count > 0;
+
+        hash = managed_space_hash_u64(hash, 2);
+        hash = managed_space_hash_u64(hash, index);
+        hash = managed_space_hash_u64(hash, display_manager_display_id_arrangement(space_display_id(sid)));
+        hash = managed_space_hash_u64(hash, should_render);
+        hash = managed_space_hash_u64(hash, displayable_count);
+
+        int raw_window_count = 0;
+        char **apps = NULL;
+        uint32_t *window_list = space_window_list(sid, &raw_window_count, true);
+        for (int j = 0; j < raw_window_count; ++j) {
+            struct window *window = window_manager_find_window(&g_window_manager, window_list[j]);
+            if (!managed_space_window_is_displayable_for_space(sid, window)) continue;
+            if (!window->application || !window->application->name) continue;
+            if (managed_space_app_seen(apps, window->application->name)) continue;
+
+            buf_push(apps, window->application->name);
+            hash = managed_space_hash_string(hash, window->application->name);
         }
         buf_free(apps);
     }
@@ -1160,7 +1214,7 @@ void managed_space_set_enabled(struct managed_space *ms, bool enabled)
     ms->last_extra_count = managed_space_compute_extra_count(ms);
     ms->last_managed_count = buf_len(ms->spaces);
     ms->last_active_order = managed_space_active_order(ms);
-    ms->last_focused_order = 0;
+    ms->last_focused_sid = 0;
     managed_space_publish_presentation_if_needed(ms);
     managed_space_note_focus_changed(ms);
     managed_space_request_reconcile(ms);
@@ -1507,13 +1561,17 @@ int managed_space_active_order(struct managed_space *ms)
 
 int managed_space_active_index(struct managed_space *ms)
 {
-    if (!managed_space_is_managed_sid(ms, g_space_manager.current_space_id)) return 0;
+    if (!managed_space_is_managed_sid(ms, g_space_manager.current_space_id) &&
+        !space_is_fullscreen(g_space_manager.current_space_id)) return 0;
+
     return space_manager_mission_control_index(g_space_manager.current_space_id);
 }
 
 int managed_space_active_display(struct managed_space *ms)
 {
-    if (!managed_space_is_managed_sid(ms, g_space_manager.current_space_id)) return 0;
+    if (!managed_space_is_managed_sid(ms, g_space_manager.current_space_id) &&
+        !space_is_fullscreen(g_space_manager.current_space_id)) return 0;
+
     return display_manager_display_id_arrangement(space_display_id(g_space_manager.current_space_id));
 }
 
@@ -1590,10 +1648,9 @@ uint64_t managed_space_prev_fullscreen_target(struct managed_space *ms, uint64_t
     return managed_space_first_sid(ms);
 }
 
-void managed_space_note_fullscreen_navigation(struct managed_space *ms, uint64_t origin_sid, uint64_t target_sid)
+static void managed_space_remember_fullscreen_origin(struct managed_space *ms, uint64_t origin_sid)
 {
-    if (!ms->enabled || !origin_sid || !target_sid) return;
-    if (!space_is_fullscreen(target_sid) || space_is_fullscreen(origin_sid)) return;
+    if (!origin_sid || space_is_fullscreen(origin_sid)) return;
 
     managed_space_refresh_sids(ms);
     struct managed_space_entry *entry = managed_space_find_by_sid_internal(ms, origin_sid);
@@ -1607,10 +1664,22 @@ void managed_space_note_focus_changed(struct managed_space *ms)
 {
     if (!ms->enabled) return;
 
-    int order = managed_space_active_order(ms);
-    if (order > 0) managed_space_clear_fullscreen_origin(ms);
-    if (order == ms->last_focused_order) return;
+    uint64_t sid = g_space_manager.current_space_id;
+    if (sid == ms->last_focused_sid) return;
 
-    ms->last_focused_order = order;
+    uint64_t previous_sid = g_space_manager.last_space_id;
+    if (managed_space_is_managed_sid(ms, sid)) {
+        managed_space_clear_fullscreen_origin(ms);
+    } else if (space_is_fullscreen(sid)) {
+        if (managed_space_is_managed_sid(ms, previous_sid)) {
+            managed_space_remember_fullscreen_origin(ms, previous_sid);
+        } else if (!space_is_fullscreen(previous_sid)) {
+            managed_space_clear_fullscreen_origin(ms);
+        }
+    } else {
+        managed_space_clear_fullscreen_origin(ms);
+    }
+
+    ms->last_focused_sid = sid;
     event_signal_push(SIGNAL_MANAGED_SPACE_FOCUSED, ms);
 }

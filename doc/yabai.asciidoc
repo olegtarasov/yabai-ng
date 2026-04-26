@@ -322,7 +322,7 @@ COMMAND
     System Integrity Protection must be partially disabled.
 
     The special selectors 'next_fullscreen' and 'prev_fullscreen' navigate native macOS fullscreen spaces in Mission Control order. +
-    'next_fullscreen' enters the fullscreen chain from a managed space and remembers that origin, then advances through fullscreen spaces. +
+    When managed spaces are enabled, yabai remembers the managed-space origin after any observed managed-space to fullscreen-space transition. +
     'prev_fullscreen' reverses through fullscreen spaces and returns from the first fullscreen space to the remembered managed origin, falling back to the last managed space with displayable windows, then managed space 1.
 
 *--create*  ['<DISPLAY_SEL>']::
@@ -954,13 +954,13 @@ EVENT
 
 *managed_spaces_changed*::
     Triggered after managed mode reaches a stable reconciliation pass and the
-    derived managed-space presentation state changed. +
+    derived managed-space and native fullscreen presentation state changed. +
     Passes four arguments: $YABAI_MANAGED_SPACE_COUNT,
     $YABAI_MANAGED_EXTRA_SPACE_COUNT, $YABAI_MANAGED_REPAIRED_WINDOW_COUNT,
     $YABAI_MANAGED_ACTIVE_ORDER
 
 *managed_space_focused*::
-    Triggered when the active managed space changes. +
+    Triggered when the active managed or native fullscreen space changes. +
     Passes four arguments: $YABAI_SPACE_INDEX, $YABAI_DISPLAY_INDEX,
     $YABAI_MANAGED_ORDER, $YABAI_MANAGED_SPACE_NAME
 

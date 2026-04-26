@@ -464,7 +464,7 @@ System Integrity Protection must be partially disabled.
 .nf
 .fam C
 The special selectors \*(Aqnext_fullscreen\*(Aq and \*(Aqprev_fullscreen\*(Aq navigate native macOS fullscreen spaces in Mission Control order. +
-\*(Aqnext_fullscreen\*(Aq enters the fullscreen chain from a managed space and remembers that origin, then advances through fullscreen spaces. +
+When managed spaces are enabled, yabai remembers the managed\-space origin after any observed managed\-space to fullscreen\-space transition. +
 \*(Aqprev_fullscreen\*(Aq reverses through fullscreen spaces and returns from the first fullscreen space to the remembered managed origin, falling back to the last managed space with displayable windows, then managed space 1.
 .fam
 .fi
@@ -1393,7 +1393,7 @@ Triggered when macOS wakes from sleep.
 \fBmanaged_spaces_changed\fP
 .RS 4
 Triggered after managed mode reaches a stable reconciliation pass and the
-derived managed\-space presentation state changed.
+derived managed\-space and native fullscreen presentation state changed.
 .br
 Passes four arguments: $YABAI_MANAGED_SPACE_COUNT,
 $YABAI_MANAGED_EXTRA_SPACE_COUNT, $YABAI_MANAGED_REPAIRED_WINDOW_COUNT,
@@ -1402,7 +1402,7 @@ $YABAI_MANAGED_ACTIVE_ORDER
 .sp
 \fBmanaged_space_focused\fP
 .RS 4
-Triggered when the active managed space changes.
+Triggered when the active managed or native fullscreen space changes.
 .br
 Passes four arguments: $YABAI_SPACE_INDEX, $YABAI_DISPLAY_INDEX,
 $YABAI_MANAGED_ORDER, $YABAI_MANAGED_SPACE_NAME

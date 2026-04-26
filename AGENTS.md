@@ -64,14 +64,15 @@ small, obvious hooks into that subsystem; substantial behavior belongs in
 - `yabai -m query --spaces`
   Includes `is-managed`, `managed-order`, `managed-name`,
   `displayable-window-count`, `displayable-windows`, and `displayable-apps`
-  fields for consumers that want managed-space presentation data without a
-  separate window query.
+  fields for consumers that want managed-space and native fullscreen
+  presentation data without a separate window query.
 
 - `managed_spaces_changed`
-  Signal emitted after the derived managed-space presentation state changes.
+  Signal emitted after the derived managed-space or native fullscreen
+  presentation state changes.
 
 - `managed_space_focused`
-  Signal emitted when the active managed space changes.
+  Signal emitted when the active managed or native fullscreen space changes.
 
 ## Validation
 

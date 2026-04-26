@@ -574,11 +574,14 @@ SPACE
         "windows": array of object {
             "id": number,
             "app": string,
-            "title": string
+            "title": string,
+            "is-active": bool
         }
     }
 }
 ----
+
+Stack windows are ordered from the current front window to the last window in that stack.
 
 WINDOW
 [subs=+macros]

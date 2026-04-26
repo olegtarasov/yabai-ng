@@ -845,7 +845,7 @@ uint32_t *view_find_window_list(struct view *view, int *window_count)
     return window_list;
 }
 
-static void view_serialize_stack_window(FILE *rsp, uint32_t wid)
+static void view_serialize_stack_window(FILE *rsp, uint32_t wid, bool is_active)
 {
     struct window *window = window_manager_find_window(&g_window_manager, wid);
     char *app = window && window->application ? window->application->name : "";
@@ -858,11 +858,13 @@ static void view_serialize_stack_window(FILE *rsp, uint32_t wid)
             "{"
             "\"id\":%d,"
             "\"app\":\"%s\","
-            "\"title\":\"%s\""
+            "\"title\":\"%s\","
+            "\"is-active\":%s"
             "}",
             wid,
             escaped_app ? escaped_app : app,
-            escaped_title ? escaped_title : title);
+            escaped_title ? escaped_title : title,
+            json_bool(is_active));
 }
 
 static void view_serialize_stacks(FILE *rsp, struct view *view)
@@ -882,7 +884,7 @@ static void view_serialize_stacks(FILE *rsp, struct view *view)
 
         for (int i = 0; i < node->window_count; ++i) {
             if (i) fprintf(rsp, ",");
-            view_serialize_stack_window(rsp, node->window_list[i]);
+            view_serialize_stack_window(rsp, node->window_order[i], i == 0);
         }
 
         fprintf(rsp, "]}");

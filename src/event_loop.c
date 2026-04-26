@@ -68,8 +68,11 @@ static void window_did_receive_focus(struct window_manager *wm, struct mouse_sta
     for (int i = 0; i < node->window_count; ++i) {
         if (node->window_order[i] != window->id) continue;
 
-        memmove(node->window_order + 1, node->window_order, sizeof(uint32_t) * i);
-        node->window_order[0] = window->id;
+        if (i > 0) {
+            memmove(node->window_order + 1, node->window_order, sizeof(uint32_t) * i);
+            node->window_order[0] = window->id;
+            event_signal_push(SIGNAL_SPACE_STACKS_CHANGED, (void *)(uintptr_t) view->sid);
+        }
 
         break;
     }

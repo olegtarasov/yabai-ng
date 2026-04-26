@@ -39,6 +39,15 @@ Additional features of yabai include focus-follows-mouse, disabling animations f
 - Sample configuration files can be found in the [&nearr;&nbsp;examples][yabai-examples] directory. Refer to the [&nearr;&nbsp;documentation][yabai-docs] or this repository for further information.
 - Keyboard shortcuts can be defined with [&nearr;&nbsp;skhd][gh-skhd] or any other suitable software you may prefer.
 
+## Development Setup
+
+Use `make dev-setup` to build and sign the local release binary, then recreate
+`/opt/homebrew/bin/yabai` as a symlink to `bin/yabai`. This keeps tools that
+call the Homebrew path, such as Sketchybar, on the current checkout without
+copying binaries into Homebrew-owned paths.
+
+Set `DEV_BIN_DIR=/path/to/bin` when the Homebrew binary directory is elsewhere.
+
 ## Requirements and Caveats
 
 Please read the below requirements carefully.

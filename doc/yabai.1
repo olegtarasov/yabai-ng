@@ -364,6 +364,11 @@ Action performed when pressing \fImouse_modifier\fP + \fIbutton2\fP.
 .RS 4
 Action performed when a bsp\-managed window is dropped in the center of some other bsp\-managed window.
 .RE
+.sp
+\fBmouse_drop_action_modifier\fP [\fIswap|stack\fP]
+.RS 4
+Action performed when a bsp\-managed window is dropped in the center of some other bsp\-managed window while \fImouse_modifier\fP is pressed. Defaults to the effective \fImouse_drop_action\fP until explicitly configured.
+.RE
 .SS "Space Settings"
 .sp
 \fBlayout\fP [\fIbsp|stack|float\fP]

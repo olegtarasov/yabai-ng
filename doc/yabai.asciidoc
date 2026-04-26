@@ -247,6 +247,9 @@ Global Settings
 *mouse_drop_action* ['swap|stack']::
     Action performed when a bsp-managed window is dropped in the center of some other bsp-managed window.
 
+*mouse_drop_action_modifier* ['swap|stack']::
+    Action performed when a bsp-managed window is dropped in the center of some other bsp-managed window while 'mouse_modifier' is pressed. Defaults to the effective 'mouse_drop_action' until explicitly configured.
+
 Space Settings
 ^^^^^^^^^^^^^^
 

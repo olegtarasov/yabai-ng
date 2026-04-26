@@ -1221,6 +1221,7 @@ static EVENT_HANDLER(MOUSE_UP)
     }
 
     CGPoint point = CGEventGetLocation(context);
+    uint8_t mod = (uint8_t) param1;
     debug("%s: %.2f, %.2f\n", __FUNCTION__, point.x, point.y);
 
     struct view *src_view = window_manager_find_managed_window(&g_window_manager, g_mouse_state.window);
@@ -1247,7 +1248,7 @@ static EVENT_HANDLER(MOUSE_UP)
                 g_mouse_state.feedback_node = NULL;
             }
 
-            enum mouse_drop_action drop_action = mouse_determine_drop_action(&g_mouse_state, a_node, window, point);
+            enum mouse_drop_action drop_action = mouse_determine_drop_action(&g_mouse_state, a_node, window, point, mod);
             switch (drop_action) {
             case MOUSE_DROP_ACTION_STACK: {
                 mouse_drop_action_stack(&g_window_manager, src_view, g_mouse_state.window, dst_view, window);
@@ -1300,6 +1301,7 @@ static EVENT_HANDLER(MOUSE_DRAGGED)
     }
 
     CGPoint point = CGEventGetLocation(context);
+    uint8_t mod = (uint8_t) param1;
     debug("%s: %.2f, %.2f\n", __FUNCTION__, point.x, point.y);
 
     if (g_mouse_state.current_action == MOUSE_MODE_MOVE) {
@@ -1353,7 +1355,7 @@ static EVENT_HANDLER(MOUSE_DRAGGED)
             }
 
             int insert_dir = 0;
-            enum mouse_drop_action drop_action = mouse_determine_drop_action(&g_mouse_state, a_node, window, point);
+            enum mouse_drop_action drop_action = mouse_determine_drop_action(&g_mouse_state, a_node, window, point, mod);
             switch (drop_action) {
             case MOUSE_DROP_ACTION_STACK: {
                 insert_dir = STACK;

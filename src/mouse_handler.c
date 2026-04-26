@@ -41,7 +41,8 @@ static MOUSE_HANDLER(mouse_handler)
     } break;
     case kCGEventLeftMouseUp:
     case kCGEventRightMouseUp: {
-        event_loop_post(&g_event_loop, MOUSE_UP, (void *) CFRetain(event), 0);
+        uint8_t mod = mouse_mod_from_cgflags(CGEventGetFlags(event));
+        event_loop_post(&g_event_loop, MOUSE_UP, (void *) CFRetain(event), mod);
 
         if (mouse_state->consume_mouse_click) {
             if (!mouse_state->drag_detected) {
@@ -57,8 +58,9 @@ static MOUSE_HANDLER(mouse_handler)
     } break;
     case kCGEventLeftMouseDragged:
     case kCGEventRightMouseDragged: {
+        uint8_t mod = mouse_mod_from_cgflags(CGEventGetFlags(event));
         mouse_state->drag_detected = true;
-        event_loop_post(&g_event_loop, MOUSE_DRAGGED, (void *) CFRetain(event), 0);
+        event_loop_post(&g_event_loop, MOUSE_DRAGGED, (void *) CFRetain(event), mod);
     } break;
     case kCGEventMouseMoved: {
         uint8_t mod = mouse_mod_from_cgflags(CGEventGetFlags(event));
@@ -105,7 +107,7 @@ void mouse_window_info_populate(struct mouse_state *ms, struct mouse_window_info
     info->changed_size     = info->changed_w || info->changed_h;
 }
 
-enum mouse_drop_action mouse_determine_drop_action(struct mouse_state *ms, struct window_node *src_node, struct window *dst_window, CGPoint point)
+enum mouse_drop_action mouse_determine_drop_action(struct mouse_state *ms, struct window_node *src_node, struct window *dst_window, CGPoint point, uint8_t mod)
 {
     CGRect  f    = dst_window->frame;
     CGPoint wp   = { point.x - f.origin.x, point.y - f.origin.y };
@@ -116,7 +118,8 @@ enum mouse_drop_action mouse_determine_drop_action(struct mouse_state *ms, struc
     CGPoint l[3] = {{ 0.0f, f.size.height }, { 0.5f * f.size.width, 0.5f * f.size.height }, { 0.0f, 0.0f }};
 
     if ((CGRectContainsPoint(c, wp)) && (src_node->window_count == 1)) {
-        return ms->drop_action == MOUSE_MODE_STACK ? MOUSE_DROP_ACTION_STACK : MOUSE_DROP_ACTION_SWAP;
+        enum mouse_mode action = (mod == ms->modifier && ms->drop_action_modifier_configured) ? ms->drop_action_modifier : ms->drop_action;
+        return action == MOUSE_MODE_STACK ? MOUSE_DROP_ACTION_STACK : MOUSE_DROP_ACTION_SWAP;
     } else if (triangle_contains_point(t, wp)) {
         return MOUSE_DROP_ACTION_WARP_TOP;
     } else if (triangle_contains_point(r, wp)) {
@@ -269,6 +272,8 @@ void mouse_state_init(struct mouse_state *state)
     state->action1     = MOUSE_MODE_MOVE;
     state->action2     = MOUSE_MODE_RESIZE;
     state->drop_action = MOUSE_MODE_SWAP;
+    state->drop_action_modifier = MOUSE_MODE_SWAP;
+    state->drop_action_modifier_configured = false;
 }
 
 bool mouse_handler_begin(struct mouse_state *mouse_state, uint32_t mask)

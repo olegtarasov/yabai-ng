@@ -50,6 +50,7 @@ extern bool g_verbose;
 #define COMMAND_CONFIG_MOUSE_ACTION1         "mouse_action1"
 #define COMMAND_CONFIG_MOUSE_ACTION2         "mouse_action2"
 #define COMMAND_CONFIG_MOUSE_DROP_ACTION     "mouse_drop_action"
+#define COMMAND_CONFIG_MOUSE_DROP_ACTION_MOD "mouse_drop_action_modifier"
 #define COMMAND_CONFIG_EXTERNAL_BAR          "external_bar"
 #define COMMAND_CONFIG_SKIP_SPACE_ANIMATION  "skip_window_focus_animation"
 #define COMMAND_CONFIG_MANAGED_SPACES        "managed_spaces"
@@ -1719,6 +1720,20 @@ static void handle_domain_config(FILE *rsp, struct token domain, char *message)
                 g_mouse_state.drop_action = MOUSE_MODE_SWAP;
             } else if (token_equals(value, ARGUMENT_CONFIG_MOUSE_ACTION_STACK)) {
                 g_mouse_state.drop_action = MOUSE_MODE_STACK;
+            } else {
+                daemon_fail(rsp, "unknown value '%.*s' given to command '%.*s' for domain '%.*s'\n", value.length, value.text, command.length, command.text, domain.length, domain.text);
+            }
+        } else if (token_equals(command, COMMAND_CONFIG_MOUSE_DROP_ACTION_MOD)) {
+            struct token value = get_token(&message);
+            if (!token_is_valid(value)) {
+                enum mouse_mode action = g_mouse_state.drop_action_modifier_configured ? g_mouse_state.drop_action_modifier : g_mouse_state.drop_action;
+                fprintf(rsp, "%s\n", mouse_mode_str[action]);
+            } else if (token_equals(value, ARGUMENT_CONFIG_MOUSE_ACTION_SWAP)) {
+                g_mouse_state.drop_action_modifier = MOUSE_MODE_SWAP;
+                g_mouse_state.drop_action_modifier_configured = true;
+            } else if (token_equals(value, ARGUMENT_CONFIG_MOUSE_ACTION_STACK)) {
+                g_mouse_state.drop_action_modifier = MOUSE_MODE_STACK;
+                g_mouse_state.drop_action_modifier_configured = true;
             } else {
                 daemon_fail(rsp, "unknown value '%.*s' given to command '%.*s' for domain '%.*s'\n", value.length, value.text, command.length, command.text, domain.length, domain.text);
             }

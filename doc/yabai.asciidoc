@@ -573,6 +573,12 @@ SPACE
     "displayable-apps": array of string,
     "stacks": array of object {
         "index": number,
+        "frame": object {
+            "x": number,
+            "y": number,
+            "w": number,
+            "h": number
+        },
         "windows": array of object {
             "id": number,
             "app": string,
@@ -583,8 +589,9 @@ SPACE
 }
 ----
 
-Stack windows are ordered by their logical stack position. The active window is
-the front/current stack member and is marked with `"is-active": true`.
+Stack windows are ordered by their logical stack position. The stack `frame`
+is the leaf/node area occupied by that stack. The active window is the
+front/current stack member and is marked with `"is-active": true`.
 
 WINDOW
 [subs=+macros]

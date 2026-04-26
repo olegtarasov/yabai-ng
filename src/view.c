@@ -959,6 +959,21 @@ static void view_serialize_stack_window(FILE *rsp, uint32_t wid, bool is_active)
             json_bool(is_active));
 }
 
+static void view_serialize_area(FILE *rsp, struct area area)
+{
+    fprintf(rsp,
+            "{"
+            "\"x\":%.4f,"
+            "\"y\":%.4f,"
+            "\"w\":%.4f,"
+            "\"h\":%.4f"
+            "}",
+            area.x,
+            area.y,
+            area.w,
+            area.h);
+}
+
 static void view_serialize_stacks(FILE *rsp, struct view *view)
 {
     int stack_index = 0;
@@ -972,6 +987,9 @@ static void view_serialize_stacks(FILE *rsp, struct view *view)
         if (stack_index) fprintf(rsp, ",");
         fprintf(rsp, "{");
         fprintf(rsp, "\"index\":%d,", ++stack_index);
+        fprintf(rsp, "\"frame\":");
+        view_serialize_area(rsp, node->area);
+        fprintf(rsp, ",");
         fprintf(rsp, "\"windows\":[");
 
         for (int i = 0; i < node->window_count; ++i) {
@@ -988,6 +1006,53 @@ static void view_serialize_stacks(FILE *rsp, struct view *view)
 bool view_is_invalid(struct view *view)
 {
     return !view_check_flag(view, VIEW_IS_VALID);
+}
+
+static uint64_t view_stack_geometry_hash_combine(uint64_t hash, uint64_t value)
+{
+    hash ^= value;
+    hash *= 1099511628211ULL;
+    return hash;
+}
+
+static uint64_t view_stack_geometry_hash_float(uint64_t hash, float value)
+{
+    uint32_t bits = 0;
+    memcpy(&bits, &value, sizeof(bits));
+    return view_stack_geometry_hash_combine(hash, bits);
+}
+
+static uint64_t view_stack_geometry_hash(struct view *view)
+{
+    uint64_t hash = 1469598103934665603ULL;
+    uint64_t stack_count = 0;
+
+    for (struct window_node *node = window_node_find_first_leaf(view->root);
+         node;
+         node = window_node_find_next_leaf(node)) {
+        if (node->window_count <= 1) continue;
+
+        ++stack_count;
+        hash = view_stack_geometry_hash_combine(hash, stack_count);
+        hash = view_stack_geometry_hash_combine(hash, node->window_count);
+        hash = view_stack_geometry_hash_float(hash, node->area.x);
+        hash = view_stack_geometry_hash_float(hash, node->area.y);
+        hash = view_stack_geometry_hash_float(hash, node->area.w);
+        hash = view_stack_geometry_hash_float(hash, node->area.h);
+    }
+
+    return view_stack_geometry_hash_combine(hash, stack_count);
+}
+
+static bool view_has_stacks(struct view *view)
+{
+    for (struct window_node *node = window_node_find_first_leaf(view->root);
+         node;
+         node = window_node_find_next_leaf(node)) {
+        if (node->window_count > 1) return true;
+    }
+
+    return false;
 }
 
 bool view_is_dirty(struct view *view)
@@ -1170,6 +1235,8 @@ void view_serialize(FILE *rsp, struct view *view, uint64_t flags)
 
 void view_update(struct view *view)
 {
+    bool had_valid_stack_geometry = view_check_flag(view, VIEW_IS_VALID);
+    uint64_t old_stack_geometry = had_valid_stack_geometry ? view_stack_geometry_hash(view) : 0;
     uint32_t did = space_display_id(view->sid);
     CGRect frame = display_bounds_constrained(did, false);
     view->root->area = area_from_cgrect(frame);
@@ -1184,6 +1251,10 @@ void view_update(struct view *view)
     window_node_update(view, view->root);
     view_set_flag(view, VIEW_IS_VALID);
     view_set_flag(view, VIEW_IS_DIRTY);
+
+    if (had_valid_stack_geometry && old_stack_geometry != view_stack_geometry_hash(view)) {
+        view_signal_space_stacks_changed(view);
+    }
 }
 
 struct view *view_create(uint64_t sid)
@@ -1235,6 +1306,8 @@ void view_destroy(struct view *view)
 void view_clear(struct view *view)
 {
     if (view->root) {
+        bool had_stacks = view_has_stacks(view);
+
         if (view->root->left)  window_node_destroy(view->root->left);
         if (view->root->right) window_node_destroy(view->root->right);
 
@@ -1245,5 +1318,9 @@ void view_clear(struct view *view)
         insert_feedback_destroy(view->root);
         memset(view->root, 0, sizeof(struct window_node));
         view_update(view);
+
+        if (had_stacks) {
+            view_signal_space_stacks_changed(view);
+        }
     }
 }

@@ -234,6 +234,15 @@ When focusing a window, put the mouse at its center.
 Automatically focus the window under the mouse.
 .RE
 .sp
+\fBfocus_inside_stacks\fP [\fI<BOOL_SEL>\fP]
+.RS 4
+When enabled, horizontal window focus directions traverse windows inside a stack before leaving the stack leaf.
+.br
+\f(CReast\fP focuses the next window in the stack\(cqs logical order, and \f(CRwest\fP focuses the previous window.
+.br
+\f(CRnorth\fP and \f(CRsouth\fP keep treating each stack as a single leaf.
+.RE
+.sp
 \fBdisplay_arrangement_order\fP [\fIdefault|vertical|horizontal\fP]
 .RS 4
 Specify how displays are ordered (determined by center point).
@@ -584,6 +593,8 @@ yabai \-m window [\fI<WINDOW_SEL>\fP] \fI<COMMAND>\fP
 Focus the given window.
 .br
 If none specified, focus the selected window instead.
+.br
+If \f(CRfocus_inside_stacks\fP is enabled, horizontal directions step through logical stack members before leaving a stack leaf.
 .RE
 .sp
 \fB\-\-close\fP [\fI<WINDOW_SEL>\fP]

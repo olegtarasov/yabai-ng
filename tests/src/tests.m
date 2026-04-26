@@ -13,6 +13,7 @@ typedef TEST_SIG(function);
 
 #include "area.c"
 #include "mouse.c"
+#include "stack_focus.c"
 
 #define TEST_ENTRY(name) { #name, test_##name },
 #define TEST_LIST                                              \
@@ -21,7 +22,13 @@ typedef TEST_SIG(function);
     TEST_ENTRY(mouse_drop_action_modifier_inherits_default)     \
     TEST_ENTRY(mouse_drop_action_modifier_overrides_center_drop)\
     TEST_ENTRY(mouse_drop_action_modifier_uses_exact_modifier_match)\
-    TEST_ENTRY(mouse_drop_action_modifier_does_not_affect_warp_zones)
+    TEST_ENTRY(mouse_drop_action_modifier_does_not_affect_warp_zones)\
+    TEST_ENTRY(stack_focus_inside_east_returns_next_logical_window)\
+    TEST_ENTRY(stack_focus_inside_west_returns_prev_logical_window)\
+    TEST_ENTRY(stack_focus_inside_boundary_falls_through)       \
+    TEST_ENTRY(stack_focus_inside_disabled_falls_through)       \
+    TEST_ENTRY(stack_focus_inside_vertical_falls_through)       \
+    TEST_ENTRY(stack_focus_inside_single_window_falls_through)
 
 static struct {
     char *name;

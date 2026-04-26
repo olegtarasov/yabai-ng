@@ -88,6 +88,7 @@ struct window_manager
     ProcessSerialNumber focused_window_psn;
     uint32_t last_window_id;
     bool enable_mff;
+    bool focus_inside_stacks;
     enum ffm_mode ffm_mode;
     enum purify_mode purify_mode;
     enum window_origin_mode window_origin_mode;

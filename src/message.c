@@ -23,6 +23,7 @@ extern bool g_verbose;
 #define COMMAND_CONFIG_DEBUG_OUTPUT          "debug_output"
 #define COMMAND_CONFIG_MFF                   "mouse_follows_focus"
 #define COMMAND_CONFIG_FFM                   "focus_follows_mouse"
+#define COMMAND_CONFIG_FOCUS_INSIDE_STACKS   "focus_inside_stacks"
 #define COMMAND_CONFIG_DISPLAY_ORDER         "display_arrangement_order"
 #define COMMAND_CONFIG_WINDOW_ORIGIN         "window_origin_display"
 #define COMMAND_CONFIG_WINDOW_PLACEMENT      "window_placement"
@@ -1257,6 +1258,17 @@ static void handle_domain_config(FILE *rsp, struct token domain, char *message)
                 window_manager_set_focus_follows_mouse(&g_window_manager, FFM_AUTOFOCUS);
             } else if (token_equals(value, ARGUMENT_CONFIG_FFM_AUTORAISE)) {
                 window_manager_set_focus_follows_mouse(&g_window_manager, FFM_AUTORAISE);
+            } else {
+                daemon_fail(rsp, "unknown value '%.*s' given to command '%.*s' for domain '%.*s'\n", value.length, value.text, command.length, command.text, domain.length, domain.text);
+            }
+        } else if (token_equals(command, COMMAND_CONFIG_FOCUS_INSIDE_STACKS)) {
+            struct token value = get_token(&message);
+            if (!token_is_valid(value)) {
+                fprintf(rsp, "%s\n", bool_str[g_window_manager.focus_inside_stacks]);
+            } else if (token_equals(value, ARGUMENT_COMMON_VAL_OFF)) {
+                g_window_manager.focus_inside_stacks = false;
+            } else if (token_equals(value, ARGUMENT_COMMON_VAL_ON)) {
+                g_window_manager.focus_inside_stacks = true;
             } else {
                 daemon_fail(rsp, "unknown value '%.*s' given to command '%.*s' for domain '%.*s'\n", value.length, value.text, command.length, command.text, domain.length, domain.text);
             }

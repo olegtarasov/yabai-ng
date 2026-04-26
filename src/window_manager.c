@@ -989,6 +989,29 @@ struct window *window_manager_find_window_below_cursor(struct window_manager *wm
     return window_manager_find_window_at_point(wm, cursor);
 }
 
+static uint32_t window_node_find_stack_window_in_direction(struct window_node *node, uint32_t window_id, int direction, bool focus_inside_stacks)
+{
+    if (!focus_inside_stacks || node->window_count <= 1) return 0;
+
+    int offset = 0;
+    if (direction == DIR_EAST) {
+        offset = 1;
+    } else if (direction == DIR_WEST) {
+        offset = -1;
+    } else {
+        return 0;
+    }
+
+    for (int i = 0; i < node->window_count; ++i) {
+        if (node->window_list[i] != window_id) continue;
+
+        int target_index = i + offset;
+        return in_range_ii(target_index, 0, node->window_count - 1) ? node->window_list[target_index] : 0;
+    }
+
+    return 0;
+}
+
 struct window *window_manager_find_closest_managed_window_in_direction(struct window_manager *wm, struct window *window, int direction)
 {
     struct view *view = window_manager_find_managed_window(wm, window);
@@ -996,6 +1019,9 @@ struct window *window_manager_find_closest_managed_window_in_direction(struct wi
 
     struct window_node *node = view_find_window_node(view, window->id);
     if (!node) return NULL;
+
+    uint32_t stack_window_id = window_node_find_stack_window_in_direction(node, window->id, direction, wm->focus_inside_stacks);
+    if (stack_window_id) return window_manager_find_window(wm, stack_window_id);
 
     struct window_node *closest = view_find_window_node_in_direction(view, node, direction);
     if (!closest) return NULL;
@@ -2703,6 +2729,7 @@ void window_manager_init(struct window_manager *wm)
     wm->purify_mode = PURIFY_DISABLED;
     wm->window_origin_mode = WINDOW_ORIGIN_DEFAULT;
     wm->enable_mff = false;
+    wm->focus_inside_stacks = false;
     wm->enable_window_opacity = false;
     wm->menubar_opacity = 1.0f;
     wm->active_window_opacity = 1.0f;

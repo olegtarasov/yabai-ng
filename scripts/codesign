@@ -3,12 +3,14 @@
 identities="$(security find-identity -v -p codesigning | sed '$d')"
 id_count="$(echo "${identities}" | wc -l)"
 target="$(command -v "${1:-}")"
+default_certificate="${YABAI_CERT:-yabai-cert}"
 
 function error() {
 	{
 		echo "$(tput bold)Error: ${@}$(tput sgr0)"
 		echo
 		echo "Usage: ./scripts/codesign <path/to/executable> [<certificate>]"
+		echo "Default certificate: ${default_certificate}"
 		echo "Available codesigning certificates:"
 		echo "${identities}"
 	} >&2
@@ -18,12 +20,10 @@ function error() {
 if [ "${id_count}" -lt 1 ]; then
 	>&2 echo "Unable to find a codesigning identity"
 	exit 1
-elif [ "${id_count}" -eq 1 ]; then
-	selection="1"
-elif [ "${id_count}" -gt 1 ] && [ "${#}" -eq 2 ]; then
+elif [ "${#}" -eq 2 ]; then
 	selection="${2}"
 elif [ -x "${target}" ]; then
-	error "Unable to auto-select codesigning certificate"
+	selection="${default_certificate}"
 else
 	error "Unable to find executable \"${target}\""
 fi
@@ -44,4 +44,3 @@ elif [ "$(echo "${certificate}" | wc -l)" -ne 1 ]; then
 fi
 
 command codesign --deep --force --verbose --sign "${certificate}" "${target}"
-

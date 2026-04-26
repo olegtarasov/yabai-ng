@@ -8,6 +8,7 @@ SCRIPT_PATH    = ./scripts
 ASSET_PATH     = ./assets
 SMP_PATH       = ./examples
 ARCH_PATH      = ./archive
+YABAI_CERT     ?= yabai-cert
 OSAX_SRC       = ./src/osax/payload_bin.c ./src/osax/loader_bin.c
 YABAI_SRC      = ./src/manifest.m $(OSAX_SRC)
 OSAX_PATH      = ./src/osax
@@ -55,7 +56,7 @@ archive: man install sign icon
 	rm -rf $(ARCH_PATH)
 
 sign:
-	codesign -fs "yabai-cert" $(BUILD_PATH)/yabai
+	codesign -fs "$(YABAI_CERT)" $(BUILD_PATH)/yabai
 
 clean-build:
 	rm -rf $(BUILD_PATH)

@@ -59,7 +59,7 @@ AUTHOR="olegtarasov"
 REPO="yabai-ng"
 BINARY="yabai"
 VERSION="26.0.0"
-EXPECTED_HASH=""
+EXPECTED_HASH="0befc7f5ca8d2a34f5a71b598b3526a5f61eba0ae98286da465fc945f25c302e"
 TMP_DIR="./${AUTHOR}-${REPO}-v${VERSION}-installer"
 
 mkdir $TMP_DIR

@@ -126,6 +126,15 @@ void rule_reapply_all(void)
             }
         }
     })
+
+    bool repaired_native_tabs = false;
+    table_for (struct window *window, g_window_manager.window, {
+        if (!window->is_root) continue;
+        if (!window_check_rule_flag(window, WINDOW_RULE_TAB)) continue;
+        if (native_tab_repair_window(&g_window_manager, window)) repaired_native_tabs = true;
+    })
+
+    if (repaired_native_tabs) managed_space_request_reconcile(&g_managed_space);
 }
 
 bool rule_reapply_by_index(int index)
@@ -170,6 +179,18 @@ void rule_apply(struct rule *rule)
             }
         }
     })
+
+    if (rule->effects.manage == RULE_PROP_TAB) {
+        bool repaired_native_tabs = false;
+        table_for (struct window *window, g_window_manager.window, {
+            if (!window->is_root) continue;
+            if (!window_check_rule_flag(window, WINDOW_RULE_TAB)) continue;
+            if (!window_manager_rule_matches_window(rule, window, window_title_ts(window), window_role_ts(window), window_subrole_ts(window))) continue;
+            if (native_tab_repair_window(&g_window_manager, window)) repaired_native_tabs = true;
+        })
+
+        if (repaired_native_tabs) managed_space_request_reconcile(&g_managed_space);
+    }
 }
 
 void rule_add(struct rule *rule)

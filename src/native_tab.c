@@ -1,5 +1,8 @@
 #define NATIVE_TAB_POS_TOL 10.0f
 #define NATIVE_TAB_SIZE_TOL 35.0f
+#define NATIVE_TAB_AX_TAB_GROUP_ROLE CFSTR("AXTabGroup")
+#define NATIVE_TAB_AX_TABS_ATTRIBUTE CFSTR("AXTabs")
+#define NATIVE_TAB_AX_CHILDREN_IN_NAVIGATION_ORDER_ATTRIBUTE CFSTR("AXChildrenInNavigationOrder")
 
 static inline bool native_tab_near(float a, float b, float tolerance)
 {
@@ -21,6 +24,131 @@ static bool native_tab_frames_match(CGRect a, CGRect b)
            native_tab_near(a.size.height, b.size.height, NATIVE_TAB_SIZE_TOL);
 }
 
+static bool native_tab_ax_role_is(AXUIElementRef element, CFStringRef expected_role)
+{
+    CFTypeRef role = NULL;
+    if (AXUIElementCopyAttributeValue(element, kAXRoleAttribute, &role) != kAXErrorSuccess || !role) return false;
+
+    bool result = CFGetTypeID(role) == CFStringGetTypeID() && CFEqual(role, expected_role);
+    CFRelease(role);
+    return result;
+}
+
+static CFArrayRef native_tab_copy_array_attribute(AXUIElementRef element, CFStringRef attribute)
+{
+    CFTypeRef value = NULL;
+    if (AXUIElementCopyAttributeValue(element, attribute, &value) != kAXErrorSuccess || !value) return NULL;
+
+    if (CFGetTypeID(value) != CFArrayGetTypeID()) {
+        CFRelease(value);
+        return NULL;
+    }
+
+    return value;
+}
+
+static AXUIElementRef native_tab_copy_tab_group(AXUIElementRef window_ref)
+{
+    CFStringRef child_attributes[] = {
+        kAXChildrenAttribute,
+        NATIVE_TAB_AX_CHILDREN_IN_NAVIGATION_ORDER_ATTRIBUTE
+    };
+
+    for (int attr_index = 0; attr_index < array_count(child_attributes); ++attr_index) {
+        CFArrayRef children = native_tab_copy_array_attribute(window_ref, child_attributes[attr_index]);
+        if (!children) continue;
+
+        int child_count = CFArrayGetCount(children);
+        for (int child_index = 0; child_index < child_count; ++child_index) {
+            AXUIElementRef child = (AXUIElementRef) CFArrayGetValueAtIndex(children, child_index);
+            if (!native_tab_ax_role_is(child, NATIVE_TAB_AX_TAB_GROUP_ROLE)) continue;
+
+            CFArrayRef tabs = native_tab_copy_array_attribute(child, NATIVE_TAB_AX_TABS_ATTRIBUTE);
+            bool has_tabs = tabs && CFArrayGetCount(tabs) > 1;
+            if (tabs) CFRelease(tabs);
+            if (!has_tabs) continue;
+
+            CFRetain(child);
+            CFRelease(children);
+            return child;
+        }
+
+        CFRelease(children);
+    }
+
+    return NULL;
+}
+
+static CFArrayRef native_tab_copy_tabs(struct window *window)
+{
+    if (!window || !window->ref) return NULL;
+
+    AXUIElementRef tab_group = native_tab_copy_tab_group(window->ref);
+    if (!tab_group) return NULL;
+
+    CFArrayRef tabs = native_tab_copy_array_attribute(tab_group, NATIVE_TAB_AX_TABS_ATTRIBUTE);
+    CFRelease(tab_group);
+
+    if (!tabs) return NULL;
+    if (CFArrayGetCount(tabs) <= 1) {
+        CFRelease(tabs);
+        return NULL;
+    }
+
+    return tabs;
+}
+
+static bool native_tab_tabs_contain_title(CFArrayRef tabs, CFStringRef title)
+{
+    if (!tabs || !title || CFStringGetLength(title) == 0) return false;
+
+    int tab_count = CFArrayGetCount(tabs);
+    for (int i = 0; i < tab_count; ++i) {
+        AXUIElementRef tab = (AXUIElementRef) CFArrayGetValueAtIndex(tabs, i);
+
+        CFTypeRef tab_title = NULL;
+        if (AXUIElementCopyAttributeValue(tab, kAXTitleAttribute, &tab_title) != kAXErrorSuccess || !tab_title) continue;
+
+        bool title_matches = CFGetTypeID(tab_title) == CFStringGetTypeID() &&
+                             CFStringCompare(title, tab_title, 0) == kCFCompareEqualTo;
+        CFRelease(tab_title);
+
+        if (title_matches) return true;
+    }
+
+    return false;
+}
+
+static bool native_tab_tabs_contain_window_title(CFArrayRef tabs, struct window *window)
+{
+    return window && native_tab_tabs_contain_title(tabs, window->title);
+}
+
+static bool native_tab_tabs_match_windows(CFArrayRef tabs, struct window *a, struct window *b)
+{
+    return native_tab_tabs_contain_window_title(tabs, a) &&
+           native_tab_tabs_contain_window_title(tabs, b);
+}
+
+static bool native_tab_windows_share_ax_tab_group(struct window *a, struct window *b)
+{
+    CFArrayRef a_tabs = native_tab_copy_tabs(a);
+    if (a_tabs) {
+        bool result = native_tab_tabs_match_windows(a_tabs, a, b);
+        CFRelease(a_tabs);
+        if (result) return true;
+    }
+
+    CFArrayRef b_tabs = native_tab_copy_tabs(b);
+    if (b_tabs) {
+        bool result = native_tab_tabs_match_windows(b_tabs, a, b);
+        CFRelease(b_tabs);
+        if (result) return true;
+    }
+
+    return false;
+}
+
 static bool native_tab_is_managed_parent_candidate(struct window_manager *wm, struct window *window, struct window *candidate)
 {
     if (!candidate) return false;
@@ -29,6 +157,18 @@ static bool native_tab_is_managed_parent_candidate(struct window_manager *wm, st
     if (window_check_flag(candidate, WINDOW_TAB)) return false;
     if (!window_manager_find_managed_window(wm, candidate)) return false;
     if (!native_tab_same_space(window, candidate)) return false;
+    return true;
+}
+
+static bool native_tab_is_repair_child_candidate(struct window *parent, struct window *candidate)
+{
+    if (!candidate) return false;
+    if (candidate == parent) return false;
+    if (candidate->application != parent->application) return false;
+    if (!window_check_rule_flag(candidate, WINDOW_RULE_TAB)) return false;
+    if (window_check_flag(candidate, WINDOW_TAB)) return false;
+    if (window_check_flag(candidate, WINDOW_TAB_PARENT)) return false;
+    if (!native_tab_same_space(parent, candidate)) return false;
     return true;
 }
 
@@ -102,12 +242,13 @@ static struct window *native_tab_find_recorded_parent(struct window_manager *wm,
 
     struct window *parent = window_manager_find_window(wm, window->tab_parent_id);
     if (!native_tab_is_managed_parent_candidate(wm, window, parent)) return NULL;
-    if (!native_tab_frames_match(window->frame, parent->frame)) return NULL;
+    if (!native_tab_frames_match(window->frame, parent->frame) &&
+        !native_tab_windows_share_ax_tab_group(parent, window)) return NULL;
 
     return parent;
 }
 
-static struct window *native_tab_find_frame_parent(struct window_manager *wm, struct window *window)
+static struct window *native_tab_find_parent(struct window_manager *wm, struct window *window)
 {
     struct window *recorded_parent = native_tab_find_recorded_parent(wm, window);
     if (recorded_parent) return recorded_parent;
@@ -118,7 +259,8 @@ static struct window *native_tab_find_frame_parent(struct window_manager *wm, st
     for (int i = 0; i < window_count; ++i) {
         struct window *candidate = window_list[i];
         if (!native_tab_is_managed_parent_candidate(wm, window, candidate)) continue;
-        if (!native_tab_frames_match(window->frame, candidate->frame)) continue;
+        if (!native_tab_frames_match(window->frame, candidate->frame) &&
+            !native_tab_windows_share_ax_tab_group(candidate, window)) continue;
         return candidate;
     }
 
@@ -192,6 +334,47 @@ static bool native_tab_convert_to_child(struct window_manager *wm, struct window
     return true;
 }
 
+bool native_tab_repair_window(struct window_manager *wm, struct window *window)
+{
+    if (!window_check_rule_flag(window, WINDOW_RULE_TAB)) return false;
+    if (window_check_flag(window, WINDOW_TAB)) return false;
+    if (!window_manager_find_managed_window(wm, window)) return false;
+
+    CFArrayRef tabs = native_tab_copy_tabs(window);
+    if (!tabs) return false;
+
+    if (!native_tab_tabs_contain_window_title(tabs, window)) {
+        CFRelease(tabs);
+        return false;
+    }
+
+    bool repaired = false;
+
+    int window_count;
+    struct window **window_list = window_manager_find_application_windows(wm, window->application, &window_count);
+
+    for (int i = 0; i < window_count; ++i) {
+        struct window *candidate = window_list[i];
+        if (!native_tab_is_repair_child_candidate(window, candidate)) continue;
+        if (!native_tab_tabs_contain_window_title(tabs, candidate)) continue;
+
+        debug("%s: repairing native tab %d using parent %d from AXTabGroup\n", __FUNCTION__, candidate->id, window->id);
+        native_tab_convert_to_child(wm, candidate, window);
+        repaired = true;
+    }
+
+    CFRelease(tabs);
+
+    if (repaired) {
+        native_tab_sync_children_to_parent(wm, window);
+        if (native_tab_focused_window(wm, window)) {
+            native_tab_set_group_opacity(wm, window, wm->active_window_opacity);
+        }
+    }
+
+    return repaired;
+}
+
 static bool native_tab_tile_detached_child(struct space_manager *sm, struct window_manager *wm, struct window *window)
 {
     debug("%s: native tab %d detached, tiling as a normal window\n", __FUNCTION__, window->id);
@@ -218,7 +401,7 @@ bool native_tab_handle_window_created(struct window_manager *wm, struct window *
 {
     if (!window_check_rule_flag(window, WINDOW_RULE_TAB)) return false;
 
-    struct window *parent = native_tab_find_frame_parent(wm, window);
+    struct window *parent = native_tab_find_parent(wm, window);
     if (!parent && window_is_standard(window)) {
         parent = native_tab_find_managed_sibling(wm, window);
         if (parent) {
@@ -247,12 +430,14 @@ static bool native_tab_handle_window_frame_changed(struct space_manager *sm, str
         native_tab_sync_children_to_parent(wm, window);
     }
 
+    if (native_tab_repair_window(wm, window)) return true;
+
     if (window_check_flag(window, WINDOW_TAB)) {
-        struct window *parent = native_tab_find_frame_parent(wm, window);
+        struct window *parent = native_tab_find_parent(wm, window);
         return parent ? true : native_tab_tile_detached_child(sm, wm, window);
     }
 
-    struct window *parent = native_tab_find_frame_parent(wm, window);
+    struct window *parent = native_tab_find_parent(wm, window);
     if (!parent) return false;
 
     return native_tab_convert_to_child(wm, window, parent);
@@ -317,7 +502,7 @@ struct window *native_tab_focused_window(struct window_manager *wm, struct windo
     if (!native_tab_same_space(window, focused_window)) return NULL;
 
     if (window_check_flag(focused_window, WINDOW_TAB)) {
-        return native_tab_find_frame_parent(wm, focused_window) ? focused_window : NULL;
+        return native_tab_find_parent(wm, focused_window) ? focused_window : NULL;
     }
 
     if (window_check_flag(focused_window, WINDOW_TAB_PARENT)) {

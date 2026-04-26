@@ -88,6 +88,80 @@ static void window_did_receive_native_tab_focus(struct window *window)
     event_signal_push(SIGNAL_WINDOW_FOCUSED, focused_window);
 }
 
+static struct window *resolve_missing_focused_window(struct application *application, uint32_t window_id)
+{
+    if (!application || !window_id) return NULL;
+
+    CFTypeRef window_ref = NULL;
+    AXUIElementCopyAttributeValue(application->ref, kAXFocusedWindowAttribute, &window_ref);
+    if (!window_ref) return NULL;
+
+    uint32_t focused_window_id = ax_window_id(window_ref);
+    if (focused_window_id != window_id) {
+        CFRelease(window_ref);
+        return NULL;
+    }
+
+    struct window *window = window_manager_create_and_add_window(&g_space_manager, &g_window_manager, application, window_ref, window_id, false);
+    if (!window) return NULL;
+
+    bool native_tab = native_tab_handle_window_created(&g_window_manager, window);
+
+    if (!native_tab && window_manager_should_manage_window(window) && !window_manager_find_managed_window(&g_window_manager, window)) {
+        uint64_t sid;
+
+        if (g_window_manager.window_origin_mode == WINDOW_ORIGIN_DEFAULT) {
+            sid = window_space(window->id);
+        } else if (g_window_manager.window_origin_mode == WINDOW_ORIGIN_FOCUSED) {
+            sid = g_space_manager.current_space_id;
+        } else /* if (g_window_manager.window_origin_mode == WINDOW_ORIGIN_CURSOR) */ {
+            sid = space_manager_cursor_space();
+        }
+
+        struct view *view = space_manager_tile_window_on_space(&g_space_manager, window, sid);
+        window_manager_add_managed_window(&g_window_manager, window, view);
+    }
+
+    if (window_manager_is_window_eligible(window)) {
+        event_signal_push(SIGNAL_WINDOW_CREATED, window);
+    }
+
+    managed_space_request_reconcile(&g_managed_space);
+
+    if (workspace_is_macos_sequoia() || workspace_is_macos_tahoe()) {
+        update_window_notifications();
+    }
+
+    return window;
+}
+
+static void sync_focused_application_window(void)
+{
+    struct application *application = window_manager_focused_application(&g_window_manager);
+    if (!application || !application_is_frontmost(application)) return;
+
+    uint32_t window_id = application_focused_window(application);
+    if (!window_id) return;
+
+    struct window *window = window_manager_find_window(&g_window_manager, window_id);
+    if (!window) {
+        window = resolve_missing_focused_window(application, window_id);
+    }
+
+    if (!window) return;
+    if (!__sync_bool_compare_and_swap(&window->id_ptr, &window->id, &window->id)) return;
+    if (window_check_flag(window, WINDOW_MINIMIZE)) return;
+
+    if (native_tab_repair_window(&g_window_manager, window)) {
+        managed_space_request_reconcile(&g_managed_space);
+    }
+
+    if (window->id != g_window_manager.focused_window_id) {
+        window_did_receive_focus(&g_window_manager, &g_mouse_state, window);
+        event_signal_push(SIGNAL_WINDOW_FOCUSED, window);
+    }
+}
+
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wunused-parameter"
 static EVENT_HANDLER(APPLICATION_LAUNCHED)
@@ -427,6 +501,10 @@ static EVENT_HANDLER(APPLICATION_FRONT_SWITCHED)
 
     struct window *window = window_manager_find_window(&g_window_manager, application_focused_window_id);
     if (!window) {
+        window = resolve_missing_focused_window(application, application_focused_window_id);
+    }
+
+    if (!window) {
         struct window *focused_window = window_manager_find_window(&g_window_manager, g_window_manager.focused_window_id);
         if (focused_window) {
             window_manager_set_window_opacity(&g_window_manager, focused_window, g_window_manager.normal_window_opacity);
@@ -434,6 +512,10 @@ static EVENT_HANDLER(APPLICATION_FRONT_SWITCHED)
 
         window_manager_add_lost_focused_event(&g_window_manager, application_focused_window_id);
         return;
+    }
+
+    if (native_tab_repair_window(&g_window_manager, window)) {
+        managed_space_request_reconcile(&g_managed_space);
     }
 
     window_did_receive_focus(&g_window_manager, &g_mouse_state, window);
@@ -671,8 +753,15 @@ static EVENT_HANDLER(WINDOW_FOCUSED)
 
     struct window *window = window_manager_find_window(&g_window_manager, window_id);
     if (!window) {
-        window_manager_add_lost_focused_event(&g_window_manager, window_id);
-        return;
+        struct application *application = window_manager_focused_application(&g_window_manager);
+        if (application && application_focused_window(application) == window_id) {
+            window = resolve_missing_focused_window(application, window_id);
+        }
+
+        if (!window) {
+            window_manager_add_lost_focused_event(&g_window_manager, window_id);
+            return;
+        }
     }
 
     if (!__sync_bool_compare_and_swap(&window->id_ptr, &window->id, &window->id)) {
@@ -697,6 +786,10 @@ static EVENT_HANDLER(WINDOW_FOCUSED)
             SLSSpaceSetFrontPSN(g_connection, sid, window->application->psn);
             space_manager_focus_space_using_gesture(space_display_id(sid), sid);
         }
+    }
+
+    if (native_tab_repair_window(&g_window_manager, window)) {
+        managed_space_request_reconcile(&g_managed_space);
     }
 
     window_did_receive_focus(&g_window_manager, &g_mouse_state, window);
@@ -980,6 +1073,10 @@ static EVENT_HANDLER(WINDOW_TITLE_CHANGED)
     if (window->title) CFRelease(window->title);
 
     window->title = window_title(window);
+    if (native_tab_repair_window(&g_window_manager, window)) {
+        managed_space_request_reconcile(&g_managed_space);
+    }
+
     window_did_receive_native_tab_focus(window);
 
     struct view *view = window_manager_find_managed_window(&g_window_manager, window);
@@ -1291,6 +1388,7 @@ err:
     g_mouse_state.window = NULL;
 res:
     g_mouse_state.current_action = MOUSE_MODE_NONE;
+    sync_focused_application_window();
 out:
     CFRelease(context);
 }

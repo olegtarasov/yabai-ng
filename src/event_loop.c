@@ -65,16 +65,9 @@ static void window_did_receive_focus(struct window_manager *wm, struct mouse_sta
     struct window_node *node = view_find_window_node(view, window->id);
     if (node->window_count <= 1) return;
 
-    for (int i = 0; i < node->window_count; ++i) {
-        if (node->window_order[i] != window->id) continue;
-
-        if (i > 0) {
-            memmove(node->window_order + 1, node->window_order, sizeof(uint32_t) * i);
-            node->window_order[0] = window->id;
-            event_signal_push(SIGNAL_SPACE_STACKS_CHANGED, (void *)(uintptr_t) view->sid);
-        }
-
-        break;
+    if (window_node_activate_window(node, window->id)) {
+        window_node_order_stack_windows(node);
+        event_signal_push(SIGNAL_SPACE_STACKS_CHANGED, (void *)(uintptr_t) view->sid);
     }
 }
 

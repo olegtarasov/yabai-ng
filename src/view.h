@@ -165,6 +165,7 @@ struct window_node
     struct window_node *zoom;
     uint32_t window_list[NODE_MAX_WINDOW_COUNT];
     uint32_t window_order[NODE_MAX_WINDOW_COUNT];
+    uint32_t recent_window_id;
     int window_count;
     float ratio;
     enum window_node_split split;
@@ -233,6 +234,10 @@ void window_node_flush(struct window_node *node);
 void window_node_update(struct view *view, struct window_node *node);
 bool window_node_contains_window(struct window_node *node, uint32_t window_id);
 int window_node_index_of_window(struct window_node *node, uint32_t window_id);
+bool window_node_activate_window(struct window_node *node, uint32_t window_id);
+void window_node_rebuild_window_order(struct window_node *node, uint32_t active_window_id);
+void window_node_order_stack_windows(struct window_node *node);
+void window_node_swap_windows(struct window_node *node, uint32_t a_id, uint32_t b_id);
 void window_node_swap_window_list(struct window_node *a_node, struct window_node *b_node);
 struct window_node *window_node_find_first_leaf(struct window_node *root);
 struct window_node *window_node_find_last_leaf(struct window_node *root);

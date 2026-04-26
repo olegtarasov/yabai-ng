@@ -140,6 +140,8 @@ DIR_SEL\&     := north | east | south | west
 
 STACK_SEL\&   := stack.prev | stack.next | stack.first | stack.last | stack.recent | stack.<index (1\-based)>
 
+\f(CRstack.recent\fP selects the previous active window in the same stack.
+
 WINDOW_SEL\&  := prev | next | first | last | recent | mouse | largest | smallest | sibling | first_nephew | second_nephew | uncle | first_cousin | second_cousin | STACK_SEL | DIR_SEL | <window id>
 
 DISPLAY_SEL := prev | next | first | last | recent | mouse | DIR_SEL | <arrangement index (1\-based)> | LABEL
@@ -844,7 +846,8 @@ SPACE
 .fi
 .if n .RE
 .sp
-Stack windows are ordered from the current front window to the last window in that stack.
+Stack windows are ordered by their logical stack position. The active window is
+the front/current stack member and is marked with \f(CR"is\-active": true\fP.
 .sp
 WINDOW
 .sp

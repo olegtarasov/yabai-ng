@@ -293,6 +293,7 @@ static void window_node_split(struct view *view, struct window_node *node, struc
     if (window_node_get_child(node) == CHILD_SECOND) {
         memcpy(left->window_list, node->window_list, sizeof(uint32_t) * node->window_count);
         memcpy(left->window_order, node->window_order, sizeof(uint32_t) * node->window_count);
+        left->recent_window_id = node->recent_window_id;
         left->window_count = node->window_count;
         left->zoom = zoom;
 
@@ -302,6 +303,7 @@ static void window_node_split(struct view *view, struct window_node *node, struc
     } else {
         memcpy(right->window_list, node->window_list, sizeof(uint32_t) * node->window_count);
         memcpy(right->window_order, node->window_order, sizeof(uint32_t) * node->window_count);
+        right->recent_window_id = node->recent_window_id;
         right->window_count = node->window_count;
         right->zoom = zoom;
 
@@ -396,22 +398,104 @@ int window_node_index_of_window(struct window_node *node, uint32_t window_id)
     return 0;
 }
 
+void window_node_rebuild_window_order(struct window_node *node, uint32_t active_window_id)
+{
+    if (node->window_count == 0) return;
+    if (!window_node_contains_window(node, active_window_id)) active_window_id = node->window_list[0];
+
+    uint32_t old_active_window_id = node->window_order[0];
+    if (node->feedback_window.id && old_active_window_id && old_active_window_id != active_window_id) {
+        table_remove(&g_window_manager.insert_feedback, &old_active_window_id);
+    }
+
+    node->window_order[0] = active_window_id;
+    int order_index = 1;
+
+    for (int i = 0; i < node->window_count; ++i) {
+        if (node->window_list[i] == active_window_id) continue;
+        node->window_order[order_index++] = node->window_list[i];
+    }
+
+    if (node->recent_window_id == active_window_id ||
+        !window_node_contains_window(node, node->recent_window_id)) {
+        node->recent_window_id = 0;
+    }
+
+    if (node->feedback_window.id && old_active_window_id && old_active_window_id != active_window_id) {
+        SLSSetWindowLevel(g_connection, node->feedback_window.id, window_level(active_window_id));
+        SLSSetWindowSubLevel(g_connection, node->feedback_window.id, window_sub_level(active_window_id));
+        table_add(&g_window_manager.insert_feedback, &active_window_id, node);
+        if (!workspace_is_macos_sequoia() && !workspace_is_macos_tahoe()) {
+            update_window_notifications();
+        }
+    }
+}
+
+bool window_node_activate_window(struct window_node *node, uint32_t window_id)
+{
+    if (!window_node_contains_window(node, window_id)) return false;
+
+    uint32_t active_window_id = node->window_order[0];
+    if (active_window_id == window_id) return false;
+
+    if (window_node_contains_window(node, active_window_id)) {
+        node->recent_window_id = active_window_id;
+    }
+
+    window_node_rebuild_window_order(node, window_id);
+    return true;
+}
+
+void window_node_order_stack_windows(struct window_node *node)
+{
+    if (node->window_count <= 1) return;
+
+    for (int i = node->window_count - 2; i >= 0; --i) {
+        scripting_addition_order_window(node->window_order[i], 1, node->window_order[i+1]);
+    }
+}
+
+void window_node_swap_windows(struct window_node *node, uint32_t a_id, uint32_t b_id)
+{
+    int a_list_index = -1;
+    int b_list_index = -1;
+
+    for (int i = 0; i < node->window_count; ++i) {
+        if (node->window_list[i] == a_id) {
+            a_list_index = i;
+        } else if (node->window_list[i] == b_id) {
+            b_list_index = i;
+        }
+    }
+
+    if (a_list_index < 0 || b_list_index < 0) return;
+
+    uint32_t active_window_id = node->window_order[0];
+    node->window_list[a_list_index] = b_id;
+    node->window_list[b_list_index] = a_id;
+    window_node_rebuild_window_order(node, active_window_id);
+}
+
 void window_node_swap_window_list(struct window_node *a_node, struct window_node *b_node)
 {
     uint32_t tmp_window_list[NODE_MAX_WINDOW_COUNT];
     uint32_t tmp_window_order[NODE_MAX_WINDOW_COUNT];
+    uint32_t tmp_recent_window_id;
     uint32_t tmp_window_count;
 
     memcpy(tmp_window_list, a_node->window_list, sizeof(uint32_t) * a_node->window_count);
     memcpy(tmp_window_order, a_node->window_order, sizeof(uint32_t) * a_node->window_count);
+    tmp_recent_window_id = a_node->recent_window_id;
     tmp_window_count = a_node->window_count;
 
     memcpy(a_node->window_list, b_node->window_list, sizeof(uint32_t) * b_node->window_count);
     memcpy(a_node->window_order, b_node->window_order, sizeof(uint32_t) * b_node->window_count);
+    a_node->recent_window_id = b_node->recent_window_id;
     a_node->window_count = b_node->window_count;
 
     memcpy(b_node->window_list, tmp_window_list, sizeof(uint32_t) * tmp_window_count);
     memcpy(b_node->window_order, tmp_window_order, sizeof(uint32_t) * tmp_window_count);
+    b_node->recent_window_id = tmp_recent_window_id;
     b_node->window_count = tmp_window_count;
 
     a_node->zoom = NULL;
@@ -648,6 +732,12 @@ struct window_node *view_remove_window_node(struct view *view, struct window *wi
         assert(removed_order);
         --node->window_count;
 
+        if (node->recent_window_id == window->id) {
+            node->recent_window_id = 0;
+        }
+
+        window_node_rebuild_window_order(node, node->window_order[0]);
+
         if (view->insertion_point == window->id) {
             view->insertion_point = node->window_order[0];
         }
@@ -672,6 +762,7 @@ struct window_node *view_remove_window_node(struct view *view, struct window *wi
 
     memcpy(parent->window_list, child->window_list, sizeof(uint32_t) * child->window_count);
     memcpy(parent->window_order, child->window_order, sizeof(uint32_t) * child->window_count);
+    parent->recent_window_id = child->recent_window_id;
     parent->window_count = child->window_count;
 
     parent->left      = NULL;
@@ -736,9 +827,10 @@ struct window_node *view_remove_window_node(struct view *view, struct window *wi
 void view_stack_window_node(struct window_node *node, struct window *window)
 {
     int insert_index = node->window_count;
+    uint32_t active_window_id = node->window_order[0];
 
     for (int i = 0; i < node->window_count; ++i) {
-        if (node->window_list[i] == node->window_order[0]) {
+        if (node->window_list[i] == active_window_id) {
             insert_index = i+1;
             break;
         }
@@ -749,9 +841,9 @@ void view_stack_window_node(struct window_node *node, struct window *window)
     }
 
     node->window_list[insert_index] = window->id;
-    memmove(node->window_order + 1, node->window_order, sizeof(uint32_t) * node->window_count);
-    node->window_order[0] = window->id;
     ++node->window_count;
+    node->recent_window_id = active_window_id;
+    window_node_rebuild_window_order(node, window->id);
 }
 
 struct window_node *view_add_window_node_with_insertion_point(struct view *view, struct window *window, uint32_t insertion_point)
@@ -884,7 +976,7 @@ static void view_serialize_stacks(FILE *rsp, struct view *view)
 
         for (int i = 0; i < node->window_count; ++i) {
             if (i) fprintf(rsp, ",");
-            view_serialize_stack_window(rsp, node->window_order[i], i == 0);
+            view_serialize_stack_window(rsp, node->window_list[i], node->window_list[i] == node->window_order[0]);
         }
 
         fprintf(rsp, "]}");

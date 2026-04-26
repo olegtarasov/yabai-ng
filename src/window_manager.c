@@ -1128,7 +1128,9 @@ struct window *window_manager_find_recent_window_in_stack(struct space_manager *
     struct window_node *node = view_find_window_node(view, window->id);
     if (!node) return NULL;
 
-    return node->window_count > 1 ? window_manager_find_window(wm, node->window_order[1]) : NULL;
+    return node->window_count > 1 && window_node_contains_window(node, node->recent_window_id)
+        ? window_manager_find_window(wm, node->recent_window_id)
+        : NULL;
 }
 
 struct window *window_manager_find_window_in_stack(struct space_manager *sm, struct window_manager *wm, struct window *window, int index)
@@ -1829,7 +1831,7 @@ enum window_op_error window_manager_stack_window(struct space_manager *sm, struc
     view_stack_window_node(a_node, b);
     window_manager_add_managed_window(wm, b, a_view);
     window_manager_adjust_layer(b, LAYER_BELOW);
-    scripting_addition_order_window(b->id, 1, a_node->window_order[1]);
+    window_node_order_stack_windows(a_node);
 
     struct area area = a_node->zoom ? a_node->zoom->area : a_node->area;
     window_manager_animate_window((struct window_capture) { b, area.x, area.y, area.w, area.h });
@@ -1974,38 +1976,8 @@ enum window_op_error window_manager_swap_window(struct space_manager *sm, struct
     if (!b_node) return WINDOW_OP_ERROR_INVALID_DST_NODE;
 
     if (a_node == b_node) {
-        int a_list_index = 0;
-        int a_order_index = 0;
-
-        int b_list_index = 0;
-        int b_order_index = 0;
-
-        for (int i = 0; i < a_node->window_count; ++i) {
-            if (a_node->window_list[i] == a->id) {
-                a_list_index = i;
-            } else if (a_node->window_list[i] == b->id) {
-                b_list_index = i;
-            }
-
-            if (a_node->window_order[i] == a->id) {
-                a_order_index = i;
-            } else if (a_node->window_order[i] == b->id) {
-                b_order_index = i;
-            }
-        }
-
-        a_node->window_list[a_list_index] = b->id;
-        a_node->window_order[a_order_index] = b->id;
-
-        a_node->window_list[b_list_index] = a->id;
-        a_node->window_order[b_order_index] = a->id;
-
-        if (a->id == wm->focused_window_id) {
-            window_manager_focus_window_with_raise(&b->application->psn, b->id, b->ref);
-        } else if (b->id == wm->focused_window_id) {
-            window_manager_focus_window_with_raise(&a->application->psn, a->id, a->ref);
-        }
-
+        window_node_swap_windows(a_node, a->id, b->id);
+        window_node_order_stack_windows(a_node);
         event_signal_push(SIGNAL_SPACE_STACKS_CHANGED, (void *)(uintptr_t) a_view->sid);
         return WINDOW_OP_ERROR_SUCCESS;
     }

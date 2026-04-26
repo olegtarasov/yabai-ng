@@ -2,12 +2,12 @@
 .\"     Title: yabai
 .\"    Author: [see the "AUTHOR(S)" section]
 .\" Generator: Asciidoctor 2.0.26
-.\"      Date: 2026-04-25
+.\"      Date: 2026-04-26
 .\"    Manual: Yabai Manual
 .\"    Source: Yabai
 .\"  Language: English
 .\"
-.TH "YABAI" "1" "2026-04-25" "Yabai" "Yabai Manual"
+.TH "YABAI" "1" "2026-04-26" "Yabai" "Yabai Manual"
 .ie \n(.g .ds Aq \(aq
 .el       .ds Aq '
 .ss \n[.ss] 0
@@ -144,7 +144,7 @@ WINDOW_SEL\&  := prev | next | first | last | recent | mouse | largest | smalles
 
 DISPLAY_SEL := prev | next | first | last | recent | mouse | DIR_SEL | <arrangement index (1\-based)> | LABEL
 
-SPACE_SEL\&   := prev | next | first | last | recent | mouse | <mission\-control index (1\-based)> | LABEL
+SPACE_SEL\&   := prev | next | next_fullscreen | prev_fullscreen | first | last | recent | mouse | <mission\-control index (1\-based)> | LABEL
 
 EASING\&      := ease_in_sine\&  | ease_out_sine\&  | ease_in_out_sine\&  |
                ease_in_quad\&  | ease_out_quad\&  | ease_in_out_quad\&  |
@@ -459,6 +459,16 @@ If the selected space and the given space belong to different displays, this beh
 If the selected space and the given space belong to the same display, this behaves like \fI\-\-focus\fP.
 .br
 System Integrity Protection must be partially disabled.
+.sp
+.if n .RS 4
+.nf
+.fam C
+The special selectors \*(Aqnext_fullscreen\*(Aq and \*(Aqprev_fullscreen\*(Aq navigate native macOS fullscreen spaces in Mission Control order. +
+\*(Aqnext_fullscreen\*(Aq enters the fullscreen chain from a managed space and remembers that origin, then advances through fullscreen spaces. +
+\*(Aqprev_fullscreen\*(Aq reverses through fullscreen spaces and returns from the first fullscreen space to the remembered managed origin, falling back to the last managed space with displayable windows, then managed space 1.
+.fam
+.fi
+.if n .RE
 .RE
 .sp
 \fB\-\-create\fP  [\fI<DISPLAY_SEL>\fP]

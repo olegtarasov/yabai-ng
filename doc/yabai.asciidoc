@@ -105,7 +105,7 @@ WINDOW_SEL  := prev | next | first | last | recent | mouse | largest | smallest 
 
 DISPLAY_SEL := prev | next | first | last | recent | mouse | DIR_SEL | <arrangement index (1-based)> | LABEL
 
-SPACE_SEL   := prev | next | first | last | recent | mouse | <mission-control index (1-based)> | LABEL
+SPACE_SEL   := prev | next | next_fullscreen | prev_fullscreen | first | last | recent | mouse | <mission-control index (1-based)> | LABEL
 
 EASING      := ease_in_sine  | ease_out_sine  | ease_in_out_sine  |
                ease_in_quad  | ease_out_quad  | ease_in_out_quad  |
@@ -320,6 +320,10 @@ COMMAND
     If the selected space and the given space belong to different displays, this behaves like '--swap'. +
     If the selected space and the given space belong to the same display, this behaves like '--focus'. +
     System Integrity Protection must be partially disabled.
+
+    The special selectors 'next_fullscreen' and 'prev_fullscreen' navigate native macOS fullscreen spaces in Mission Control order. +
+    'next_fullscreen' enters the fullscreen chain from a managed space and remembers that origin, then advances through fullscreen spaces. +
+    'prev_fullscreen' reverses through fullscreen spaces and returns from the first fullscreen space to the remembered managed origin, falling back to the last managed space with displayable windows, then managed space 1.
 
 *--create*  ['<DISPLAY_SEL>']::
     Create a new space on the given display. +

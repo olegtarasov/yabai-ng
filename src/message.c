@@ -115,6 +115,8 @@ extern bool g_verbose;
 #define COMMAND_SPACE_LAYOUT   "--layout"
 #define COMMAND_SPACE_LABEL    "--label"
 
+#define ARGUMENT_SPACE_SEL_NEXT_FULLSCREEN "next_fullscreen"
+#define ARGUMENT_SPACE_SEL_PREV_FULLSCREEN "prev_fullscreen"
 #define ARGUMENT_SPACE_ROTATE_90    "90"
 #define ARGUMENT_SPACE_ROTATE_180   "180"
 #define ARGUMENT_SPACE_ROTATE_270   "270"
@@ -656,6 +658,11 @@ struct selector
 {
     struct token token;
     bool did_parse;
+    enum {
+        SPACE_SELECTOR_NORMAL,
+        SPACE_SELECTOR_NEXT_FULLSCREEN,
+        SPACE_SELECTOR_PREV_FULLSCREEN,
+    } space_selector;
 
     union {
         int dir;
@@ -827,6 +834,22 @@ static struct selector parse_space_selector(FILE *rsp, char **message, uint64_t 
             } else {
                 daemon_fail(rsp, "could not locate the selected space.\n");
             }
+        } else if (token_equals(result.token, ARGUMENT_SPACE_SEL_NEXT_FULLSCREEN)) {
+            uint64_t sid = managed_space_next_fullscreen_target(&g_managed_space, acting_sid);
+            if (sid) {
+                result.sid = sid;
+                result.space_selector = SPACE_SELECTOR_NEXT_FULLSCREEN;
+            } else {
+                daemon_fail(rsp, "could not locate the next native fullscreen space.\n");
+            }
+        } else if (token_equals(result.token, ARGUMENT_SPACE_SEL_PREV_FULLSCREEN)) {
+            uint64_t sid = managed_space_prev_fullscreen_target(&g_managed_space, acting_sid);
+            if (sid) {
+                result.sid = sid;
+                result.space_selector = SPACE_SELECTOR_PREV_FULLSCREEN;
+            } else {
+                daemon_fail(rsp, "could not locate the previous native fullscreen space.\n");
+            }
         } else if (token_equals(result.token, ARGUMENT_COMMON_SEL_FIRST)) {
             uint64_t sid = space_manager_first_space();
             if (sid) {
@@ -866,6 +889,23 @@ static struct selector parse_space_selector(FILE *rsp, char **message, uint64_t 
     } else {
         result.did_parse = false;
         daemon_fail(rsp, "value '%.*s' is not a valid option for SPACE_SEL\n", result.token.length, result.token.text);
+    }
+
+    return result;
+}
+
+static enum space_op_error space_manager_focus_selector(uint64_t acting_sid, struct selector *selector, bool switch_space)
+{
+    enum space_op_error result;
+
+    if (selector->space_selector == SPACE_SELECTOR_NORMAL && switch_space) {
+        result = space_manager_switch_space(selector->sid);
+    } else {
+        result = space_manager_focus_space(selector->sid);
+    }
+
+    if (result == SPACE_OP_ERROR_SUCCESS && selector->space_selector == SPACE_SELECTOR_NEXT_FULLSCREEN) {
+        managed_space_note_fullscreen_navigation(&g_managed_space, acting_sid, selector->sid);
     }
 
     return result;
@@ -1801,7 +1841,7 @@ static void handle_domain_space(FILE *rsp, struct token domain, char *message)
         if (token_equals(command, COMMAND_SPACE_FOCUS)) {
             struct selector selector = parse_space_selector(rsp, &message, acting_sid, false);
             if (selector.did_parse && selector.sid) {
-                enum space_op_error result = space_manager_focus_space(selector.sid);
+                enum space_op_error result = space_manager_focus_selector(acting_sid, &selector, false);
                 if (result == SPACE_OP_ERROR_SAME_SPACE) {
                     daemon_fail(rsp, "cannot focus an already focused space.\n");
                 } else if (result == SPACE_OP_ERROR_DISPLAY_IS_ANIMATING) {
@@ -1815,7 +1855,7 @@ static void handle_domain_space(FILE *rsp, struct token domain, char *message)
         } else if (token_equals(command, COMMAND_SPACE_SWITCH)) {
             struct selector selector = parse_space_selector(rsp, &message, acting_sid, false);
             if (selector.did_parse && selector.sid) {
-                enum space_op_error result = space_manager_switch_space(selector.sid);
+                enum space_op_error result = space_manager_focus_selector(acting_sid, &selector, true);
                 if (result == SPACE_OP_ERROR_SAME_SPACE) {
                     daemon_fail(rsp, "cannot focus an already focused space.\n");
                 } else if (result == SPACE_OP_ERROR_DISPLAY_IS_ANIMATING) {

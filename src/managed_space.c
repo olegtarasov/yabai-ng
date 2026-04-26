@@ -23,6 +23,14 @@ static void managed_window_entry_destroy(struct managed_window_entry *entry)
     memset(entry, 0, sizeof(struct managed_window_entry));
 }
 
+static void managed_space_clear_fullscreen_origin(struct managed_space *ms)
+{
+    if (!ms->fullscreen_origin_uuid) return;
+
+    CFRelease(ms->fullscreen_origin_uuid);
+    ms->fullscreen_origin_uuid = NULL;
+}
+
 static void managed_space_clear(struct managed_space *ms)
 {
     for (int i = 0; i < buf_len(ms->spaces); ++i) {
@@ -48,6 +56,7 @@ static void managed_space_clear(struct managed_space *ms)
     ms->last_active_order = 0;
     ms->last_focused_order = 0;
     ms->last_presentation_hash = 0;
+    managed_space_clear_fullscreen_origin(ms);
     ms->topology_grace = false;
 }
 
@@ -1513,11 +1522,93 @@ char *managed_space_active_name(struct managed_space *ms)
     return managed_space_name_for_sid(ms, g_space_manager.current_space_id);
 }
 
+static uint64_t managed_space_fullscreen_origin_sid(struct managed_space *ms)
+{
+    if (!ms->fullscreen_origin_uuid) return 0;
+
+    managed_space_refresh_sids(ms);
+    struct managed_space_entry *entry = managed_space_find_by_uuid(ms, ms->fullscreen_origin_uuid);
+    if (!entry || !entry->sid || space_is_fullscreen(entry->sid)) return 0;
+
+    return entry->sid;
+}
+
+static uint64_t managed_space_last_displayable_sid(struct managed_space *ms)
+{
+    uint64_t result = 0;
+
+    managed_space_refresh_sids(ms);
+    for (int i = 0; i < buf_len(ms->spaces); ++i) {
+        uint64_t sid = ms->spaces[i].sid;
+        if (!sid || space_is_fullscreen(sid)) continue;
+        if (managed_space_displayable_window_count(sid) > 0) result = sid;
+    }
+
+    return result;
+}
+
+static uint64_t managed_space_first_sid(struct managed_space *ms)
+{
+    managed_space_refresh_sids(ms);
+    struct managed_space_entry *entry = managed_space_find_by_order(ms, 1);
+    if (!entry || !entry->sid || space_is_fullscreen(entry->sid)) return 0;
+
+    return entry->sid;
+}
+
+uint64_t managed_space_next_fullscreen_target(struct managed_space *ms, uint64_t acting_sid)
+{
+    if (!acting_sid) return 0;
+
+    if (space_is_fullscreen(acting_sid)) {
+        return space_manager_next_fullscreen_space(acting_sid);
+    }
+
+    if (!ms->enabled) return 0;
+
+    managed_space_refresh_sids(ms);
+    if (!managed_space_find_by_sid_internal(ms, acting_sid)) return 0;
+
+    return space_manager_first_fullscreen_space();
+}
+
+uint64_t managed_space_prev_fullscreen_target(struct managed_space *ms, uint64_t acting_sid)
+{
+    if (!acting_sid || !space_is_fullscreen(acting_sid)) return 0;
+
+    uint64_t sid = space_manager_prev_fullscreen_space(acting_sid);
+    if (sid) return sid;
+
+    if (!ms->enabled) return 0;
+
+    sid = managed_space_fullscreen_origin_sid(ms);
+    if (sid) return sid;
+
+    sid = managed_space_last_displayable_sid(ms);
+    if (sid) return sid;
+
+    return managed_space_first_sid(ms);
+}
+
+void managed_space_note_fullscreen_navigation(struct managed_space *ms, uint64_t origin_sid, uint64_t target_sid)
+{
+    if (!ms->enabled || !origin_sid || !target_sid) return;
+    if (!space_is_fullscreen(target_sid) || space_is_fullscreen(origin_sid)) return;
+
+    managed_space_refresh_sids(ms);
+    struct managed_space_entry *entry = managed_space_find_by_sid_internal(ms, origin_sid);
+    if (!entry || !entry->uuid) return;
+
+    managed_space_clear_fullscreen_origin(ms);
+    ms->fullscreen_origin_uuid = CFRetain(entry->uuid);
+}
+
 void managed_space_note_focus_changed(struct managed_space *ms)
 {
     if (!ms->enabled) return;
 
     int order = managed_space_active_order(ms);
+    if (order > 0) managed_space_clear_fullscreen_origin(ms);
     if (order == ms->last_focused_order) return;
 
     ms->last_focused_order = order;

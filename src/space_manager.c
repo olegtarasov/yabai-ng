@@ -608,6 +608,87 @@ out:
     return n_sid != sid ? n_sid : 0;
 }
 
+uint64_t space_manager_first_fullscreen_space(void)
+{
+    uint64_t sid = 0;
+
+    CFArrayRef display_spaces_ref = SLSCopyManagedDisplaySpaces(g_connection);
+    int display_spaces_count = CFArrayGetCount(display_spaces_ref);
+
+    for (int i = 0; i < display_spaces_count; ++i) {
+        CFDictionaryRef display_ref = CFArrayGetValueAtIndex(display_spaces_ref, i);
+        CFArrayRef spaces_ref = CFDictionaryGetValue(display_ref, CFSTR("Spaces"));
+        int spaces_count = CFArrayGetCount(spaces_ref);
+
+        for (int j = 0; j < spaces_count; ++j) {
+            CFDictionaryRef space_ref = CFArrayGetValueAtIndex(spaces_ref, j);
+            CFNumberRef sid_ref = CFDictionaryGetValue(space_ref, CFSTR("id64"));
+            CFNumberGetValue(sid_ref, CFNumberGetType(sid_ref), &sid);
+            if (space_is_fullscreen(sid)) goto out;
+        }
+    }
+
+    sid = 0;
+out:
+    CFRelease(display_spaces_ref);
+    return sid;
+}
+
+uint64_t space_manager_prev_fullscreen_space(uint64_t sid)
+{
+    uint64_t p_sid = 0;
+    uint64_t n_sid = 0;
+
+    CFArrayRef display_spaces_ref = SLSCopyManagedDisplaySpaces(g_connection);
+    int display_spaces_count = CFArrayGetCount(display_spaces_ref);
+
+    for (int i = 0; i < display_spaces_count; ++i) {
+        CFDictionaryRef display_ref = CFArrayGetValueAtIndex(display_spaces_ref, i);
+        CFArrayRef spaces_ref = CFDictionaryGetValue(display_ref, CFSTR("Spaces"));
+        int spaces_count = CFArrayGetCount(spaces_ref);
+
+        for (int j = 0; j < spaces_count; ++j) {
+            CFDictionaryRef space_ref = CFArrayGetValueAtIndex(spaces_ref, j);
+            CFNumberRef sid_ref = CFDictionaryGetValue(space_ref, CFSTR("id64"));
+            CFNumberGetValue(sid_ref, CFNumberGetType(sid_ref), &n_sid);
+            if (n_sid == sid) goto out;
+            if (space_is_fullscreen(n_sid)) p_sid = n_sid;
+        }
+    }
+
+out:
+    CFRelease(display_spaces_ref);
+    return p_sid != sid ? p_sid : 0;
+}
+
+uint64_t space_manager_next_fullscreen_space(uint64_t sid)
+{
+    uint64_t n_sid = 0;
+    bool found_sid = false;
+
+    CFArrayRef display_spaces_ref = SLSCopyManagedDisplaySpaces(g_connection);
+    int display_spaces_count = CFArrayGetCount(display_spaces_ref);
+
+    for (int i = 0; i < display_spaces_count; ++i) {
+        CFDictionaryRef display_ref = CFArrayGetValueAtIndex(display_spaces_ref, i);
+        CFArrayRef spaces_ref = CFDictionaryGetValue(display_ref, CFSTR("Spaces"));
+        int spaces_count = CFArrayGetCount(spaces_ref);
+
+        for (int j = 0; j < spaces_count; ++j) {
+            CFDictionaryRef space_ref = CFArrayGetValueAtIndex(spaces_ref, j);
+            CFNumberRef sid_ref = CFDictionaryGetValue(space_ref, CFSTR("id64"));
+            CFNumberGetValue(sid_ref, CFNumberGetType(sid_ref), &n_sid);
+            if (found_sid && space_is_fullscreen(n_sid)) goto out;
+            found_sid = found_sid || n_sid == sid;
+        }
+    }
+
+    n_sid = 0;
+out:
+    CFRelease(display_spaces_ref);
+    return n_sid != sid ? n_sid : 0;
+}
+
 uint64_t space_manager_first_space(void)
 {
     uint64_t sid = 0;

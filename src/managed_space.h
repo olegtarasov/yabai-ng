@@ -35,6 +35,7 @@ struct managed_space
     int last_active_order;
     int last_focused_order;
     uint64_t last_presentation_hash;
+    CFStringRef fullscreen_origin_uuid;
     struct managed_space_entry *spaces;
     struct managed_window_entry *windows;
     char **names;
@@ -55,6 +56,7 @@ void managed_space_note_user_space_destroyed(struct managed_space *ms, uint64_t 
 void managed_space_note_user_space_display_changed(struct managed_space *ms, uint64_t sid, uint32_t did);
 void managed_space_note_space_label_changed(struct managed_space *ms, uint64_t sid);
 void managed_space_note_user_window_space_changed(struct managed_space *ms, struct window *window, uint64_t sid);
+void managed_space_note_fullscreen_navigation(struct managed_space *ms, uint64_t origin_sid, uint64_t target_sid);
 void managed_space_note_focus_changed(struct managed_space *ms);
 
 void managed_space_handle_space_created(struct managed_space *ms, uint64_t sid);
@@ -74,6 +76,8 @@ int managed_space_active_order(struct managed_space *ms);
 int managed_space_active_index(struct managed_space *ms);
 int managed_space_active_display(struct managed_space *ms);
 char *managed_space_active_name(struct managed_space *ms);
+uint64_t managed_space_next_fullscreen_target(struct managed_space *ms, uint64_t acting_sid);
+uint64_t managed_space_prev_fullscreen_target(struct managed_space *ms, uint64_t acting_sid);
 
 bool managed_space_window_is_displayable(struct window *window);
 int managed_space_displayable_window_count(uint64_t sid);

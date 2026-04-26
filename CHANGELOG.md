@@ -5,6 +5,8 @@ All notable changes to this project will be documented in this file.
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+### Added
+- Added `next_fullscreen` and `prev_fullscreen` `SPACE_SEL` values for navigating native macOS fullscreen spaces from managed spaces.
 
 ## [26.0.0] - 2026-04-26
 ### Added

@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [26.1.1] - 2026-04-26
+### Changed
+- `window --stack <target>` now stacks the selected/acting window onto the target window, keeps the selected window active/front, and preserves logical stack order from the source/target horizontal relation.
+
+### Fixed
+- Fixed a stack focus/order mismatch where stacking an active window could leave macOS focus on one stack member while yabai and Sketchybar reported another member as active.
+- Same-stack `window --stack` operations are now rejected explicitly; use `window --swap stack.prev|stack.next` for stack reordering.
+
 ## [26.1.0] - 2026-04-26
 ### Added
 - Added `next_fullscreen` and `prev_fullscreen` `SPACE_SEL` values for navigating native macOS fullscreen spaces from managed spaces.

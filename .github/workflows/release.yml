@@ -193,10 +193,10 @@ jobs:
                 (pkgshare/"examples").install "#{buildpath}/examples/skhdrc"
                 man1.install "#{buildpath}/doc/yabai.1"
               else
-                bin.install "archive/bin/yabai"
-                (pkgshare/"examples").install "archive/examples/yabairc"
-                (pkgshare/"examples").install "archive/examples/skhdrc"
-                man1.install "archive/doc/yabai.1"
+                bin.install "bin/yabai"
+                (pkgshare/"examples").install "examples/yabairc"
+                (pkgshare/"examples").install "examples/skhdrc"
+                man1.install "doc/yabai.1"
               end
             end
 

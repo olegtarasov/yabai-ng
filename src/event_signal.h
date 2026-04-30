@@ -43,6 +43,7 @@ enum signal_type
     SIGNAL_MANAGED_SPACES_CHANGED,
     SIGNAL_MANAGED_SPACE_FOCUSED,
     SIGNAL_SPACE_STACKS_CHANGED,
+    SIGNAL_SPACE_STACK_FOCUSED,
 
     SIGNAL_TYPE_COUNT
 };
@@ -89,6 +90,7 @@ static const char *signal_type_str[] =
     [SIGNAL_MANAGED_SPACES_CHANGED]         = "managed_spaces_changed",
     [SIGNAL_MANAGED_SPACE_FOCUSED]          = "managed_space_focused",
     [SIGNAL_SPACE_STACKS_CHANGED]           = "space_stacks_changed",
+    [SIGNAL_SPACE_STACK_FOCUSED]            = "space_stack_focused",
 
     [SIGNAL_TYPE_COUNT]                     = "signal_type_count"
 };

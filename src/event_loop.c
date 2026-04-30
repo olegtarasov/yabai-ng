@@ -67,7 +67,7 @@ static void window_did_receive_focus(struct window_manager *wm, struct mouse_sta
 
     if (window_node_activate_window(node, window->id)) {
         window_node_order_stack_windows(node);
-        event_signal_push(SIGNAL_SPACE_STACKS_CHANGED, (void *)(uintptr_t) view->sid);
+        event_signal_push(SIGNAL_SPACE_STACK_FOCUSED, window);
     }
 }
 

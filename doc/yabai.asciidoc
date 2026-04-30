@@ -999,6 +999,12 @@ EVENT
     Passes three arguments: $YABAI_SPACE_ID, $YABAI_SPACE_INDEX,
     $YABAI_DISPLAY_INDEX
 
+*space_stack_focused*::
+    Triggered when the active window inside an existing stack changes without
+    changing the stack presentation. +
+    Passes four arguments: $YABAI_WINDOW_ID, $YABAI_SPACE_ID,
+    $YABAI_SPACE_INDEX, $YABAI_DISPLAY_INDEX
+
 ACTION
 ^^^^^^
 

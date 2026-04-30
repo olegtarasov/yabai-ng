@@ -30,6 +30,7 @@ static bool event_signal_filter(struct event_signal *es, struct signal *signal)
     } break;
     case SIGNAL_WINDOW_CREATED:
     case SIGNAL_WINDOW_FOCUSED:
+    case SIGNAL_SPACE_STACK_FOCUSED:
     case SIGNAL_WINDOW_DEMINIMIZED: {
         int regex_match_app = signal->app_regex_exclude ? REGEX_MATCH_YES : REGEX_MATCH_NO;
         bool app_no_match = regex_match(signal->app_regex_valid, &signal->app_regex, es->app) == regex_match_app;
@@ -400,6 +401,34 @@ void event_signal_push(enum signal_type type, void *context)
         snprintf(es->arg_value[1], arg_size, "%d", index);
         snprintf(es->arg_name[2],  arg_size, "%s", "YABAI_DISPLAY_INDEX");
         snprintf(es->arg_value[2], arg_size, "%d", display);
+    } break;
+    case SIGNAL_SPACE_STACK_FOCUSED: {
+        struct window *window = context;
+        struct view *view = window_manager_find_managed_window(&g_window_manager, window);
+        uint64_t sid = view ? view->sid : window_space(window->id);
+        int index = sid ? space_manager_mission_control_index(sid) : 0;
+        int display = sid ? display_manager_display_id_arrangement(space_display_id(sid)) : 0;
+
+        es->arg_name[0]  = ts_alloc_unaligned(arg_size);
+        es->arg_value[0] = ts_alloc_unaligned(arg_size);
+        es->arg_name[1]  = ts_alloc_unaligned(arg_size);
+        es->arg_value[1] = ts_alloc_unaligned(arg_size);
+        es->arg_name[2]  = ts_alloc_unaligned(arg_size);
+        es->arg_value[2] = ts_alloc_unaligned(arg_size);
+        es->arg_name[3]  = ts_alloc_unaligned(arg_size);
+        es->arg_value[3] = ts_alloc_unaligned(arg_size);
+
+        snprintf(es->arg_name[0],  arg_size, "%s", "YABAI_WINDOW_ID");
+        snprintf(es->arg_value[0], arg_size, "%d", window->id);
+        snprintf(es->arg_name[1],  arg_size, "%s", "YABAI_SPACE_ID");
+        snprintf(es->arg_value[1], arg_size, "%lld", sid);
+        snprintf(es->arg_name[2],  arg_size, "%s", "YABAI_SPACE_INDEX");
+        snprintf(es->arg_value[2], arg_size, "%d", index);
+        snprintf(es->arg_name[3],  arg_size, "%s", "YABAI_DISPLAY_INDEX");
+        snprintf(es->arg_value[3], arg_size, "%d", display);
+
+        es->app   = window->application->name;
+        es->title = window_title_ts(window);
     } break;
     }
 }

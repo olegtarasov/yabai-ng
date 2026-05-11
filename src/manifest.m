@@ -1,3 +1,4 @@
+#include <objc/objc-runtime.h>
 #include <Carbon/Carbon.h>
 #include <Cocoa/Cocoa.h>
 #include <CoreVideo/CoreVideo.h>

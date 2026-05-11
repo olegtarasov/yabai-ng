@@ -2,6 +2,7 @@
 typedef CONNECTION_CALLBACK(connection_callback);
 
 static mach_port_t (* CGSGetConnectionPortById)(int);
+static int64_t (* SLSPerformAsynchronousBridgedWindowManagementOperation)(void *);
 extern mach_port_t mig_get_special_reply_port(void);
 extern AXUIElementRef _AXUIElementCreateWithRemoteToken(CFDataRef data);
 extern AXError _AXUIElementGetWindow(AXUIElementRef ref, uint32_t *wid);

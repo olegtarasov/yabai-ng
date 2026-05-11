@@ -155,6 +155,7 @@ static inline bool configure_settings_and_acquire_lock(void)
     g_layer_below_window_level  = CGWindowLevelForKey(LAYER_BELOW);
     g_layer_above_window_level  = CGWindowLevelForKey(LAYER_ABOVE);
     CGSGetConnectionPortById    = macho_find_symbol("/System/Library/PrivateFrameworks/SkyLight.framework/Versions/A/SkyLight", "_CGSGetConnectionPortById");
+    SLSPerformAsynchronousBridgedWindowManagementOperation = macho_find_symbol("/System/Library/PrivateFrameworks/SkyLight.framework/Versions/A/SkyLight", "__ZL54SLSPerformAsynchronousBridgedWindowManagementOperationP47SLSAsynchronousBridgedWindowManagementOperation");
 
     signal(SIGCHLD, SIG_IGN);
     signal(SIGPIPE, SIG_IGN);

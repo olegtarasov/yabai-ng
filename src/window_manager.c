@@ -2175,6 +2175,7 @@ void window_manager_send_window_to_space(struct space_manager *sm, struct window
     }
 
     space_manager_move_window_to_space(dst_sid, window);
+    SLSSpaceSetFrontPSN(g_connection, dst_sid, window->application->psn);
 
     if (window_manager_should_manage_window(window)) {
         struct view *view = space_manager_tile_window_on_space(sm, window, dst_sid);

@@ -6,6 +6,21 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [26.1.2] - 2026-05-23
+### Added
+- Added `managed_space_display_policy` with `follow-main` and `fixed` display affinity modes for managed spaces.
+- Added managed-space query diagnostics for the active display policy, per-space display affinity, and preserved placeholder spaces.
+- Added `space_stack_focused` signals for active-window changes inside an existing stack.
+
+### Changed
+- Managed spaces now follow the macOS main display by default, while explicit `space --display` moves pin that managed slot to a fixed display.
+- Managed-space reconciliation now preserves one unmanaged placeholder space on active non-main displays when macOS requires a normal user space there.
+- Merged upstream yabai v7.1.25.
+
+### Fixed
+- Fixed managed spaces staying on the built-in display after an external display is connected and made the macOS main display.
+- Restored SIP-enabled window moves between spaces through the upstream v7.1.25 changes.
+
 ## [26.1.1] - 2026-04-26
 ### Changed
 - `window --stack <target>` now stacks the selected/acting window onto the target window, keeps the selected window active/front, and preserves logical stack order from the source/target horizontal relation.

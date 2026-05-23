@@ -24,11 +24,19 @@ small, obvious hooks into that subsystem; substantial behavior belongs in
   UI/config metadata.
 - Managed slot names are runtime config. Numeric names are exposed in queries
   only; non-numeric names are also applied as ordinary yabai labels.
+- Managed slots follow the macOS main display by default. Fixed display
+  affinity is explicit runtime state and targets concrete display UUIDs.
 - `space --label` must not change managed membership.
 - `space --create` while managed mode is on intentionally adds the newly
-  created user space to the managed set.
+  created user space to the managed set. Explicit non-main display creates are
+  fixed; ordinary creates inherit `managed_space_display_policy`.
 - `space --destroy` through yabai intentionally removes the destroyed managed
   space from the managed set after the operation succeeds.
+- `space --display` through yabai intentionally pins the moved managed space to
+  fixed display affinity.
+- If all managed spaces leave an active non-main display, managed-space
+  reconciliation may create and preserve one unmanaged placeholder normal space
+  on that display so macOS keeps the display space namespace alive.
 - Native fullscreen spaces are exempt. Managed mode must not move or destroy
   them.
 - Reconciliation is event-driven only. Do not add polling loops or timers unless
@@ -57,6 +65,10 @@ small, obvious hooks into that subsystem; substantial behavior belongs in
 - `yabai -m config managed_space_names <comma-separated names>`
   Sets optional managed slot names. Example:
   `1,2,3,4,5,6,7,8,9,A,B,C,D,E,F,G,H,I,J,K,L,M,N,O,P,Q,R,S,T,U,V,W,X,Y,Z`.
+
+- `yabai -m config managed_space_display_policy follow-main|fixed`
+  Sets the default managed-space display affinity. `follow-main` is the
+  default; `fixed` preserves current concrete display UUIDs.
 
 - `yabai -m query --managed-spaces`
   Returns managed registry/debug state.

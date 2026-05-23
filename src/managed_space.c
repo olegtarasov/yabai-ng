@@ -8,6 +8,16 @@ extern int g_connection;
 #define MANAGED_SPACE_MAX_REPLACEMENT_RETRIES 3
 #define MANAGED_SPACE_REPLACEMENT_RETRY_DELAY_SECONDS 1
 
+const char *managed_space_display_affinity_name(enum managed_space_display_affinity display_affinity)
+{
+    switch (display_affinity) {
+    case MANAGED_SPACE_DISPLAY_FOLLOW_MAIN: return "follow-main";
+    case MANAGED_SPACE_DISPLAY_FIXED:       return "fixed";
+    }
+
+    return "unknown";
+}
+
 static void managed_space_entry_destroy(struct managed_space_entry *entry)
 {
     if (entry->uuid) CFRelease(entry->uuid);
@@ -15,6 +25,12 @@ static void managed_space_entry_destroy(struct managed_space_entry *entry)
     if (entry->name) free(entry->name);
     if (entry->label) free(entry->label);
     memset(entry, 0, sizeof(struct managed_space_entry));
+}
+
+static void managed_space_create_request_destroy(struct managed_space_create_request *request)
+{
+    if (request->display_uuid) CFRelease(request->display_uuid);
+    memset(request, 0, sizeof(struct managed_space_create_request));
 }
 
 static void managed_window_entry_destroy(struct managed_window_entry *entry)
@@ -41,9 +57,15 @@ static void managed_space_clear(struct managed_space *ms)
         managed_window_entry_destroy(&ms->windows[i]);
     }
 
+    for (int i = 0; i < buf_len(ms->pending_creates); ++i) {
+        managed_space_create_request_destroy(&ms->pending_creates[i]);
+    }
+
     buf_free(ms->spaces);
+    buf_free(ms->pending_creates);
     buf_free(ms->windows);
     ms->spaces = NULL;
+    ms->pending_creates = NULL;
     ms->windows = NULL;
     ms->pending_user_creates = 0;
     ms->replacement_retry_posted = false;
@@ -51,6 +73,7 @@ static void managed_space_clear(struct managed_space *ms)
     ms->pending_replacement_retries = 0;
     ms->last_replacement_error = SPACE_OP_ERROR_SUCCESS;
     ms->last_extra_count = 0;
+    ms->last_placeholder_count = 0;
     ms->last_repaired_window_count = 0;
     ms->last_managed_count = 0;
     ms->last_active_order = 0;
@@ -150,6 +173,32 @@ static void managed_space_set_preferred_display(struct managed_space_entry *entr
     }
 }
 
+static void managed_space_set_display_affinity(struct managed_space_entry *entry, enum managed_space_display_affinity display_affinity)
+{
+    entry->display_affinity = display_affinity;
+}
+
+static CFStringRef managed_space_copy_target_display_uuid(struct managed_space_entry *entry)
+{
+    if (!entry) return NULL;
+
+    if (entry->display_affinity == MANAGED_SPACE_DISPLAY_FOLLOW_MAIN) {
+        return display_manager_main_display_uuid();
+    }
+
+    return entry->preferred_display_uuid ? CFRetain(entry->preferred_display_uuid) : NULL;
+}
+
+static uint32_t managed_space_target_display_id(struct managed_space_entry *entry)
+{
+    CFStringRef uuid = managed_space_copy_target_display_uuid(entry);
+    if (!uuid) return 0;
+
+    uint32_t did = display_id(uuid);
+    CFRelease(uuid);
+    return did;
+}
+
 static struct managed_space_entry *managed_space_find_by_uuid(struct managed_space *ms, CFStringRef uuid)
 {
     if (!uuid) return NULL;
@@ -200,6 +249,77 @@ static struct managed_window_entry *managed_space_find_window_entry(struct manag
     return NULL;
 }
 
+static int managed_space_pending_user_create_count(struct managed_space *ms)
+{
+    int result = 0;
+
+    for (int i = 0; i < buf_len(ms->pending_creates); ++i) {
+        if (ms->pending_creates[i].managed) ++result;
+    }
+
+    return result;
+}
+
+static bool managed_space_create_request_matches_display(struct managed_space_create_request *request, uint32_t did)
+{
+    if (!request->display_uuid) return false;
+
+    uint32_t request_did = display_id(request->display_uuid);
+    return request_did && request_did == did;
+}
+
+static struct managed_space_create_request *managed_space_find_pending_placeholder_create(struct managed_space *ms, uint32_t did)
+{
+    for (int i = 0; i < buf_len(ms->pending_creates); ++i) {
+        struct managed_space_create_request *request = &ms->pending_creates[i];
+        if (request->managed) continue;
+        if (managed_space_create_request_matches_display(request, did)) return request;
+    }
+
+    return NULL;
+}
+
+static void managed_space_remove_pending_create_at_index(struct managed_space *ms, int index)
+{
+    if (index < 0 || index >= buf_len(ms->pending_creates)) return;
+
+    managed_space_create_request_destroy(&ms->pending_creates[index]);
+    buf_del(ms->pending_creates, index);
+    ms->pending_user_creates = managed_space_pending_user_create_count(ms);
+}
+
+static int managed_space_find_pending_create_index(struct managed_space *ms, uint32_t did)
+{
+    for (int i = 0; i < buf_len(ms->pending_creates); ++i) {
+        if (managed_space_create_request_matches_display(&ms->pending_creates[i], did)) return i;
+    }
+
+    return buf_len(ms->pending_creates) > 0 ? 0 : -1;
+}
+
+static void managed_space_add_pending_create(struct managed_space *ms, uint32_t did, enum managed_space_display_affinity display_affinity, bool managed)
+{
+    struct managed_space_create_request request = {
+        .display_uuid = did ? display_uuid(did) : NULL,
+        .display_affinity = display_affinity,
+        .managed = managed
+    };
+
+    buf_push(ms->pending_creates, request);
+    ms->pending_user_creates = managed_space_pending_user_create_count(ms);
+}
+
+static void managed_space_remove_last_pending_user_create(struct managed_space *ms)
+{
+    for (int i = buf_len(ms->pending_creates) - 1; i >= 0; --i) {
+        if (!ms->pending_creates[i].managed) continue;
+        managed_space_remove_pending_create_at_index(ms, i);
+        break;
+    }
+
+    ms->pending_user_creates = managed_space_pending_user_create_count(ms);
+}
+
 static void managed_space_renumber(struct managed_space *ms)
 {
     for (int i = 0; i < buf_len(ms->spaces); ++i) {
@@ -208,7 +328,7 @@ static void managed_space_renumber(struct managed_space *ms)
     }
 }
 
-static struct managed_space_entry *managed_space_add_entry(struct managed_space *ms, uint64_t sid)
+static struct managed_space_entry *managed_space_add_entry(struct managed_space *ms, uint64_t sid, enum managed_space_display_affinity display_affinity)
 {
     if (!sid || !space_is_user(sid)) return NULL;
 
@@ -221,6 +341,7 @@ static struct managed_space_entry *managed_space_add_entry(struct managed_space 
         if (!existing->preferred_display_uuid) {
             managed_space_set_preferred_display(existing, space_display_id(sid));
         }
+        managed_space_set_display_affinity(existing, display_affinity);
         managed_space_refresh_label(existing);
         managed_space_apply_entry_name(ms, existing);
         CFRelease(uuid);
@@ -231,6 +352,7 @@ static struct managed_space_entry *managed_space_add_entry(struct managed_space 
     entry.uuid = uuid;
     entry.sid = sid;
     entry.order = buf_len(ms->spaces) + 1;
+    entry.display_affinity = display_affinity;
     entry.preferred_display_uuid = display_uuid(space_display_id(sid));
     managed_space_refresh_label(&entry);
 
@@ -515,13 +637,12 @@ static bool managed_space_display_uuid_is_active(CFStringRef uuid)
     return display_id(uuid) != 0;
 }
 
-static bool managed_space_has_preferred_display(struct managed_space *ms, CFStringRef uuid)
+static bool managed_space_has_target_display(struct managed_space *ms, uint32_t did)
 {
-    if (!uuid) return false;
+    if (!did) return false;
 
     for (int i = 0; i < buf_len(ms->spaces); ++i) {
-        if (ms->spaces[i].preferred_display_uuid &&
-            CFEqual(ms->spaces[i].preferred_display_uuid, uuid)) {
+        if (managed_space_target_display_id(&ms->spaces[i]) == did) {
             return true;
         }
     }
@@ -532,10 +653,10 @@ static bool managed_space_has_preferred_display(struct managed_space *ms, CFStri
 static bool managed_space_has_absent_preferred_display(struct managed_space *ms)
 {
     for (int i = 0; i < buf_len(ms->spaces); ++i) {
-        if (ms->spaces[i].preferred_display_uuid &&
-            !managed_space_display_uuid_is_active(ms->spaces[i].preferred_display_uuid)) {
-            return true;
-        }
+        CFStringRef target_uuid = managed_space_copy_target_display_uuid(&ms->spaces[i]);
+        bool absent = target_uuid && !managed_space_display_uuid_is_active(target_uuid);
+        if (target_uuid) CFRelease(target_uuid);
+        if (absent) return true;
     }
 
     return false;
@@ -567,24 +688,39 @@ static void managed_space_refresh_sids(struct managed_space *ms)
     })
 }
 
-static int managed_space_count_for_display(struct managed_space *ms, uint32_t did)
+static int managed_space_normal_space_count_for_display(uint32_t did)
 {
     int result = 0;
+    int space_count = 0;
+    uint64_t *space_list = display_space_list(did, &space_count);
+    if (!space_list) return 0;
 
-    for (int i = 0; i < buf_len(ms->spaces); ++i) {
-        uint64_t sid = ms->spaces[i].sid;
-        if (!sid) continue;
+    for (int i = 0; i < space_count; ++i) {
+        uint64_t sid = space_list[i];
         if (!space_is_user(sid)) continue;
         if (space_is_fullscreen(sid)) continue;
-        if (space_display_id(sid) == did) ++result;
+        ++result;
     }
 
     return result;
 }
 
-static bool managed_space_display_has_managed_user_space(struct managed_space *ms, uint32_t did)
+static int managed_space_unmanaged_user_space_count_for_display(struct managed_space *ms, uint32_t did)
 {
-    return managed_space_count_for_display(ms, did) > 0;
+    int result = 0;
+    int space_count = 0;
+    uint64_t *space_list = display_space_list(did, &space_count);
+    if (!space_list) return 0;
+
+    for (int i = 0; i < space_count; ++i) {
+        uint64_t sid = space_list[i];
+        if (!space_is_user(sid)) continue;
+        if (space_is_fullscreen(sid)) continue;
+        if (managed_space_find_by_sid_internal(ms, sid)) continue;
+        ++result;
+    }
+
+    return result;
 }
 
 static bool managed_space_is_raw_empty(uint64_t sid)
@@ -594,25 +730,76 @@ static bool managed_space_is_raw_empty(uint64_t sid)
     return window_count == 0;
 }
 
-static struct managed_space_entry *managed_space_select_donor(struct managed_space *ms, uint32_t target_did, bool prefer_empty)
+static uint64_t managed_space_first_unmanaged_user_space_for_display(struct managed_space *ms, uint32_t did)
 {
-    struct managed_space_entry *fallback = NULL;
+    int space_count = 0;
+    uint64_t *space_list = display_space_list(did, &space_count);
+    if (!space_list) return 0;
 
-    for (int i = buf_len(ms->spaces) - 1; i >= 0; --i) {
-        struct managed_space_entry *entry = &ms->spaces[i];
-        uint64_t sid = entry->sid;
-        if (!sid) continue;
+    for (int i = 0; i < space_count; ++i) {
+        uint64_t sid = space_list[i];
         if (!space_is_user(sid)) continue;
         if (space_is_fullscreen(sid)) continue;
-        if (space_display_id(sid) == target_did) continue;
-        if (prefer_empty && !managed_space_is_raw_empty(sid)) continue;
-
-        bool only_managed_on_source = managed_space_count_for_display(ms, space_display_id(sid)) <= 1;
-        if (!only_managed_on_source) return entry;
-        if (!fallback) fallback = entry;
+        if (managed_space_find_by_sid_internal(ms, sid)) continue;
+        return sid;
     }
 
-    return fallback;
+    return 0;
+}
+
+static bool managed_space_display_requires_placeholder(struct managed_space *ms, uint32_t did)
+{
+    if (!did) return false;
+    if (did == display_manager_main_display_id()) return false;
+    if (managed_space_has_target_display(ms, did)) return false;
+    return true;
+}
+
+static uint64_t managed_space_required_placeholder_sid(struct managed_space *ms, uint32_t did)
+{
+    if (!managed_space_display_requires_placeholder(ms, did)) return 0;
+    return managed_space_first_unmanaged_user_space_for_display(ms, did);
+}
+
+static bool managed_space_is_required_placeholder(struct managed_space *ms, uint64_t sid)
+{
+    if (!sid) return false;
+    if (!space_is_user(sid)) return false;
+    if (space_is_fullscreen(sid)) return false;
+    if (managed_space_find_by_sid_internal(ms, sid)) return false;
+
+    uint32_t did = space_display_id(sid);
+    return sid == managed_space_required_placeholder_sid(ms, did);
+}
+
+static int managed_space_placeholder_count(struct managed_space *ms)
+{
+    int result = 0;
+    int display_count = 0;
+    uint32_t *display_list = display_manager_active_display_list(&display_count);
+
+    for (int i = 0; i < display_count; ++i) {
+        if (managed_space_required_placeholder_sid(ms, display_list[i])) ++result;
+    }
+
+    return result;
+}
+
+static uint64_t managed_space_find_empty_unmanaged_space_off_display(struct managed_space *ms, uint32_t did)
+{
+    for (int index = 1;; ++index) {
+        uint64_t sid = space_manager_mission_control_space(index);
+        if (!sid) break;
+        if (!space_is_user(sid)) continue;
+        if (space_is_fullscreen(sid)) continue;
+        if (managed_space_find_by_sid_internal(ms, sid)) continue;
+        if (managed_space_is_required_placeholder(ms, sid)) continue;
+        if (space_display_id(sid) == did) continue;
+        if (!managed_space_is_raw_empty(sid)) continue;
+        return sid;
+    }
+
+    return 0;
 }
 
 static struct managed_space_entry *managed_space_closest_managed_space(struct managed_space *ms, uint64_t sid)
@@ -663,67 +850,75 @@ static bool managed_space_any_display_animating(void)
     return false;
 }
 
-static bool managed_space_move_preferred_spaces_back(struct managed_space *ms, bool *changed)
+static bool managed_space_move_requires_placeholder(struct managed_space *ms, uint32_t current_did, uint32_t target_did)
+{
+    if (!current_did || !target_did) return false;
+    if (current_did == target_did) return false;
+    if (!managed_space_display_requires_placeholder(ms, current_did)) return false;
+    if (managed_space_unmanaged_user_space_count_for_display(ms, current_did) > 0) return false;
+
+    return managed_space_normal_space_count_for_display(current_did) <= 1;
+}
+
+static enum space_op_error managed_space_create_placeholder(struct managed_space *ms, uint32_t did)
+{
+    if (!did) return SPACE_OP_ERROR_MISSING_DST;
+    if (managed_space_find_pending_placeholder_create(ms, did)) return SPACE_OP_ERROR_SAME_SPACE;
+
+    uint64_t candidate_sid = managed_space_find_empty_unmanaged_space_off_display(ms, did);
+    if (candidate_sid) {
+        return space_manager_move_space_to_display(&g_space_manager, candidate_sid, did);
+    }
+
+    uint64_t acting_sid = display_space_id(did);
+    if (!acting_sid) return SPACE_OP_ERROR_MISSING_SRC;
+
+    managed_space_add_pending_create(ms, did, MANAGED_SPACE_DISPLAY_FIXED, false);
+
+    enum space_op_error result = space_manager_add_space(acting_sid);
+    if (result != SPACE_OP_ERROR_SUCCESS) {
+        managed_space_remove_pending_create_at_index(ms, buf_len(ms->pending_creates) - 1);
+    }
+
+    return result;
+}
+
+static bool managed_space_move_spaces_to_target_displays(struct managed_space *ms, bool *changed)
 {
     for (int i = 0; i < buf_len(ms->spaces); ++i) {
         struct managed_space_entry *entry = &ms->spaces[i];
         if (!entry->sid) continue;
-        if (!entry->preferred_display_uuid) continue;
 
-        uint32_t preferred_did = display_id(entry->preferred_display_uuid);
-        if (!preferred_did) continue;
+        uint32_t target_did = managed_space_target_display_id(entry);
+        if (!target_did) continue;
 
         uint32_t current_did = space_display_id(entry->sid);
-        if (current_did == preferred_did) continue;
+        if (current_did == target_did) continue;
 
-        enum space_op_error result = space_manager_move_space_to_display(&g_space_manager, entry->sid, preferred_did);
-        if (result == SPACE_OP_ERROR_SUCCESS) {
-            *changed = true;
-            return true;
-        }
+        if (managed_space_move_requires_placeholder(ms, current_did, target_did)) {
+            enum space_op_error placeholder_result = managed_space_create_placeholder(ms, current_did);
+            if (placeholder_result == SPACE_OP_ERROR_SUCCESS) {
+                *changed = true;
+                return true;
+            }
 
-        if (result == SPACE_OP_ERROR_DISPLAY_IS_ANIMATING ||
-            result == SPACE_OP_ERROR_IN_MISSION_CONTROL) {
-            ms->pending_reconcile = true;
-            return true;
-        }
-    }
+            if (placeholder_result == SPACE_OP_ERROR_SAME_SPACE) continue;
 
-    return false;
-}
+            if (placeholder_result == SPACE_OP_ERROR_DISPLAY_IS_ANIMATING ||
+                placeholder_result == SPACE_OP_ERROR_IN_MISSION_CONTROL) {
+                ms->pending_reconcile = true;
+                return true;
+            }
 
-static bool managed_space_ensure_display_coverage(struct managed_space *ms, bool *changed)
-{
-    int display_count = 0;
-    uint32_t *display_list = display_manager_active_display_list(&display_count);
-
-    for (int i = 0; i < display_count; ++i) {
-        uint32_t did = display_list[i];
-        if (managed_space_display_has_managed_user_space(ms, did)) continue;
-
-        CFStringRef target_uuid = display_uuid(did);
-        bool target_has_affinity = managed_space_has_preferred_display(ms, target_uuid);
-
-        struct managed_space_entry *donor = managed_space_select_donor(ms, did, true);
-        if (!donor) donor = managed_space_select_donor(ms, did, false);
-        if (!donor) {
-            if (target_uuid) CFRelease(target_uuid);
             continue;
         }
 
-        bool donor_preferred_active = managed_space_display_uuid_is_active(donor->preferred_display_uuid);
-        enum space_op_error result = space_manager_move_space_to_display(&g_space_manager, donor->sid, did);
+        enum space_op_error result = space_manager_move_space_to_display(&g_space_manager, entry->sid, target_did);
         if (result == SPACE_OP_ERROR_SUCCESS) {
-            if (!target_has_affinity && donor_preferred_active) {
-                if (donor->preferred_display_uuid) CFRelease(donor->preferred_display_uuid);
-                donor->preferred_display_uuid = target_uuid ? CFRetain(target_uuid) : NULL;
-            }
-            if (target_uuid) CFRelease(target_uuid);
             *changed = true;
             return true;
         }
 
-        if (target_uuid) CFRelease(target_uuid);
         if (result == SPACE_OP_ERROR_DISPLAY_IS_ANIMATING ||
             result == SPACE_OP_ERROR_IN_MISSION_CONTROL) {
             ms->pending_reconcile = true;
@@ -799,6 +994,8 @@ static bool managed_space_cleanup_one_extra(struct managed_space *ms, bool *chan
             return true;
         }
 
+        if (managed_space_is_required_placeholder(ms, sid)) continue;
+
         enum space_op_error result = space_manager_destroy_space(sid);
         if (result == SPACE_OP_ERROR_SUCCESS) {
             *changed = true;
@@ -817,10 +1014,8 @@ static bool managed_space_cleanup_one_extra(struct managed_space *ms, bool *chan
 
 static uint32_t managed_space_replacement_display(struct managed_space_entry *entry)
 {
-    if (entry->preferred_display_uuid) {
-        uint32_t preferred_did = display_id(entry->preferred_display_uuid);
-        if (preferred_did) return preferred_did;
-    }
+    uint32_t target_did = managed_space_target_display_id(entry);
+    if (target_did) return target_did;
 
     uint32_t active_did = display_manager_active_display_id();
     if (active_did) return active_did;
@@ -947,7 +1142,9 @@ static int managed_space_compute_extra_count(struct managed_space *ms)
         if (!sid) break;
         if (!space_is_user(sid)) continue;
         if (space_is_fullscreen(sid)) continue;
-        if (!managed_space_find_by_sid_internal(ms, sid)) ++result;
+        if (managed_space_find_by_sid_internal(ms, sid)) continue;
+        if (managed_space_is_required_placeholder(ms, sid)) continue;
+        ++result;
     }
 
     return result;
@@ -981,6 +1178,7 @@ static uint64_t managed_space_presentation_hash(struct managed_space *ms)
 
     hash = managed_space_hash_u64(hash, ms->enabled);
     hash = managed_space_hash_u64(hash, buf_len(ms->spaces));
+    hash = managed_space_hash_u64(hash, managed_space_placeholder_count(ms));
 
     for (int i = 0; i < buf_len(ms->spaces); ++i) {
         struct managed_space_entry *entry = &ms->spaces[i];
@@ -992,6 +1190,9 @@ static uint64_t managed_space_presentation_hash(struct managed_space *ms)
         hash = managed_space_hash_u64(hash, entry->order);
         hash = managed_space_hash_u64(hash, sid ? space_manager_mission_control_index(sid) : 0);
         hash = managed_space_hash_u64(hash, sid ? display_manager_display_id_arrangement(space_display_id(sid)) : 0);
+        uint32_t target_did = managed_space_target_display_id(entry);
+        hash = managed_space_hash_u64(hash, target_did ? display_manager_display_id_arrangement(target_did) : 0);
+        hash = managed_space_hash_u64(hash, entry->display_affinity);
         hash = managed_space_hash_u64(hash, should_render);
         hash = managed_space_hash_u64(hash, displayable_count);
         hash = managed_space_hash_string(hash, entry->name);
@@ -1081,6 +1282,7 @@ static void managed_space_refresh_topology_grace(struct managed_space *ms)
 void managed_space_init(struct managed_space *ms)
 {
     memset(ms, 0, sizeof(struct managed_space));
+    ms->display_policy = MANAGED_SPACE_DISPLAY_FOLLOW_MAIN;
 }
 
 static void managed_space_create_missing_named_spaces(struct managed_space *ms);
@@ -1139,6 +1341,33 @@ void managed_space_write_names(FILE *rsp, struct managed_space *ms)
     fprintf(rsp, "\n");
 }
 
+enum managed_space_display_affinity managed_space_display_policy(struct managed_space *ms)
+{
+    return ms->display_policy;
+}
+
+void managed_space_set_display_policy(struct managed_space *ms, enum managed_space_display_affinity display_policy)
+{
+    if (ms->display_policy == display_policy) return;
+
+    ms->display_policy = display_policy;
+
+    if (!ms->enabled) return;
+
+    managed_space_refresh_sids(ms);
+    for (int i = 0; i < buf_len(ms->spaces); ++i) {
+        struct managed_space_entry *entry = &ms->spaces[i];
+        managed_space_set_display_affinity(entry, display_policy);
+
+        if (display_policy == MANAGED_SPACE_DISPLAY_FIXED && entry->sid) {
+            managed_space_set_preferred_display(entry, space_display_id(entry->sid));
+        }
+    }
+
+    managed_space_publish_presentation_if_needed(ms);
+    managed_space_request_reconcile(ms);
+}
+
 static int managed_space_normal_space_count(void)
 {
     int result = 0;
@@ -1159,7 +1388,9 @@ static void managed_space_create_missing_named_spaces(struct managed_space *ms)
     int missing_count = buf_len(ms->names) - managed_space_normal_space_count();
     if (missing_count <= 0) return;
 
-    uint32_t did = display_manager_active_display_id();
+    uint32_t did = ms->display_policy == MANAGED_SPACE_DISPLAY_FOLLOW_MAIN
+        ? display_manager_main_display_id()
+        : display_manager_active_display_id();
     if (!did) {
         int display_count = 0;
         uint32_t *display_list = display_manager_active_display_list(&display_count);
@@ -1170,10 +1401,10 @@ static void managed_space_create_missing_named_spaces(struct managed_space *ms)
     if (!acting_sid) return;
 
     for (int i = 0; i < missing_count; ++i) {
-        ++ms->pending_user_creates;
+        managed_space_add_pending_create(ms, did, ms->display_policy, true);
         enum space_op_error result = space_manager_add_space(acting_sid);
         if (result != SPACE_OP_ERROR_SUCCESS) {
-            --ms->pending_user_creates;
+            managed_space_remove_last_pending_user_create(ms);
             ms->last_replacement_error = result;
             break;
         }
@@ -1204,7 +1435,7 @@ void managed_space_set_enabled(struct managed_space *ms, bool enabled)
         if (desired_count > 0 && added_count >= desired_count) continue;
 
         space_manager_find_view(&g_space_manager, sid);
-        managed_space_add_entry(ms, sid);
+        managed_space_add_entry(ms, sid, ms->display_policy);
         ++added_count;
     }
 
@@ -1228,8 +1459,10 @@ void managed_space_query(FILE *rsp, struct managed_space *ms)
     fprintf(rsp,
             "{\n"
             "\t\"enabled\":%s,\n"
+            "\t\"managed-space-display-policy\":\"%s\",\n"
             "\t\"managed-space-count\":%d,\n"
             "\t\"extra-space-count\":%d,\n"
+            "\t\"placeholder-space-count\":%d,\n"
             "\t\"remembered-window-count\":%d,\n"
             "\t\"pending-window-repair-count\":%d,\n"
             "\t\"pending-user-create-count\":%d,\n"
@@ -1242,11 +1475,13 @@ void managed_space_query(FILE *rsp, struct managed_space *ms)
             "\t\"active-managed-order\":%d,\n"
             "\t\"managed-space-names\":[",
             json_bool(ms->enabled),
+            managed_space_display_affinity_name(ms->display_policy),
             buf_len(ms->spaces),
             managed_space_compute_extra_count(ms),
+            managed_space_placeholder_count(ms),
             buf_len(ms->windows),
             managed_space_pending_window_repairs(ms),
-            ms->pending_user_creates,
+            managed_space_pending_user_create_count(ms),
             ms->pending_replacement_order,
             ms->pending_replacement_retries,
             json_bool(ms->replacement_retry_posted),
@@ -1266,13 +1501,14 @@ void managed_space_query(FILE *rsp, struct managed_space *ms)
         struct managed_space_entry *entry = &ms->spaces[i];
 
         char *uuid = entry->uuid ? ts_cfstring_copy(entry->uuid) : NULL;
-        char *preferred_uuid = entry->preferred_display_uuid ? ts_cfstring_copy(entry->preferred_display_uuid) : NULL;
+        CFStringRef target_display_uuid = managed_space_copy_target_display_uuid(entry);
+        char *preferred_uuid = target_display_uuid ? ts_cfstring_copy(target_display_uuid) : NULL;
         char *escaped_name = ts_string_escape(entry->name);
         char *escaped_label = ts_string_escape(entry->label);
         int index = entry->sid ? space_manager_mission_control_index(entry->sid) : 0;
         uint32_t did = entry->sid ? space_display_id(entry->sid) : 0;
         int display = did ? display_manager_display_id_arrangement(did) : 0;
-        int preferred_display = entry->preferred_display_uuid ? display_manager_display_id_arrangement(display_id(entry->preferred_display_uuid)) : 0;
+        int preferred_display = target_display_uuid ? display_manager_display_id_arrangement(display_id(target_display_uuid)) : 0;
         int window_count = 0;
         if (entry->sid) space_window_list(entry->sid, &window_count, true);
 
@@ -1288,6 +1524,7 @@ void managed_space_query(FILE *rsp, struct managed_space *ms)
                 "\t\t\"preferred-display\":%d,\n"
                 "\t\t\"preferred-display-uuid\":\"%s\",\n"
                 "\t\t\"preferred-display-active\":%s,\n"
+                "\t\t\"display-affinity\":\"%s\",\n"
                 "\t\t\"missing\":%s,\n"
                 "\t\t\"native-fullscreen\":%s,\n"
                 "\t\t\"window-count\":%d\n"
@@ -1302,10 +1539,12 @@ void managed_space_query(FILE *rsp, struct managed_space *ms)
                 display,
                 preferred_display,
                 preferred_uuid ? preferred_uuid : "",
-                json_bool(managed_space_display_uuid_is_active(entry->preferred_display_uuid)),
+                json_bool(managed_space_display_uuid_is_active(target_display_uuid)),
+                managed_space_display_affinity_name(entry->display_affinity),
                 json_bool(entry->sid == 0),
                 json_bool(entry->sid && space_is_fullscreen(entry->sid)),
                 window_count);
+        if (target_display_uuid) CFRelease(target_display_uuid);
     }
 
     fprintf(rsp, "],\n\t\"windows\":[");
@@ -1332,16 +1571,16 @@ void managed_space_query(FILE *rsp, struct managed_space *ms)
     fprintf(rsp, "]\n}\n");
 }
 
-void managed_space_prepare_user_space_create(struct managed_space *ms)
+void managed_space_prepare_user_space_create(struct managed_space *ms, uint32_t did, enum managed_space_display_affinity display_affinity)
 {
     if (!ms->enabled) return;
-    ++ms->pending_user_creates;
+    managed_space_add_pending_create(ms, did, display_affinity, true);
 }
 
 void managed_space_cancel_user_space_create(struct managed_space *ms)
 {
     if (!ms->enabled) return;
-    if (ms->pending_user_creates > 0) --ms->pending_user_creates;
+    managed_space_remove_last_pending_user_create(ms);
 }
 
 void managed_space_note_user_space_destroyed(struct managed_space *ms, uint64_t sid)
@@ -1362,6 +1601,7 @@ void managed_space_note_user_space_display_changed(struct managed_space *ms, uin
     struct managed_space_entry *entry = managed_space_find_by_sid_internal(ms, sid);
     if (!entry) return;
 
+    managed_space_set_display_affinity(entry, MANAGED_SPACE_DISPLAY_FIXED);
     managed_space_set_preferred_display(entry, did);
     managed_space_request_reconcile(ms);
 }
@@ -1400,7 +1640,6 @@ void managed_space_handle_space_created(struct managed_space *ms, uint64_t sid)
         ms->pending_replacement_order = 0;
         ms->pending_replacement_retries = 0;
         ms->last_replacement_error = SPACE_OP_ERROR_SUCCESS;
-        if (ms->pending_user_creates > 0) --ms->pending_user_creates;
 
         if (managed_space_rebind_missing_entry(ms, entry, sid)) {
             managed_space_publish_presentation_if_needed(ms);
@@ -1410,10 +1649,18 @@ void managed_space_handle_space_created(struct managed_space *ms, uint64_t sid)
         return;
     }
 
-    if (ms->pending_user_creates > 0) {
-        --ms->pending_user_creates;
-        managed_space_add_entry(ms, sid);
-        managed_space_publish_presentation_if_needed(ms);
+    int pending_create_index = managed_space_find_pending_create_index(ms, space_display_id(sid));
+    if (pending_create_index >= 0) {
+        struct managed_space_create_request request = ms->pending_creates[pending_create_index];
+        ms->pending_creates[pending_create_index] = (struct managed_space_create_request) {0};
+        managed_space_remove_pending_create_at_index(ms, pending_create_index);
+
+        if (request.managed) {
+            managed_space_add_entry(ms, sid, request.display_affinity);
+            managed_space_publish_presentation_if_needed(ms);
+        }
+
+        managed_space_create_request_destroy(&request);
     }
 
     managed_space_request_reconcile(ms);
@@ -1482,8 +1729,7 @@ void managed_space_reconcile(struct managed_space *ms)
             break;
         }
 
-        if (managed_space_move_preferred_spaces_back(ms, &changed)) continue;
-        if (managed_space_ensure_display_coverage(ms, &changed)) continue;
+        if (managed_space_move_spaces_to_target_displays(ms, &changed)) continue;
         if (managed_space_recreate_missing_space(ms, &changed)) continue;
         if (managed_space_has_missing_entry(ms)) break;
 
@@ -1503,6 +1749,7 @@ void managed_space_reconcile(struct managed_space *ms)
     managed_space_update_window_cache(ms, ms->topology_grace);
 
     ms->last_extra_count = managed_space_compute_extra_count(ms);
+    ms->last_placeholder_count = managed_space_placeholder_count(ms);
     ms->last_repaired_window_count = repaired_count;
     ms->last_managed_count = buf_len(ms->spaces);
     ms->last_active_order = managed_space_active_order(ms);

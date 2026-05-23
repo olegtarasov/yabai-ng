@@ -1231,6 +1231,14 @@ static EVENT_HANDLER(DISPLAY_CHANGED)
     managed_space_note_topology_event(&g_managed_space);
 }
 
+static EVENT_HANDLER(DISPLAY_MAIN_CHANGED)
+{
+    uint32_t did = (uint32_t)(intptr_t) context;
+    debug("%s: %d\n", __FUNCTION__, did);
+    space_manager_mark_spaces_invalid(&g_space_manager);
+    managed_space_note_topology_event(&g_managed_space);
+}
+
 static EVENT_HANDLER(DISPLAY_ADDED)
 {
     uint32_t did = (uint32_t)(intptr_t) context;

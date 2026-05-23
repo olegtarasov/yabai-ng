@@ -1,14 +1,28 @@
 #ifndef MANAGED_SPACE_H
 #define MANAGED_SPACE_H
 
+enum managed_space_display_affinity
+{
+    MANAGED_SPACE_DISPLAY_FOLLOW_MAIN,
+    MANAGED_SPACE_DISPLAY_FIXED
+};
+
 struct managed_space_entry
 {
     CFStringRef uuid;
     CFStringRef preferred_display_uuid;
     uint64_t sid;
     int order;
+    enum managed_space_display_affinity display_affinity;
     char *name;
     char *label;
+};
+
+struct managed_space_create_request
+{
+    CFStringRef display_uuid;
+    enum managed_space_display_affinity display_affinity;
+    bool managed;
 };
 
 struct managed_window_entry
@@ -30,6 +44,7 @@ struct managed_space
     int pending_replacement_retries;
     int last_replacement_error;
     int last_extra_count;
+    int last_placeholder_count;
     int last_repaired_window_count;
     int last_managed_count;
     int last_active_order;
@@ -37,8 +52,10 @@ struct managed_space
     uint64_t last_presentation_hash;
     CFStringRef fullscreen_origin_uuid;
     struct managed_space_entry *spaces;
+    struct managed_space_create_request *pending_creates;
     struct managed_window_entry *windows;
     char **names;
+    enum managed_space_display_affinity display_policy;
 };
 
 extern struct managed_space g_managed_space;
@@ -48,9 +65,12 @@ void managed_space_destroy(struct managed_space *ms);
 void managed_space_set_enabled(struct managed_space *ms, bool enabled);
 void managed_space_set_names(struct managed_space *ms, char *names);
 void managed_space_write_names(FILE *rsp, struct managed_space *ms);
+void managed_space_set_display_policy(struct managed_space *ms, enum managed_space_display_affinity display_policy);
+enum managed_space_display_affinity managed_space_display_policy(struct managed_space *ms);
+const char *managed_space_display_affinity_name(enum managed_space_display_affinity display_affinity);
 void managed_space_query(FILE *rsp, struct managed_space *ms);
 
-void managed_space_prepare_user_space_create(struct managed_space *ms);
+void managed_space_prepare_user_space_create(struct managed_space *ms, uint32_t did, enum managed_space_display_affinity display_affinity);
 void managed_space_cancel_user_space_create(struct managed_space *ms);
 void managed_space_note_user_space_destroyed(struct managed_space *ms, uint64_t sid);
 void managed_space_note_user_space_display_changed(struct managed_space *ms, uint64_t sid, uint32_t did);

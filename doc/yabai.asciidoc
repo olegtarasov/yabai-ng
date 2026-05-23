@@ -148,6 +148,9 @@ Global Settings
     normal spaces away. Future spaces created through
     `yabai -m space --create` are added to the managed set, and spaces
     destroyed through `yabai -m space --destroy` are removed from it. +
+    Managed spaces follow the macOS main display by default. If the main
+    display changes, reconciler moves follow-main managed spaces to the new
+    main display. +
     Native fullscreen spaces are exempt and are never moved or destroyed by
     managed mode.
 
@@ -156,6 +159,17 @@ Global Settings
     Numeric names are exposed as managed names only. Non-numeric names are also
     applied as ordinary yabai space labels for selectors and rules. +
     Example: `1,2,3,4,5,6,7,8,9,A,B,C,D,E,F,G,H,I,J,K,L,M,N,O,P,Q,R,S,T,U,V,W,X,Y,Z`.
+
+*managed_space_display_policy* ['<follow-main|fixed>']::
+    Configure the default display affinity for managed spaces. +
+    `follow-main` is the default and makes managed spaces target the current
+    macOS main display. `fixed` keeps managed spaces on their current concrete
+    display UUIDs. Changing this setting while managed spaces are enabled
+    updates all managed spaces to the selected affinity and requests
+    reconciliation. +
+    `space --display` gives the moved managed space fixed display affinity.
+    `space --create --display` on a non-main display creates a fixed managed
+    space; other managed creates inherit this policy.
 
 *external_bar* ['<main|all|off>:<top_padding>:<bottom_padding>']::
     Specify top and bottom padding for a potential custom bar that you may be running. +
@@ -358,6 +372,8 @@ COMMAND
 
 *--display* '<DISPLAY_SEL>'::
     Send the selected space to the given display. +
+    When managed spaces are enabled, sending a managed space to a display gives
+    that managed space fixed display affinity. +
     System Integrity Protection must be partially disabled.
 
 *--equalize* ['x-axis|y-axis']::
@@ -671,10 +687,12 @@ MANAGED SPACES
     "enabled": bool,
     "managed-space-count": number,
     "extra-space-count": number,
+    "placeholder-space-count": number,
     "remembered-window-count": number,
     "pending-window-repair-count": number,
     "pending-user-create-count": number,
     "topology-grace": bool,
+    "managed-space-display-policy": string,
     "last-repaired-window-count": number,
     "active-managed-order": number,
     "managed-space-names": array of string,
@@ -697,6 +715,7 @@ Each managed space object contains:
     "display": number,
     "preferred-display": number,
     "preferred-display-uuid": string,
+    "display-affinity": string,
     "preferred-display-active": bool,
     "missing": bool,
     "native-fullscreen": bool,

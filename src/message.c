@@ -56,6 +56,7 @@ extern bool g_verbose;
 #define COMMAND_CONFIG_SKIP_SPACE_ANIMATION  "skip_window_focus_animation"
 #define COMMAND_CONFIG_MANAGED_SPACES        "managed_spaces"
 #define COMMAND_CONFIG_MANAGED_SPACE_NAMES   "managed_space_names"
+#define COMMAND_CONFIG_MANAGED_SPACE_DISPLAY_POLICY "managed_space_display_policy"
 
 #define SELECTOR_CONFIG_SPACE                "--space"
 
@@ -91,6 +92,8 @@ extern bool g_verbose;
 #define ARGUMENT_CONFIG_EXTERNAL_BAR_MAIN     "main"
 #define ARGUMENT_CONFIG_EXTERNAL_BAR_ALL      "all"
 #define ARGUMENT_CONFIG_EXTERNAL_BAR          "%5[^:]:%d:%d"
+#define ARGUMENT_CONFIG_MANAGED_SPACE_DISPLAY_FOLLOW_MAIN "follow-main"
+#define ARGUMENT_CONFIG_MANAGED_SPACE_DISPLAY_FIXED       "fixed"
 /* ----------------------------------------------------------------------------- */
 
 /* --------------------------------DOMAIN DISPLAY------------------------------- */
@@ -1237,6 +1240,17 @@ static void handle_domain_config(FILE *rsp, struct token domain, char *message)
             } else {
                 managed_space_set_names(&g_managed_space, value.text);
             }
+        } else if (token_equals(command, COMMAND_CONFIG_MANAGED_SPACE_DISPLAY_POLICY)) {
+            struct token value = get_token(&message);
+            if (!token_is_valid(value)) {
+                fprintf(rsp, "%s\n", managed_space_display_affinity_name(managed_space_display_policy(&g_managed_space)));
+            } else if (token_equals(value, ARGUMENT_CONFIG_MANAGED_SPACE_DISPLAY_FOLLOW_MAIN)) {
+                managed_space_set_display_policy(&g_managed_space, MANAGED_SPACE_DISPLAY_FOLLOW_MAIN);
+            } else if (token_equals(value, ARGUMENT_CONFIG_MANAGED_SPACE_DISPLAY_FIXED)) {
+                managed_space_set_display_policy(&g_managed_space, MANAGED_SPACE_DISPLAY_FIXED);
+            } else {
+                daemon_fail(rsp, "unknown value '%.*s' given to command '%.*s' for domain '%.*s'\n", value.length, value.text, command.length, command.text, domain.length, domain.text);
+            }
         } else if (token_equals(command, COMMAND_CONFIG_MFF)) {
             struct token value = get_token(&message);
             if (!token_is_valid(value)) {
@@ -1943,16 +1957,24 @@ static void handle_domain_space(FILE *rsp, struct token domain, char *message)
             }
         } else if (token_equals(command, COMMAND_SPACE_CREATE)) {
             struct selector selector = parse_display_selector(rsp, &message, display_manager_active_display_id(), true);
+            bool explicit_display = false;
 
             if (token_is_valid(selector.token)) {
                 if (selector.did_parse && selector.did) {
+                    explicit_display = true;
                     acting_sid = display_space_id(selector.did);
                 } else {
                     return;
                 }
             }
 
-            managed_space_prepare_user_space_create(&g_managed_space);
+            uint32_t create_did = space_display_id(acting_sid);
+            enum managed_space_display_affinity display_affinity = managed_space_display_policy(&g_managed_space);
+            if (explicit_display && create_did != display_manager_main_display_id()) {
+                display_affinity = MANAGED_SPACE_DISPLAY_FIXED;
+            }
+
+            managed_space_prepare_user_space_create(&g_managed_space, create_did, display_affinity);
             enum space_op_error result = space_manager_add_space(acting_sid);
             if (result == SPACE_OP_ERROR_MISSING_SRC) {
                 managed_space_cancel_user_space_create(&g_managed_space);

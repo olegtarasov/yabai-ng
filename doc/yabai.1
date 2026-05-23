@@ -2,12 +2,12 @@
 .\"     Title: yabai
 .\"    Author: [see the "AUTHOR(S)" section]
 .\" Generator: Asciidoctor 2.0.26
-.\"      Date: 2026-05-08
+.\"      Date: 2026-05-23
 .\"    Manual: Yabai Manual
 .\"    Source: Yabai
 .\"  Language: English
 .\"
-.TH "YABAI" "1" "2026-05-08" "Yabai" "Yabai Manual"
+.TH "YABAI" "1" "2026-05-23" "Yabai" "Yabai Manual"
 .ie \n(.g .ds Aq \(aq
 .el       .ds Aq '
 .ss \n[.ss] 0
@@ -190,6 +190,10 @@ normal spaces away. Future spaces created through
 \f(CRyabai \-m space \-\-create\fP are added to the managed set, and spaces
 destroyed through \f(CRyabai \-m space \-\-destroy\fP are removed from it.
 .br
+Managed spaces follow the macOS main display by default. If the main
+display changes, reconciler moves follow\-main managed spaces to the new
+main display.
+.br
 Native fullscreen spaces are exempt and are never moved or destroyed by
 managed mode.
 .RE
@@ -202,6 +206,21 @@ Numeric names are exposed as managed names only. Non\-numeric names are also
 applied as ordinary yabai space labels for selectors and rules.
 .br
 Example: \f(CR1,2,3,4,5,6,7,8,9,A,B,C,D,E,F,G,H,I,J,K,L,M,N,O,P,Q,R,S,T,U,V,W,X,Y,Z\fP.
+.RE
+.sp
+\fBmanaged_space_display_policy\fP [\fI<follow\-main|fixed>\fP]
+.RS 4
+Configure the default display affinity for managed spaces.
+.br
+\f(CRfollow\-main\fP is the default and makes managed spaces target the current
+macOS main display. \f(CRfixed\fP keeps managed spaces on their current concrete
+display UUIDs. Changing this setting while managed spaces are enabled
+updates all managed spaces to the selected affinity and requests
+reconciliation.
+.br
+\f(CRspace \-\-display\fP gives the moved managed space fixed display affinity.
+\f(CRspace \-\-create \-\-display\fP on a non\-main display creates a fixed managed
+space; other managed creates inherit this policy.
 .RE
 .sp
 \fBexternal_bar\fP [\fI<main|all|off>:<top_padding>:<bottom_padding>\fP]
@@ -528,6 +547,9 @@ System Integrity Protection must be partially disabled.
 \fB\-\-display\fP \fI<DISPLAY_SEL>\fP
 .RS 4
 Send the selected space to the given display.
+.br
+When managed spaces are enabled, sending a managed space to a display gives
+that managed space fixed display affinity.
 .br
 System Integrity Protection must be partially disabled.
 .RE
@@ -958,10 +980,12 @@ MANAGED SPACES
     "enabled": bool,
     "managed\-space\-count": number,
     "extra\-space\-count": number,
+    "placeholder\-space\-count": number,
     "remembered\-window\-count": number,
     "pending\-window\-repair\-count": number,
     "pending\-user\-create\-count": number,
     "topology\-grace": bool,
+    "managed\-space\-display\-policy": string,
     "last\-repaired\-window\-count": number,
     "active\-managed\-order": number,
     "managed\-space\-names": array of string,
@@ -987,6 +1011,7 @@ Each managed space object contains:
     "display": number,
     "preferred\-display": number,
     "preferred\-display\-uuid": string,
+    "display\-affinity": string,
     "preferred\-display\-active": bool,
     "missing": bool,
     "native\-fullscreen": bool,
@@ -1450,6 +1475,15 @@ Triggered when a space\(cqs stack presentation changes.
 .br
 Passes three arguments: $YABAI_SPACE_ID, $YABAI_SPACE_INDEX,
 $YABAI_DISPLAY_INDEX
+.RE
+.sp
+\fBspace_stack_focused\fP
+.RS 4
+Triggered when the active window inside an existing stack changes without
+changing the stack presentation.
+.br
+Passes four arguments: $YABAI_WINDOW_ID, $YABAI_SPACE_ID,
+$YABAI_SPACE_INDEX, $YABAI_DISPLAY_INDEX
 .RE
 .SS "ACTION"
 .sp

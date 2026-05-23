@@ -14,6 +14,7 @@ typedef TEST_SIG(function);
 #include "area.c"
 #include "mouse.c"
 #include "stack_focus.c"
+#include "managed_space.c"
 
 #define TEST_ENTRY(name) { #name, test_##name },
 #define TEST_LIST                                              \
@@ -32,7 +33,11 @@ typedef TEST_SIG(function);
     TEST_ENTRY(stack_insert_source_after_right_side_target_edge)\
     TEST_ENTRY(stack_insert_source_before_left_side_target_edge)\
     TEST_ENTRY(stack_remove_non_active_source_preserves_logical_order_and_active)\
-    TEST_ENTRY(stack_window_rejects_same_stack)
+    TEST_ENTRY(stack_window_rejects_same_stack)                 \
+    TEST_ENTRY(managed_space_display_policy_defaults_to_follow_main)\
+    TEST_ENTRY(managed_space_display_policy_can_be_set_while_disabled)\
+    TEST_ENTRY(managed_space_display_affinity_names_are_stable) \
+    TEST_ENTRY(managed_space_pending_create_counts_only_managed_spaces)
 
 static struct {
     char *name;

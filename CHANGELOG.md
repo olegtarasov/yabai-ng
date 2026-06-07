@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+### Added
+- Added a `managed:<name>` space selector for robust managed-space hotkeys and
+  rules, including numeric managed names that cannot be ordinary labels.
+
+### Fixed
+- Fixed managed-space reconciliation not restoring managed Mission Control order
+  after macOS display/fullscreen topology churn reordered normal spaces.
+
 ## [26.1.2] - 2026-05-23
 ### Added
 - Added `managed_space_display_policy` with `follow-main` and `fixed` display affinity modes for managed spaces.

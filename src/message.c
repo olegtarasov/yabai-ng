@@ -122,6 +122,7 @@ extern bool g_verbose;
 
 #define ARGUMENT_SPACE_SEL_NEXT_FULLSCREEN "next_fullscreen"
 #define ARGUMENT_SPACE_SEL_PREV_FULLSCREEN "prev_fullscreen"
+#define ARGUMENT_SPACE_SEL_MANAGED_PREFIX  "managed:"
 #define ARGUMENT_SPACE_ROTATE_90    "90"
 #define ARGUMENT_SPACE_ROTATE_180   "180"
 #define ARGUMENT_SPACE_ROTATE_270   "270"
@@ -877,6 +878,14 @@ static struct selector parse_space_selector(FILE *rsp, char **message, uint64_t 
                 result.sid = sid;
             } else {
                 daemon_fail(rsp, "could not locate space containing cursor.\n");
+            }
+        } else if (token_prefix(result.token, ARGUMENT_SPACE_SEL_MANAGED_PREFIX)) {
+            char *name = result.token.text + strlen(ARGUMENT_SPACE_SEL_MANAGED_PREFIX);
+            uint64_t sid = managed_space_sid_for_name(&g_managed_space, name);
+            if (sid) {
+                result.sid = sid;
+            } else {
+                daemon_fail(rsp, "could not locate managed space named '%s'.\n", name);
             }
         } else {
             struct space_label *space_label = space_manager_get_space_for_label(&g_space_manager, value.string_value);

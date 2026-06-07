@@ -107,7 +107,7 @@ WINDOW_SEL  := prev | next | first | last | recent | mouse | largest | smallest 
 
 DISPLAY_SEL := prev | next | first | last | recent | mouse | DIR_SEL | <arrangement index (1-based)> | LABEL
 
-SPACE_SEL   := prev | next | next_fullscreen | prev_fullscreen | first | last | recent | mouse | <mission-control index (1-based)> | LABEL
+SPACE_SEL   := prev | next | next_fullscreen | prev_fullscreen | first | last | recent | mouse | <mission-control index (1-based)> | LABEL | managed:<managed-space name>
 
 EASING      := ease_in_sine  | ease_out_sine  | ease_in_out_sine  |
                ease_in_quad  | ease_out_quad  | ease_in_out_quad  |
@@ -157,7 +157,9 @@ Global Settings
 *managed_space_names* ['<comma-separated names>']::
     Configure optional managed slot names. +
     Numeric names are exposed as managed names only. Non-numeric names are also
-    applied as ordinary yabai space labels for selectors and rules. +
+    applied as ordinary yabai space labels for selectors and rules. Use
+    `managed:<name>` wherever a `SPACE_SEL` is accepted to select a managed
+    space by configured name, including numeric managed names. +
     Example: `1,2,3,4,5,6,7,8,9,A,B,C,D,E,F,G,H,I,J,K,L,M,N,O,P,Q,R,S,T,U,V,W,X,Y,Z`.
 
 *managed_space_display_policy* ['<follow-main|fixed>']::

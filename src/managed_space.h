@@ -88,6 +88,7 @@ bool managed_space_is_enabled(struct managed_space *ms);
 bool managed_space_is_managed_sid(struct managed_space *ms, uint64_t sid);
 int managed_space_order_for_sid(struct managed_space *ms, uint64_t sid);
 char *managed_space_name_for_sid(struct managed_space *ms, uint64_t sid);
+uint64_t managed_space_sid_for_name(struct managed_space *ms, char *name);
 int managed_space_count(struct managed_space *ms);
 int managed_space_extra_count(struct managed_space *ms);
 int managed_space_repaired_window_count(struct managed_space *ms);

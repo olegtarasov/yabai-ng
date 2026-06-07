@@ -2,12 +2,12 @@
 .\"     Title: yabai
 .\"    Author: [see the "AUTHOR(S)" section]
 .\" Generator: Asciidoctor 2.0.26
-.\"      Date: 2026-05-23
+.\"      Date: 2026-06-07
 .\"    Manual: Yabai Manual
 .\"    Source: Yabai
 .\"  Language: English
 .\"
-.TH "YABAI" "1" "2026-05-23" "Yabai" "Yabai Manual"
+.TH "YABAI" "1" "2026-06-07" "Yabai" "Yabai Manual"
 .ie \n(.g .ds Aq \(aq
 .el       .ds Aq '
 .ss \n[.ss] 0
@@ -146,7 +146,7 @@ WINDOW_SEL\&  := prev | next | first | last | recent | mouse | largest | smalles
 
 DISPLAY_SEL := prev | next | first | last | recent | mouse | DIR_SEL | <arrangement index (1\-based)> | LABEL
 
-SPACE_SEL\&   := prev | next | next_fullscreen | prev_fullscreen | first | last | recent | mouse | <mission\-control index (1\-based)> | LABEL
+SPACE_SEL\&   := prev | next | next_fullscreen | prev_fullscreen | first | last | recent | mouse | <mission\-control index (1\-based)> | LABEL | managed:<managed\-space name>
 
 EASING\&      := ease_in_sine\&  | ease_out_sine\&  | ease_in_out_sine\&  |
                ease_in_quad\&  | ease_out_quad\&  | ease_in_out_quad\&  |
@@ -203,7 +203,9 @@ managed mode.
 Configure optional managed slot names.
 .br
 Numeric names are exposed as managed names only. Non\-numeric names are also
-applied as ordinary yabai space labels for selectors and rules.
+applied as ordinary yabai space labels for selectors and rules. Use
+\f(CRmanaged:<name>\fP wherever a \f(CRSPACE_SEL\fP is accepted to select a managed
+space by configured name, including numeric managed names.
 .br
 Example: \f(CR1,2,3,4,5,6,7,8,9,A,B,C,D,E,F,G,H,I,J,K,L,M,N,O,P,Q,R,S,T,U,V,W,X,Y,Z\fP.
 .RE

@@ -931,6 +931,36 @@ static bool managed_space_move_spaces_to_target_displays(struct managed_space *m
     return false;
 }
 
+static bool managed_space_reorder_spaces(struct managed_space *ms, bool *changed)
+{
+    for (int order = 1; order < buf_len(ms->spaces); ++order) {
+        struct managed_space_entry *left = managed_space_find_by_order(ms, order);
+        struct managed_space_entry *right = managed_space_find_by_order(ms, order + 1);
+        if (!left || !right) continue;
+        if (!left->sid || !right->sid) continue;
+        if (space_is_fullscreen(left->sid) || space_is_fullscreen(right->sid)) continue;
+        if (space_display_id(left->sid) != space_display_id(right->sid)) continue;
+
+        int left_index = space_manager_mission_control_index(left->sid);
+        int right_index = space_manager_mission_control_index(right->sid);
+        if (!left_index || !right_index || left_index <= right_index) continue;
+
+        enum space_op_error result = space_manager_move_space_to_space(left->sid, right->sid);
+        if (result == SPACE_OP_ERROR_SUCCESS) {
+            *changed = true;
+            return true;
+        }
+
+        if (result == SPACE_OP_ERROR_DISPLAY_IS_ANIMATING ||
+            result == SPACE_OP_ERROR_IN_MISSION_CONTROL) {
+            ms->pending_reconcile = true;
+            return true;
+        }
+    }
+
+    return false;
+}
+
 static int managed_space_pending_window_repairs(struct managed_space *ms)
 {
     int result = 0;
@@ -1734,6 +1764,7 @@ void managed_space_reconcile(struct managed_space *ms)
         if (managed_space_move_spaces_to_target_displays(ms, &changed)) continue;
         if (managed_space_recreate_missing_space(ms, &changed)) continue;
         if (managed_space_has_missing_entry(ms)) break;
+        if (managed_space_reorder_spaces(ms, &changed)) continue;
 
         if (ms->topology_grace) {
             int repaired = managed_space_repair_windows(ms, &changed);
@@ -1786,6 +1817,19 @@ char *managed_space_name_for_sid(struct managed_space *ms, uint64_t sid)
 {
     struct managed_space_entry *entry = managed_space_find_by_sid_internal(ms, sid);
     return entry && entry->name ? entry->name : "";
+}
+
+uint64_t managed_space_sid_for_name(struct managed_space *ms, char *name)
+{
+    if (!ms->enabled || !name || !name[0]) return 0;
+
+    managed_space_refresh_sids(ms);
+    for (int i = 0; i < buf_len(ms->spaces); ++i) {
+        struct managed_space_entry *entry = &ms->spaces[i];
+        if (entry->sid && string_equals(entry->name, name)) return entry->sid;
+    }
+
+    return 0;
 }
 
 int managed_space_count(struct managed_space *ms)

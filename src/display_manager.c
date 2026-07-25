@@ -405,21 +405,22 @@ uint32_t *display_manager_active_display_list(int *count)
 
 static AXUIElementRef display_manager_find_element_at_point(CGPoint point)
 {
-    CFTypeRef role;
-    CFTypeRef window_ref;
-    AXUIElementRef element_ref;
-
+    AXUIElementRef element_ref = NULL;
     AXUIElementCopyElementAtPosition(g_window_manager.system_element, point.x, point.y, &element_ref);
     if (!element_ref) return NULL;
 
+    CFTypeRef role = NULL;
     AXUIElementCopyAttributeValue(element_ref, kAXRoleAttribute, &role);
+    if (!role) return NULL;
+
     if (CFEqual(role, kAXWindowRole)) {
-        window_ref = element_ref;
-    } else {
-        AXUIElementCopyAttributeValue(element_ref, kAXWindowAttribute, &window_ref);
-        CFRelease(element_ref);
+        CFRelease(role);
+        return element_ref;
     }
 
+    CFTypeRef window_ref = NULL;
+    AXUIElementCopyAttributeValue(element_ref, kAXWindowAttribute, &window_ref);
+    CFRelease(element_ref);
     CFRelease(role);
     return window_ref;
 }

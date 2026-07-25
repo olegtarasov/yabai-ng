@@ -1297,21 +1297,6 @@ struct view *view_create(uint64_t sid)
     return view;
 }
 
-void view_destroy(struct view *view)
-{
-    if (view->root) {
-        if (view->root->left)  window_node_destroy(view->root->left);
-        if (view->root->right) window_node_destroy(view->root->right);
-
-        for (int i = 0; i < view->root->window_count; ++i) {
-            window_manager_remove_managed_window(&g_window_manager, view->root->window_list[i]);
-        }
-
-        insert_feedback_destroy(view->root);
-        memset(view->root, 0, sizeof(struct window_node));
-    }
-}
-
 void view_clear(struct view *view)
 {
     if (view->root) {
@@ -1331,5 +1316,16 @@ void view_clear(struct view *view)
         if (had_stacks) {
             view_signal_space_stacks_changed(view);
         }
+    }
+}
+
+void view_destroy(struct view *view)
+{
+    if (view->root) {
+        window_node_destroy(view->root);
+    }
+
+    if (view->uuid) {
+        CFRelease(view->uuid);
     }
 }

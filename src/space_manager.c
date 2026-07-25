@@ -494,8 +494,9 @@ int space_manager_mission_control_index(uint64_t sid)
     int desktop_cnt = 1;
 
     CFArrayRef display_spaces_ref = SLSCopyManagedDisplaySpaces(g_connection);
-    int display_spaces_count = CFArrayGetCount(display_spaces_ref);
+    if (!display_spaces_ref) return 0;
 
+    int display_spaces_count = CFArrayGetCount(display_spaces_ref);
     for (int i = 0; i < display_spaces_count; ++i) {
         CFDictionaryRef display_ref = CFArrayGetValueAtIndex(display_spaces_ref, i);
         CFArrayRef spaces_ref = CFDictionaryGetValue(display_ref, CFSTR("Spaces"));
@@ -523,8 +524,9 @@ uint64_t space_manager_mission_control_space(int desktop_id)
     int desktop_cnt = 1;
 
     CFArrayRef display_spaces_ref = SLSCopyManagedDisplaySpaces(g_connection);
-    int display_spaces_count = CFArrayGetCount(display_spaces_ref);
+    if (!display_spaces_ref) return 0;
 
+    int display_spaces_count = CFArrayGetCount(display_spaces_ref);
     for (int i = 0; i < display_spaces_count; ++i) {
         CFDictionaryRef display_ref = CFArrayGetValueAtIndex(display_spaces_ref, i);
         CFArrayRef spaces_ref = CFDictionaryGetValue(display_ref, CFSTR("Spaces"));
@@ -558,8 +560,9 @@ uint64_t space_manager_prev_space(uint64_t sid)
     uint64_t n_sid = 0;
 
     CFArrayRef display_spaces_ref = SLSCopyManagedDisplaySpaces(g_connection);
-    int display_spaces_count = CFArrayGetCount(display_spaces_ref);
+    if (!display_spaces_ref) return 0;
 
+    int display_spaces_count = CFArrayGetCount(display_spaces_ref);
     for (int i = 0; i < display_spaces_count; ++i) {
         CFDictionaryRef display_ref = CFArrayGetValueAtIndex(display_spaces_ref, i);
         CFArrayRef spaces_ref = CFDictionaryGetValue(display_ref, CFSTR("Spaces"));
@@ -586,8 +589,9 @@ uint64_t space_manager_next_space(uint64_t sid)
     bool found_sid = false;
 
     CFArrayRef display_spaces_ref = SLSCopyManagedDisplaySpaces(g_connection);
-    int display_spaces_count = CFArrayGetCount(display_spaces_ref);
+    if (!display_spaces_ref) return 0;
 
+    int display_spaces_count = CFArrayGetCount(display_spaces_ref);
     for (int i = 0; i < display_spaces_count; ++i) {
         CFDictionaryRef display_ref = CFArrayGetValueAtIndex(display_spaces_ref, i);
         CFArrayRef spaces_ref = CFDictionaryGetValue(display_ref, CFSTR("Spaces"));
@@ -694,6 +698,8 @@ uint64_t space_manager_first_space(void)
     uint64_t sid = 0;
 
     CFArrayRef display_spaces_ref = SLSCopyManagedDisplaySpaces(g_connection);
+    if (!display_spaces_ref) return 0;
+
     CFDictionaryRef display_ref = CFArrayGetValueAtIndex(display_spaces_ref, 0);
     CFArrayRef spaces_ref = CFDictionaryGetValue(display_ref, CFSTR("Spaces"));
 
@@ -710,8 +716,9 @@ uint64_t space_manager_last_space(void)
     uint64_t sid = 0;
 
     CFArrayRef display_spaces_ref = SLSCopyManagedDisplaySpaces(g_connection);
-    int display_spaces_count = CFArrayGetCount(display_spaces_ref);
+    if (!display_spaces_ref) return 0;
 
+    int display_spaces_count = CFArrayGetCount(display_spaces_ref);
     CFDictionaryRef display_ref = CFArrayGetValueAtIndex(display_spaces_ref, display_spaces_count-1);
     CFArrayRef spaces_ref = CFDictionaryGetValue(display_ref, CFSTR("Spaces"));
     int spaces_count = CFArrayGetCount(spaces_ref);

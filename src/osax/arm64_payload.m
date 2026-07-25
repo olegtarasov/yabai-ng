@@ -175,7 +175,7 @@ const char *get_fix_animation_pattern(NSOperatingSystemVersion os_version) {
 const char *get_add_space_pattern(NSOperatingSystemVersion os_version) {
     if (os_version.majorVersion == 26) {
         if (os_version.minorVersion >= 4) {
-            return "7F 23 03 D5 E1 03 1E AA 48 89 FC 97 FE 03 01 AA FD 7B 05 A9 FD 43 01 91 F3 03 14 AA F5 03";
+            return "7F 23 03 D5 E1 03 1E AA ?? ?? ?? 97 FE 03 01 AA FD 7B 05 A9 FD 43 01 91 F3 03 14 AA F5 03";
         }
         return "7F 23 03 D5 FF C3 01 D1 E1 03 1E AA ?? ?? 00 94 FE 03 01 AA FD 7B 06 A9 FD 83 01 91 F3 03";
     } else if (os_version.majorVersion == 15) {

@@ -365,7 +365,7 @@ static struct managed_space_entry *managed_space_add_entry(struct managed_space 
     return &ms->spaces[buf_len(ms->spaces) - 1];
 }
 
-static void managed_space_remove_entry_at_index(struct managed_space *ms, int index)
+static void managed_space_remove_entry_legacy_at_index(struct managed_space *ms, int index)
 {
     managed_space_entry_destroy(&ms->spaces[index]);
     buf_del(ms->spaces, index);
@@ -373,18 +373,47 @@ static void managed_space_remove_entry_at_index(struct managed_space *ms, int in
     ms->last_managed_count = buf_len(ms->spaces);
 }
 
-static bool managed_space_remove_entry(struct managed_space *ms, uint64_t sid)
+static void managed_space_remove_entry_ordered_at_index(struct managed_space *ms, int index)
+{
+    int last_index = buf_len(ms->spaces) - 1;
+    managed_space_entry_destroy(&ms->spaces[index]);
+
+    if (index < last_index) {
+        memmove(ms->spaces + index,
+                ms->spaces + index + 1,
+                sizeof(struct managed_space_entry) * (last_index - index));
+    }
+    memset(&ms->spaces[last_index], 0, sizeof(struct managed_space_entry));
+    --buf__hdr(ms->spaces)->len;
+
+    managed_space_renumber(ms);
+    ms->last_managed_count = buf_len(ms->spaces);
+}
+
+static bool managed_space_remove_entry_legacy(struct managed_space *ms, uint64_t sid)
 {
     for (int i = 0; i < buf_len(ms->spaces); ++i) {
         if (ms->spaces[i].sid != sid) continue;
-        managed_space_remove_entry_at_index(ms, i);
+        managed_space_remove_entry_legacy_at_index(ms, i);
         return true;
     }
 
     return false;
 }
 
-static bool managed_space_remove_entry_by_uuid_string(struct managed_space *ms, const char *uuid_string)
+static bool managed_space_remove_entry_ordered(struct managed_space *ms, uint64_t sid)
+{
+    for (int i = 0; i < buf_len(ms->spaces); ++i) {
+        if (ms->spaces[i].sid != sid) continue;
+        managed_space_remove_entry_ordered_at_index(ms, i);
+        return true;
+    }
+
+    return false;
+}
+
+static bool managed_space_remove_entry_ordered_by_uuid_string(struct managed_space *ms,
+                                                              const char *uuid_string)
 {
     CFStringRef uuid = CFStringCreateWithCString(NULL,
                                                  uuid_string,
@@ -394,7 +423,7 @@ static bool managed_space_remove_entry_by_uuid_string(struct managed_space *ms, 
     bool removed = false;
     for (int i = 0; i < buf_len(ms->spaces); ++i) {
         if (!ms->spaces[i].uuid || !CFEqual(ms->spaces[i].uuid, uuid)) continue;
-        managed_space_remove_entry_at_index(ms, i);
+        managed_space_remove_entry_ordered_at_index(ms, i);
         removed = true;
         break;
     }
@@ -1771,7 +1800,7 @@ void managed_space_note_user_space_destroyed(struct managed_space *ms, uint64_t 
 {
     if (!ms->enabled) return;
 
-    if (managed_space_remove_entry(ms, sid)) {
+    if (managed_space_remove_entry_legacy(ms, sid)) {
         managed_space_publish_presentation_if_needed(ms);
     }
 
@@ -1894,8 +1923,8 @@ void managed_space_handle_sip_safe_operation_completed(struct managed_space *ms,
     switch (request->operation) {
     case MANAGED_SPACE_TOPOLOGY_OPERATION_DESTROY:
         if (request->origin == MANAGED_SPACE_TOPOLOGY_ORIGIN_COMMAND &&
-            (managed_space_remove_entry_by_uuid_string(ms, request->sid_uuid) ||
-             managed_space_remove_entry(ms, request->sid))) {
+            (managed_space_remove_entry_ordered_by_uuid_string(ms, request->sid_uuid) ||
+             managed_space_remove_entry_ordered(ms, request->sid))) {
             managed_space_publish_presentation_if_needed(ms);
         }
         break;
@@ -1928,8 +1957,8 @@ void managed_space_handle_sip_safe_operation_failed(struct managed_space *ms,
         if (request->origin == MANAGED_SPACE_TOPOLOGY_ORIGIN_COMMAND &&
             request->created_sid &&
             ((request->sid_uuid[0] &&
-              managed_space_remove_entry_by_uuid_string(ms, request->sid_uuid)) ||
-             managed_space_remove_entry(ms, request->created_sid))) {
+              managed_space_remove_entry_ordered_by_uuid_string(ms, request->sid_uuid)) ||
+             managed_space_remove_entry_ordered(ms, request->created_sid))) {
             managed_space_publish_presentation_if_needed(ms);
         }
 

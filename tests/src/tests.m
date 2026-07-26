@@ -40,7 +40,8 @@ typedef TEST_SIG(function);
     TEST_ENTRY(managed_space_display_policy_can_be_set_while_disabled)\
     TEST_ENTRY(managed_space_display_affinity_names_are_stable) \
     TEST_ENTRY(managed_space_pending_create_counts_only_managed_spaces) \
-    TEST_ENTRY(managed_space_explicit_destroy_removes_membership_by_uuid_after_sid_refresh) \
+    TEST_ENTRY(managed_space_sip_safe_destroy_preserves_remaining_uuid_order_after_sid_refresh) \
+    TEST_ENTRY(managed_space_legacy_destroy_keeps_pre_sip_safe_swap_delete_semantics) \
     TEST_ENTRY(managed_space_topology_backend_policy_values_are_stable) \
     TEST_ENTRY(managed_space_topology_auto_selects_only_compatible_scripting_addition) \
     TEST_ENTRY(managed_space_topology_forced_provider_never_cross_falls_back) \

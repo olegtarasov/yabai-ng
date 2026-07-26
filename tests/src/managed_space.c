@@ -46,7 +46,7 @@ TEST_FUNC(managed_space_pending_create_counts_only_managed_spaces,
     managed_space_destroy(&ms);
 });
 
-TEST_FUNC(managed_space_explicit_destroy_removes_membership_by_uuid_after_sid_refresh,
+TEST_FUNC(managed_space_sip_safe_destroy_preserves_remaining_uuid_order_after_sid_refresh,
 {
     struct managed_space ms;
     managed_space_init(&ms);
@@ -58,13 +58,40 @@ TEST_FUNC(managed_space_explicit_destroy_removes_membership_by_uuid_after_sid_re
     second.uuid = CFStringCreateCopy(NULL, CFSTR("second"));
     second.sid = 22;
     second.name = string_copy("2");
+    struct managed_space_entry third = {0};
+    third.uuid = CFStringCreateCopy(NULL, CFSTR("third"));
+    third.sid = 33;
+    third.name = string_copy("3");
     buf_push(ms.spaces, first);
     buf_push(ms.spaces, second);
+    buf_push(ms.spaces, third);
 
-    TEST_CHECK(managed_space_remove_entry_by_uuid_string(&ms, "first"), true);
-    TEST_CHECK(buf_len(ms.spaces), 1);
+    TEST_CHECK(managed_space_remove_entry_ordered_by_uuid_string(&ms, "first"), true);
+    TEST_CHECK(buf_len(ms.spaces), 2);
     TEST_CHECK((int) ms.spaces[0].sid, 22);
     TEST_CHECK(CFEqual(ms.spaces[0].uuid, CFSTR("second")), true);
+    TEST_CHECK((int) ms.spaces[1].sid, 33);
+    TEST_CHECK(CFEqual(ms.spaces[1].uuid, CFSTR("third")), true);
+
+    managed_space_destroy(&ms);
+});
+
+TEST_FUNC(managed_space_legacy_destroy_keeps_pre_sip_safe_swap_delete_semantics,
+{
+    struct managed_space ms;
+    managed_space_init(&ms);
+
+    struct managed_space_entry first = { .sid = 11 };
+    struct managed_space_entry second = { .sid = 22 };
+    struct managed_space_entry third = { .sid = 33 };
+    buf_push(ms.spaces, first);
+    buf_push(ms.spaces, second);
+    buf_push(ms.spaces, third);
+
+    TEST_CHECK(managed_space_remove_entry_legacy(&ms, 11), true);
+    TEST_CHECK(buf_len(ms.spaces), 2);
+    TEST_CHECK((int) ms.spaces[0].sid, 33);
+    TEST_CHECK((int) ms.spaces[1].sid, 22);
 
     managed_space_destroy(&ms);
 });

@@ -45,3 +45,26 @@ TEST_FUNC(managed_space_pending_create_counts_only_managed_spaces,
 
     managed_space_destroy(&ms);
 });
+
+TEST_FUNC(managed_space_explicit_destroy_removes_membership_by_uuid_after_sid_refresh,
+{
+    struct managed_space ms;
+    managed_space_init(&ms);
+
+    struct managed_space_entry first = {0};
+    first.uuid = CFStringCreateCopy(NULL, CFSTR("first"));
+    first.name = string_copy("1");
+    struct managed_space_entry second = {0};
+    second.uuid = CFStringCreateCopy(NULL, CFSTR("second"));
+    second.sid = 22;
+    second.name = string_copy("2");
+    buf_push(ms.spaces, first);
+    buf_push(ms.spaces, second);
+
+    TEST_CHECK(managed_space_remove_entry_by_uuid_string(&ms, "first"), true);
+    TEST_CHECK(buf_len(ms.spaces), 1);
+    TEST_CHECK((int) ms.spaces[0].sid, 22);
+    TEST_CHECK(CFEqual(ms.spaces[0].uuid, CFSTR("second")), true);
+
+    managed_space_destroy(&ms);
+});

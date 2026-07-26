@@ -57,11 +57,23 @@ struct managed_space_topology_request
     uint64_t target_sid;
     uint64_t created_sid;
     uint64_t restore_focus_sid;
+    uint64_t *pre_source_order;
+    uint64_t *pre_target_order;
+    uint32_t source_did;
     uint32_t target_did;
+    int pre_source_count;
+    int pre_target_count;
+    int ax_source_count_before;
+    int ax_target_count_before;
     int target_index;
     int phase;
     bool place_after;
     bool mutation_started;
+    bool topology_event_observed;
+    bool ax_precondition_observed;
+    bool ax_postcondition_observed;
+    bool dock_postcondition_observed;
+    bool readiness_retry_scheduled;
     bool focus_space;
     bool ax_spaces_bar_hovered;
     bool placeholder_required;
@@ -92,7 +104,12 @@ struct managed_space_topology
     struct managed_space_topology_request current;
     struct managed_space_topology_request *queue;
     uint32_t space_limit_did;
+    uint32_t authority_did;
     int space_limit_count;
+    int authority_sls_count;
+    int authority_ax_count;
+    bool authority_observed;
+    bool authority_consistent;
     pid_t observed_dock_pid;
     AXObserverRef ax_observer;
     AXUIElementRef ax_observed_element;
@@ -154,6 +171,7 @@ void managed_space_topology_watchdog(struct managed_space_topology *topology, ui
 bool managed_space_topology_operation_pending(struct managed_space_topology *topology);
 bool managed_space_topology_reconciliation_blocked(struct managed_space_topology *topology);
 bool managed_space_topology_owns_mission_control(struct managed_space_topology *topology);
+bool managed_space_topology_defers_destroy_membership(struct managed_space_topology *topology, uint64_t sid);
 void managed_space_topology_finish_batch(struct managed_space_topology *topology);
 void managed_space_topology_write_query(FILE *rsp, struct managed_space_topology *topology);
 

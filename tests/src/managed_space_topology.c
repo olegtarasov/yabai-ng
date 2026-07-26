@@ -22,9 +22,9 @@ TEST_FUNC(managed_space_topology_backend_selection_is_operation_scoped,
     TEST_CHECK(managed_space_topology_select_initial_backend(&topology, MANAGED_SPACE_TOPOLOGY_OPERATION_DESTROY),
                MANAGED_SPACE_TOPOLOGY_BACKEND_ACTIVE_SCRIPTING_ADDITION);
     TEST_CHECK(managed_space_topology_select_fallback_backend(&topology, MANAGED_SPACE_TOPOLOGY_OPERATION_DESTROY),
-               MANAGED_SPACE_TOPOLOGY_BACKEND_ACTIVE_BRIDGE);
+               MANAGED_SPACE_TOPOLOGY_BACKEND_ACTIVE_ACCESSIBILITY);
     TEST_CHECK(managed_space_topology_select_fallback_backend(&topology, MANAGED_SPACE_TOPOLOGY_OPERATION_MOVE_DISPLAY),
-               MANAGED_SPACE_TOPOLOGY_BACKEND_ACTIVE_BRIDGE);
+               MANAGED_SPACE_TOPOLOGY_BACKEND_ACTIVE_ACCESSIBILITY);
     TEST_CHECK(managed_space_topology_select_fallback_backend(&topology, MANAGED_SPACE_TOPOLOGY_OPERATION_REORDER),
                MANAGED_SPACE_TOPOLOGY_BACKEND_ACTIVE_ACCESSIBILITY);
 
@@ -67,10 +67,7 @@ TEST_FUNC(managed_space_topology_backend_policy_values_are_stable,
 TEST_FUNC(managed_space_topology_validated_bridge_matrix_is_build_scoped,
 {
     uint32_t operations = managed_space_topology_known_bridge_operations("25E253");
-    TEST_CHECK((operations & MANAGED_SPACE_TOPOLOGY_BRIDGE_CREATE) != 0, true);
-    TEST_CHECK((operations & MANAGED_SPACE_TOPOLOGY_BRIDGE_DESTROY) != 0, true);
-    TEST_CHECK((operations & MANAGED_SPACE_TOPOLOGY_BRIDGE_MOVE_DISPLAY) != 0, true);
-    TEST_CHECK((operations & MANAGED_SPACE_TOPOLOGY_BRIDGE_REORDER) != 0, false);
+    TEST_CHECK((int) operations, 0);
     TEST_CHECK((int) managed_space_topology_known_bridge_operations("unknown"), 0);
 });
 
@@ -176,6 +173,8 @@ TEST_FUNC(managed_space_topology_events_match_only_the_active_request,
         .operation = MANAGED_SPACE_TOPOLOGY_OPERATION_CREATE
     };
 
+    TEST_CHECK(managed_space_topology_event_matches(&request, MANAGED_SPACE_TOPOLOGY_OPERATION_CREATE, 11), false);
+    request.mutation_started = true;
     TEST_CHECK(managed_space_topology_event_matches(&request, MANAGED_SPACE_TOPOLOGY_OPERATION_CREATE, 11), true);
     request.created_sid = 12;
     TEST_CHECK(managed_space_topology_event_matches(&request, MANAGED_SPACE_TOPOLOGY_OPERATION_CREATE, 11), false);
@@ -185,7 +184,202 @@ TEST_FUNC(managed_space_topology_events_match_only_the_active_request,
     request.operation = MANAGED_SPACE_TOPOLOGY_OPERATION_DESTROY;
     request.sid = 21;
     TEST_CHECK(managed_space_topology_event_matches(&request, MANAGED_SPACE_TOPOLOGY_OPERATION_DESTROY, 20), false);
+    TEST_CHECK(managed_space_topology_event_matches(&request, MANAGED_SPACE_TOPOLOGY_OPERATION_DESTROY, 21), false);
+    request.mutation_started = true;
     TEST_CHECK(managed_space_topology_event_matches(&request, MANAGED_SPACE_TOPOLOGY_OPERATION_DESTROY, 21), true);
+});
+
+TEST_FUNC(managed_space_topology_create_events_must_be_new_to_the_request,
+{
+    uint64_t pre_target_order[3];
+    pre_target_order[0] = 10;
+    pre_target_order[1] = 20;
+    pre_target_order[2] = 30;
+    struct managed_space_topology_request request = {0};
+    request.operation = MANAGED_SPACE_TOPOLOGY_OPERATION_CREATE;
+    request.mutation_started = true;
+    request.target_did = 7;
+    request.pre_target_order = pre_target_order;
+    request.pre_target_count = 3;
+
+    TEST_CHECK(managed_space_topology_created_space_matches_request(&request,
+                                                                    20,
+                                                                    7,
+                                                                    true),
+               false);
+    TEST_CHECK(managed_space_topology_created_space_matches_request(&request,
+                                                                    40,
+                                                                    8,
+                                                                    true),
+               false);
+    TEST_CHECK(managed_space_topology_created_space_matches_request(&request,
+                                                                    40,
+                                                                    7,
+                                                                    false),
+               false);
+    TEST_CHECK(managed_space_topology_created_space_matches_request(&request,
+                                                                    40,
+                                                                    7,
+                                                                    true),
+               true);
+});
+
+TEST_FUNC(managed_space_topology_mutation_backends_require_authoritative_postconditions,
+{
+    struct managed_space_topology topology = {0};
+    topology.current.operation = MANAGED_SPACE_TOPOLOGY_OPERATION_NONE;
+    topology.current.backend = MANAGED_SPACE_TOPOLOGY_BACKEND_ACTIVE_ACCESSIBILITY;
+
+    TEST_CHECK(managed_space_topology_request_postcondition_satisfied(&topology), false);
+    topology.current.dock_postcondition_observed = true;
+    TEST_CHECK(managed_space_topology_request_postcondition_satisfied(&topology), true);
+    topology.current.dock_postcondition_observed = false;
+    topology.current.ax_postcondition_observed = true;
+    TEST_CHECK(managed_space_topology_request_postcondition_satisfied(&topology), true);
+
+    topology.current.backend = MANAGED_SPACE_TOPOLOGY_BACKEND_ACTIVE_BRIDGE;
+    topology.current.ax_postcondition_observed = false;
+    topology.current.dock_postcondition_observed = false;
+    TEST_CHECK(managed_space_topology_request_postcondition_satisfied(&topology), false);
+    topology.current.dock_postcondition_observed = true;
+    TEST_CHECK(managed_space_topology_request_postcondition_satisfied(&topology), true);
+});
+
+TEST_FUNC(managed_space_topology_persisted_postconditions_are_transactional,
+{
+    uint64_t before[3];
+    before[0] = 10;
+    before[1] = 20;
+    before[2] = 30;
+    uint64_t after[4];
+    after[0] = 10;
+    after[1] = 20;
+    after[2] = 30;
+    after[3] = 40;
+
+    struct managed_space_topology_request request = {0};
+    request.operation = MANAGED_SPACE_TOPOLOGY_OPERATION_CREATE;
+    request.created_sid = 40;
+    request.pre_target_order = before;
+    request.pre_target_count = 3;
+    TEST_CHECK(managed_space_topology_persisted_orders_satisfy_request(&request,
+                                                                       after,
+                                                                       4,
+                                                                       after,
+                                                                       4),
+               true);
+    after[0] = 20;
+    after[1] = 10;
+    TEST_CHECK(managed_space_topology_persisted_orders_satisfy_request(&request,
+                                                                       after,
+                                                                       4,
+                                                                       after,
+                                                                       4),
+               false);
+    after[0] = 10;
+    after[1] = 50;
+    TEST_CHECK(managed_space_topology_persisted_orders_satisfy_request(&request,
+                                                                       after,
+                                                                       4,
+                                                                       after,
+                                                                       4),
+               false);
+
+    after[1] = 20;
+    request.operation = MANAGED_SPACE_TOPOLOGY_OPERATION_DESTROY;
+    request.sid = 20;
+    uint64_t destroyed[2];
+    destroyed[0] = 10;
+    destroyed[1] = 30;
+    TEST_CHECK(managed_space_topology_persisted_orders_satisfy_request(&request,
+                                                                       destroyed,
+                                                                       2,
+                                                                       destroyed,
+                                                                       2),
+               true);
+    destroyed[1] = 99;
+    TEST_CHECK(managed_space_topology_persisted_orders_satisfy_request(&request,
+                                                                       destroyed,
+                                                                       2,
+                                                                       destroyed,
+                                                                       2),
+               false);
+
+    uint64_t desired[3];
+    desired[0] = 30;
+    desired[1] = 10;
+    desired[2] = 20;
+    request.operation = MANAGED_SPACE_TOPOLOGY_OPERATION_REORDER;
+    request.desired_order = desired;
+    request.desired_order_count = 3;
+    uint64_t reordered[3];
+    memcpy(reordered, desired, sizeof(reordered));
+    TEST_CHECK(managed_space_topology_persisted_orders_satisfy_request(&request,
+                                                                       reordered,
+                                                                       3,
+                                                                       reordered,
+                                                                       3),
+               true);
+    reordered[0] = 10;
+    reordered[1] = 30;
+    TEST_CHECK(managed_space_topology_persisted_orders_satisfy_request(&request,
+                                                                       reordered,
+                                                                       3,
+                                                                       reordered,
+                                                                       3),
+               false);
+
+    uint64_t source_before[3];
+    source_before[0] = 10;
+    source_before[1] = 20;
+    source_before[2] = 30;
+    uint64_t target_before[2];
+    target_before[0] = 40;
+    target_before[1] = 50;
+    uint64_t source_after[2];
+    source_after[0] = 10;
+    source_after[1] = 30;
+    uint64_t target_after[3];
+    target_after[0] = 40;
+    target_after[1] = 50;
+    target_after[2] = 20;
+    request.operation = MANAGED_SPACE_TOPOLOGY_OPERATION_MOVE_DISPLAY;
+    request.sid = 20;
+    request.source_did = 1;
+    request.target_did = 2;
+    request.pre_source_order = source_before;
+    request.pre_source_count = 3;
+    request.pre_target_order = target_before;
+    request.pre_target_count = 2;
+    TEST_CHECK(managed_space_topology_persisted_orders_satisfy_request(&request,
+                                                                       target_after,
+                                                                       3,
+                                                                       source_after,
+                                                                       2),
+               true);
+    source_after[1] = 99;
+    TEST_CHECK(managed_space_topology_persisted_orders_satisfy_request(&request,
+                                                                       target_after,
+                                                                       3,
+                                                                       source_after,
+                                                                       2),
+               false);
+});
+
+TEST_FUNC(managed_space_topology_explicit_destroy_defers_membership_commit,
+{
+    struct managed_space_topology topology = {0};
+    topology.current.operation = MANAGED_SPACE_TOPOLOGY_OPERATION_DESTROY;
+    topology.current.origin = MANAGED_SPACE_TOPOLOGY_ORIGIN_COMMAND;
+    topology.current.sid = 42;
+
+    TEST_CHECK(managed_space_topology_defers_destroy_membership(&topology, 42), false);
+    topology.current.mutation_started = true;
+    TEST_CHECK(managed_space_topology_defers_destroy_membership(&topology, 42), true);
+    TEST_CHECK(managed_space_topology_defers_destroy_membership(&topology, 41), false);
+
+    topology.current.origin = MANAGED_SPACE_TOPOLOGY_ORIGIN_RECONCILE;
+    TEST_CHECK(managed_space_topology_defers_destroy_membership(&topology, 42), false);
 });
 
 TEST_FUNC(managed_space_topology_failed_reorder_keeps_previous_desired_order,
@@ -239,6 +433,51 @@ TEST_FUNC(managed_space_topology_mission_control_ownership_is_explicit,
                MANAGED_SPACE_TOPOLOGY_STATE_WAITING_FOR_USER_MISSION_CONTROL);
     TEST_CHECK(managed_space_topology_accessibility_session_state(true, true),
                MANAGED_SPACE_TOPOLOGY_STATE_WAITING_FOR_ACCESSIBILITY);
+});
+
+TEST_FUNC(managed_space_topology_owned_deactivation_is_generation_checked,
+{
+    struct managed_space_topology topology = {0};
+    topology.current.operation = MANAGED_SPACE_TOPOLOGY_OPERATION_MOVE_DISPLAY;
+    topology.current.generation = 17;
+
+    managed_space_topology_schedule_owned_mission_control_deactivation(&topology);
+    TEST_CHECK(topology.state,
+               MANAGED_SPACE_TOPOLOGY_STATE_WAITING_FOR_MISSION_CONTROL_EXIT);
+    TEST_CHECK(topology.current.phase,
+               MANAGED_SPACE_TOPOLOGY_PHASE_DEACTIVATE_IN_MISSION_CONTROL);
+    TEST_CHECK((int) topology.step_generation, 17);
+    TEST_CHECK((int) topology.watchdog_generation, 17);
+
+    managed_space_topology_schedule_owned_mission_control_exit(&topology);
+    TEST_CHECK(topology.current.phase,
+               MANAGED_SPACE_TOPOLOGY_PHASE_CLOSE_MISSION_CONTROL);
+    TEST_CHECK((int) topology.step_generation, 17);
+    TEST_CHECK((int) topology.watchdog_generation, 17);
+
+    managed_space_topology_cancel_step(&topology);
+    managed_space_topology_cancel_watchdog(&topology);
+});
+
+TEST_FUNC(managed_space_topology_drag_targets_use_visible_ax_frames,
+{
+    CGRect visible = CGRectZero;
+    CGRect display = CGRectMake(0, 0, 100, 100);
+    CGRect partly_visible = CGRectMake(75, -25, 50, 50);
+    TEST_CHECK(managed_space_topology_visible_intersection(partly_visible,
+                                                           display,
+                                                           &visible),
+               true);
+    TEST_CHECK((int) visible.origin.x, 75);
+    TEST_CHECK((int) visible.origin.y, 0);
+    TEST_CHECK((int) visible.size.width, 25);
+    TEST_CHECK((int) visible.size.height, 25);
+
+    CGRect hidden = CGRectMake(150, 150, 20, 20);
+    TEST_CHECK(managed_space_topology_visible_intersection(hidden,
+                                                           display,
+                                                           &visible),
+               false);
 });
 
 TEST_FUNC(managed_space_topology_ax_display_mapping_accepts_numeric_ids,

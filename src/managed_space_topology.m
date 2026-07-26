@@ -15,10 +15,19 @@ extern int g_connection;
 #define MANAGED_SPACE_TOPOLOGY_DRAG_RELEASE_DELAY_US 50000
 #define MANAGED_SPACE_TOPOLOGY_MOUSE_EVENT_TAG 0x5941424149544f50ULL
 #define MANAGED_SPACE_TOPOLOGY_UI_SPACE_LIMIT 16
+#define MANAGED_SPACE_TOPOLOGY_PHASE_CLOSE_MISSION_CONTROL -1
+#define MANAGED_SPACE_TOPOLOGY_PHASE_DEACTIVATE_IN_MISSION_CONTROL -2
 #define MANAGED_SPACE_TOPOLOGY_BRIDGE_CREATE 0x01
 #define MANAGED_SPACE_TOPOLOGY_BRIDGE_DESTROY 0x02
 #define MANAGED_SPACE_TOPOLOGY_BRIDGE_REORDER 0x04
 #define MANAGED_SPACE_TOPOLOGY_BRIDGE_MOVE_DISPLAY 0x08
+
+enum managed_space_topology_ax_result
+{
+    MANAGED_SPACE_TOPOLOGY_AX_FAILED,
+    MANAGED_SPACE_TOPOLOGY_AX_WAITING,
+    MANAGED_SPACE_TOPOLOGY_AX_STARTED
+};
 
 typedef id (*managed_space_topology_synchronous_bridge_fn)(void *);
 
@@ -60,11 +69,11 @@ static uint64_t managed_space_topology_snapshot_hash(void)
     for (int index = 1;; ++index) {
         uint64_t sid = space_manager_mission_control_space(index);
         if (!sid) break;
-        if (!space_is_user(sid)) continue;
 
         hash = managed_space_topology_hash_u64(hash, sid);
         hash = managed_space_topology_hash_u64(hash, space_display_id(sid));
         hash = managed_space_topology_hash_u64(hash, index);
+        hash = managed_space_topology_hash_u64(hash, SLSSpaceGetType(g_connection, sid));
     }
 
     return hash;
@@ -83,6 +92,8 @@ static void managed_space_topology_copy_space_uuid(uint64_t sid, char uuid[64])
 void managed_space_topology_discard_request(struct managed_space_topology_request *request)
 {
     if (request->desired_order) free(request->desired_order);
+    if (request->pre_source_order) free(request->pre_source_order);
+    if (request->pre_target_order) free(request->pre_target_order);
     memset(request, 0, sizeof(struct managed_space_topology_request));
 }
 
@@ -232,15 +243,18 @@ const char *managed_space_topology_state_name(enum managed_space_topology_state 
 
 static uint32_t managed_space_topology_known_bridge_operations(char *os_build)
 {
+    (void) os_build;
+
     //
     // Populated only after a reversible runtime validation on the exact OS build.
     // Forced "bridge" mode remains available for running that validation matrix.
     //
-    if (string_equals(os_build, "25E253")) {
-        return MANAGED_SPACE_TOPOLOGY_BRIDGE_CREATE |
-               MANAGED_SPACE_TOPOLOGY_BRIDGE_DESTROY |
-               MANAGED_SPACE_TOPOLOGY_BRIDGE_MOVE_DISPLAY;
-    }
+    // 25E253 was previously listed here after its bridge objects appeared in
+    // SLSCopyManagedDisplaySpaces. A Dock AX snapshot and the persisted
+    // com.apple.spaces topology later proved that create had produced
+    // WindowServer-only spaces. No mutation on this build has passed the full
+    // SLS + Dock + restart validation matrix, so none are enabled for auto.
+    //
     return 0;
 }
 
@@ -484,6 +498,10 @@ static void managed_space_topology_complete_current(struct managed_space_topolog
                                                                    &g_window_manager,
                                                                    validation_sid);
         }
+        if (topology->current.restore_focus_sid) {
+            topology->pending_focus_sid = topology->current.restore_focus_sid;
+        }
+        managed_space_topology_restore_pending_focus(topology);
     } else if (topology->current.operation == MANAGED_SPACE_TOPOLOGY_OPERATION_MOVE_DISPLAY) {
         space_manager_mark_view_invalid(&g_space_manager, topology->current.sid);
         if (topology->current.focus_space) {
@@ -518,6 +536,26 @@ static void managed_space_topology_close_owned_mission_control(struct managed_sp
     CoreDockSendNotification(CFSTR("com.apple.expose.awake"), 0);
 }
 
+static void managed_space_topology_schedule_owned_mission_control_exit(
+    struct managed_space_topology *topology)
+{
+    topology->current.phase = MANAGED_SPACE_TOPOLOGY_PHASE_CLOSE_MISSION_CONTROL;
+    topology->state = MANAGED_SPACE_TOPOLOGY_STATE_WAITING_FOR_MISSION_CONTROL_EXIT;
+    managed_space_topology_schedule_step(topology,
+                                         MANAGED_SPACE_TOPOLOGY_MISSION_CONTROL_DELAY_SECONDS);
+    managed_space_topology_schedule_watchdog(topology);
+}
+
+static void managed_space_topology_schedule_owned_mission_control_deactivation(
+    struct managed_space_topology *topology)
+{
+    topology->current.phase = MANAGED_SPACE_TOPOLOGY_PHASE_DEACTIVATE_IN_MISSION_CONTROL;
+    topology->state = MANAGED_SPACE_TOPOLOGY_STATE_WAITING_FOR_MISSION_CONTROL_EXIT;
+    managed_space_topology_schedule_step(topology,
+                                         MANAGED_SPACE_TOPOLOGY_SETTLE_DELAY_SECONDS);
+    managed_space_topology_schedule_watchdog(topology);
+}
+
 static void managed_space_topology_fail_current(struct managed_space_topology *topology, char *error)
 {
     if (topology->current.operation == MANAGED_SPACE_TOPOLOGY_OPERATION_NONE) return;
@@ -534,7 +572,8 @@ static void managed_space_topology_fail_current(struct managed_space_topology *t
         topology->reconciliation_blocked = true;
     }
     topology->state = MANAGED_SPACE_TOPOLOGY_STATE_FAILED;
-    if (topology->current.operation == MANAGED_SPACE_TOPOLOGY_OPERATION_MOVE_DISPLAY &&
+    if ((topology->current.operation == MANAGED_SPACE_TOPOLOGY_OPERATION_MOVE_DISPLAY ||
+         topology->current.operation == MANAGED_SPACE_TOPOLOGY_OPERATION_DESTROY) &&
         topology->current.restore_focus_sid) {
         topology->pending_focus_sid = topology->current.restore_focus_sid;
     }
@@ -597,6 +636,330 @@ static int managed_space_topology_find_sid(uint64_t *space_list, int count, uint
     }
 
     return -1;
+}
+
+static uint64_t *managed_space_topology_copy_full_display_order(uint32_t did, int *count)
+{
+    *count = 0;
+    if (!did) return NULL;
+
+    int space_count = 0;
+    uint64_t *space_list = display_space_list(did, &space_count);
+    if (!space_list || space_count <= 0) return NULL;
+
+    uint64_t *result = malloc(sizeof(uint64_t) * space_count);
+    if (!result) return NULL;
+
+    memcpy(result, space_list, sizeof(uint64_t) * space_count);
+    *count = space_count;
+    return result;
+}
+
+static bool managed_space_topology_snapshot_contains(uint64_t *space_list, int count, uint64_t sid)
+{
+    return sid && managed_space_topology_find_sid(space_list, count, sid) >= 0;
+}
+
+static void managed_space_topology_capture_request_snapshot(struct managed_space_topology_request *request)
+{
+    if (!request->source_did && request->sid) {
+        request->source_did = space_display_id(request->sid);
+    }
+    if (!request->target_did) {
+        request->target_did = request->source_did;
+    }
+
+    request->pre_source_order = managed_space_topology_copy_full_display_order(
+        request->source_did,
+        &request->pre_source_count);
+    request->pre_target_order = managed_space_topology_copy_full_display_order(
+        request->target_did,
+        &request->pre_target_count);
+}
+
+static bool managed_space_topology_copy_persisted_display_order(uint32_t did,
+                                                                uint64_t **order,
+                                                                int *count)
+{
+    *order = NULL;
+    *count = 0;
+    if (!did) return false;
+
+    CFStringRef application_id = CFSTR("com.apple.spaces");
+    CFStringRef preference_key = CFSTR("SpacesDisplayConfiguration");
+    CFPreferencesSynchronize(application_id,
+                             kCFPreferencesCurrentUser,
+                             kCFPreferencesAnyHost);
+    CFPropertyListRef value = CFPreferencesCopyValue(preference_key,
+                                                     application_id,
+                                                     kCFPreferencesCurrentUser,
+                                                     kCFPreferencesAnyHost);
+    if (!value) {
+        CFPreferencesSynchronize(application_id,
+                                 kCFPreferencesCurrentUser,
+                                 kCFPreferencesCurrentHost);
+        value = CFPreferencesCopyValue(preference_key,
+                                       application_id,
+                                       kCFPreferencesCurrentUser,
+                                       kCFPreferencesCurrentHost);
+    }
+    if (!value || CFGetTypeID(value) != CFDictionaryGetTypeID()) {
+        if (value) CFRelease(value);
+        return false;
+    }
+
+    CFDictionaryRef configuration = value;
+    CFTypeRef management_value = CFDictionaryGetValue(configuration, CFSTR("Management Data"));
+    if (!management_value || CFGetTypeID(management_value) != CFDictionaryGetTypeID()) {
+        CFRelease(value);
+        return false;
+    }
+
+    CFTypeRef monitors_value = CFDictionaryGetValue(management_value, CFSTR("Monitors"));
+    if (!monitors_value || CFGetTypeID(monitors_value) != CFArrayGetTypeID()) {
+        CFRelease(value);
+        return false;
+    }
+
+    bool is_main_display = did == display_manager_main_display_id();
+    CFStringRef target_uuid = is_main_display ? NULL : display_uuid(did);
+    CFArrayRef monitors = monitors_value;
+    CFArrayRef spaces = NULL;
+    for (CFIndex i = 0; i < CFArrayGetCount(monitors); ++i) {
+        CFTypeRef monitor_value = CFArrayGetValueAtIndex(monitors, i);
+        if (!monitor_value || CFGetTypeID(monitor_value) != CFDictionaryGetTypeID()) continue;
+
+        CFDictionaryRef monitor = monitor_value;
+        CFTypeRef identifier_value = CFDictionaryGetValue(monitor, CFSTR("Display Identifier"));
+        if (!identifier_value || CFGetTypeID(identifier_value) != CFStringGetTypeID()) continue;
+
+        bool matches = is_main_display
+            ? CFEqual(identifier_value, CFSTR("Main"))
+            : target_uuid && CFEqual(identifier_value, target_uuid);
+        if (!matches) continue;
+
+        CFTypeRef spaces_value = CFDictionaryGetValue(monitor, CFSTR("Spaces"));
+        if (spaces_value && CFGetTypeID(spaces_value) == CFArrayGetTypeID()) {
+            spaces = spaces_value;
+        }
+        break;
+    }
+
+    if (target_uuid) CFRelease(target_uuid);
+    if (!spaces) {
+        CFRelease(value);
+        return false;
+    }
+
+    int space_count = (int) CFArrayGetCount(spaces);
+    uint64_t *result = space_count > 0 ? malloc(sizeof(uint64_t) * space_count) : NULL;
+    if (space_count > 0 && !result) {
+        CFRelease(value);
+        return false;
+    }
+
+    for (int i = 0; i < space_count; ++i) {
+        CFTypeRef space_value = CFArrayGetValueAtIndex(spaces, i);
+        if (!space_value || CFGetTypeID(space_value) != CFDictionaryGetTypeID()) {
+            free(result);
+            CFRelease(value);
+            return false;
+        }
+
+        CFTypeRef sid_value = CFDictionaryGetValue(space_value, CFSTR("ManagedSpaceID"));
+        if (!sid_value ||
+            CFGetTypeID(sid_value) != CFNumberGetTypeID() ||
+            !CFNumberGetValue(sid_value, kCFNumberSInt64Type, &result[i])) {
+            free(result);
+            CFRelease(value);
+            return false;
+        }
+    }
+
+    CFRelease(value);
+    *order = result;
+    *count = space_count;
+    return true;
+}
+
+static bool managed_space_topology_order_preserves_snapshot(uint64_t *order,
+                                                            int count,
+                                                            uint64_t *snapshot,
+                                                            int snapshot_count,
+                                                            uint64_t excluded_sid)
+{
+    int order_index = 0;
+    for (int i = 0; i < snapshot_count; ++i) {
+        uint64_t sid = snapshot[i];
+        if (sid == excluded_sid) continue;
+
+        while (order_index < count && order[order_index] != sid) {
+            ++order_index;
+        }
+        if (order_index == count) return false;
+        ++order_index;
+    }
+
+    return true;
+}
+
+static bool managed_space_topology_persisted_orders_satisfy_request(
+    struct managed_space_topology_request *request,
+    uint64_t *target_order,
+    int target_count,
+    uint64_t *source_order,
+    int source_count)
+{
+    switch (request->operation) {
+    case MANAGED_SPACE_TOPOLOGY_OPERATION_CREATE:
+        return request->created_sid &&
+               target_count == request->pre_target_count + 1 &&
+               managed_space_topology_find_sid(target_order,
+                                               target_count,
+                                               request->created_sid) >= 0 &&
+               managed_space_topology_order_preserves_snapshot(target_order,
+                                                               target_count,
+                                                               request->pre_target_order,
+                                                               request->pre_target_count,
+                                                               0);
+    case MANAGED_SPACE_TOPOLOGY_OPERATION_DESTROY:
+        return target_count == request->pre_target_count - 1 &&
+               managed_space_topology_find_sid(target_order, target_count, request->sid) < 0 &&
+               managed_space_topology_order_preserves_snapshot(target_order,
+                                                               target_count,
+                                                               request->pre_target_order,
+                                                               request->pre_target_count,
+                                                               request->sid);
+    case MANAGED_SPACE_TOPOLOGY_OPERATION_REORDER:
+    case MANAGED_SPACE_TOPOLOGY_OPERATION_SWAP: {
+        if (target_count != request->pre_target_count) return false;
+
+        int desired_index = 0;
+        for (int i = 0; i < target_count; ++i) {
+            int index = managed_space_topology_find_sid(request->desired_order,
+                                                        request->desired_order_count,
+                                                        target_order[i]);
+            if (index < 0) continue;
+            if (index != desired_index) return false;
+            ++desired_index;
+        }
+        return desired_index == request->desired_order_count;
+    }
+    case MANAGED_SPACE_TOPOLOGY_OPERATION_MOVE_DISPLAY:
+        if (request->source_did == request->target_did) {
+            return target_count == request->pre_target_count &&
+                   managed_space_topology_find_sid(target_order, target_count, request->sid) >= 0;
+        }
+        return target_count == request->pre_target_count + 1 &&
+               source_count == request->pre_source_count - 1 &&
+               managed_space_topology_find_sid(target_order, target_count, request->sid) >= 0 &&
+               managed_space_topology_find_sid(source_order, source_count, request->sid) < 0 &&
+               managed_space_topology_order_preserves_snapshot(target_order,
+                                                               target_count,
+                                                               request->pre_target_order,
+                                                               request->pre_target_count,
+                                                               0) &&
+               managed_space_topology_order_preserves_snapshot(source_order,
+                                                               source_count,
+                                                               request->pre_source_order,
+                                                               request->pre_source_count,
+                                                               request->sid);
+    case MANAGED_SPACE_TOPOLOGY_OPERATION_NONE:
+        return true;
+    }
+
+    return false;
+}
+
+static bool managed_space_topology_persisted_orders_match_current_request(
+    struct managed_space_topology_request *request,
+    uint64_t *target_order,
+    int target_count,
+    uint64_t *source_order,
+    int source_count)
+{
+    switch (request->operation) {
+    case MANAGED_SPACE_TOPOLOGY_OPERATION_CREATE:
+        return request->created_sid &&
+               managed_space_topology_find_sid(target_order,
+                                               target_count,
+                                               request->created_sid) >= 0;
+    case MANAGED_SPACE_TOPOLOGY_OPERATION_DESTROY:
+        return managed_space_topology_find_sid(target_order,
+                                               target_count,
+                                               request->sid) < 0;
+    case MANAGED_SPACE_TOPOLOGY_OPERATION_REORDER:
+    case MANAGED_SPACE_TOPOLOGY_OPERATION_SWAP: {
+        int desired_index = 0;
+        for (int i = 0; i < target_count; ++i) {
+            int index = managed_space_topology_find_sid(request->desired_order,
+                                                        request->desired_order_count,
+                                                        target_order[i]);
+            if (index < 0) continue;
+            if (index != desired_index) return false;
+            ++desired_index;
+        }
+        return desired_index == request->desired_order_count;
+    }
+    case MANAGED_SPACE_TOPOLOGY_OPERATION_MOVE_DISPLAY:
+        return managed_space_topology_find_sid(target_order,
+                                               target_count,
+                                               request->sid) >= 0 &&
+               (request->source_did == request->target_did ||
+                managed_space_topology_find_sid(source_order,
+                                                source_count,
+                                                request->sid) < 0);
+    case MANAGED_SPACE_TOPOLOGY_OPERATION_NONE:
+        return true;
+    }
+
+    return false;
+}
+
+static bool managed_space_topology_observe_persisted_postcondition(
+    struct managed_space_topology *topology)
+{
+    struct managed_space_topology_request *request = &topology->current;
+    if (request->operation == MANAGED_SPACE_TOPOLOGY_OPERATION_NONE) return false;
+    if (!managed_space_topology_request_is_satisfied(request)) return false;
+
+    uint64_t *target_order = NULL;
+    int target_count = 0;
+    if (!managed_space_topology_copy_persisted_display_order(request->target_did,
+                                                             &target_order,
+                                                             &target_count)) {
+        return false;
+    }
+
+    uint64_t *source_order = target_order;
+    int source_count = target_count;
+    if (request->operation == MANAGED_SPACE_TOPOLOGY_OPERATION_MOVE_DISPLAY &&
+        request->source_did != request->target_did) {
+        source_order = NULL;
+        source_count = 0;
+        if (!managed_space_topology_copy_persisted_display_order(request->source_did,
+                                                                 &source_order,
+                                                                 &source_count)) {
+            free(target_order);
+            return false;
+        }
+    }
+
+    bool result = request->mutation_started
+        ? managed_space_topology_persisted_orders_satisfy_request(request,
+                                                                  target_order,
+                                                                  target_count,
+                                                                  source_order,
+                                                                  source_count)
+        : managed_space_topology_persisted_orders_match_current_request(request,
+                                                                        target_order,
+                                                                        target_count,
+                                                                        source_order,
+                                                                        source_count);
+    if (source_order != target_order) free(source_order);
+    free(target_order);
+    request->dock_postcondition_observed = result;
+    return result;
 }
 
 static int managed_space_topology_copy_matching_spaces(uint64_t *source,
@@ -665,6 +1028,8 @@ static bool managed_space_topology_build_move_order(struct managed_space_topolog
     uint32_t did = space_display_id(request->sid);
     if (!did || did != space_display_id(request->target_sid)) return false;
 
+    request->source_did = did;
+    request->target_did = did;
     request->desired_order = managed_space_topology_copy_display_order(did, &request->desired_order_count);
     if (!request->desired_order) return false;
 
@@ -681,6 +1046,8 @@ static bool managed_space_topology_build_swap_order(struct managed_space_topolog
     uint32_t did = space_display_id(request->sid);
     if (!did || did != space_display_id(request->target_sid)) return false;
 
+    request->source_did = did;
+    request->target_did = did;
     request->desired_order = managed_space_topology_copy_display_order(did, &request->desired_order_count);
     if (!request->desired_order) return false;
 
@@ -805,6 +1172,7 @@ enum space_op_error managed_space_topology_create(struct managed_space_topology 
     struct managed_space_topology_request request = {
         .operation = MANAGED_SPACE_TOPOLOGY_OPERATION_CREATE,
         .sid = acting_sid,
+        .source_did = did,
         .target_did = did
     };
 
@@ -816,6 +1184,7 @@ enum space_op_error managed_space_topology_destroy_space(struct managed_space_to
     struct managed_space_topology_request request = {
         .operation = MANAGED_SPACE_TOPOLOGY_OPERATION_DESTROY,
         .sid = sid,
+        .source_did = space_display_id(sid),
         .target_did = space_display_id(sid)
     };
 
@@ -882,6 +1251,7 @@ enum space_op_error managed_space_topology_move_space_to_display(struct managed_
     struct managed_space_topology_request request = {
         .operation = MANAGED_SPACE_TOPOLOGY_OPERATION_MOVE_DISPLAY,
         .sid = sid,
+        .source_did = space_display_id(sid),
         .target_did = did,
         .focus_space = sid == space_manager_active_space(),
         .placeholder_required = placeholder_required
@@ -1205,7 +1575,11 @@ static void managed_space_topology_ax_notification(AXObserverRef observer,
     struct managed_space_topology *topology = context;
     if (!topology) return;
     if (topology->current.backend != MANAGED_SPACE_TOPOLOGY_BACKEND_ACTIVE_ACCESSIBILITY) return;
-    if (topology->state != MANAGED_SPACE_TOPOLOGY_STATE_WAITING_FOR_SETTLE) return;
+    if (topology->state != MANAGED_SPACE_TOPOLOGY_STATE_WAITING_FOR_ACCESSIBILITY &&
+        topology->state != MANAGED_SPACE_TOPOLOGY_STATE_WAITING_FOR_EVENT &&
+        topology->state != MANAGED_SPACE_TOPOLOGY_STATE_WAITING_FOR_SETTLE) {
+        return;
+    }
 
     managed_space_topology_schedule_step(topology, 0.08);
 }
@@ -1254,6 +1628,47 @@ static AXUIElementRef managed_space_topology_copy_ax_list_child(AXUIElementRef l
     return result;
 }
 
+static AXUIElementRef managed_space_topology_copy_ax_spaces_list(AXUIElementRef mission_control,
+                                                                 uint32_t did)
+{
+    AXUIElementRef spaces = managed_space_topology_copy_ax_spaces_group(mission_control, did);
+    if (!spaces) return NULL;
+
+    AXUIElementRef list = managed_space_topology_copy_ax_child(spaces, CFSTR("mc.spaces.list"));
+    CFRelease(spaces);
+    return list;
+}
+
+static bool managed_space_topology_ax_list_count(AXUIElementRef list, int *count)
+{
+    *count = 0;
+    if (!list) return false;
+
+    CFTypeRef value = NULL;
+    if (AXUIElementCopyAttributeValue(list, kAXChildrenAttribute, &value) != kAXErrorSuccess ||
+        !value ||
+        CFGetTypeID(value) != CFArrayGetTypeID()) {
+        if (value) CFRelease(value);
+        return false;
+    }
+
+    *count = (int) CFArrayGetCount(value);
+    CFRelease(value);
+    return true;
+}
+
+static bool managed_space_topology_ax_space_count(AXUIElementRef mission_control,
+                                                   uint32_t did,
+                                                   int *count)
+{
+    AXUIElementRef list = managed_space_topology_copy_ax_spaces_list(mission_control, did);
+    if (!list) return false;
+
+    bool result = managed_space_topology_ax_list_count(list, count);
+    CFRelease(list);
+    return result;
+}
+
 static bool managed_space_topology_ax_frame(AXUIElementRef element, CGRect *frame)
 {
     CFTypeRef value = NULL;
@@ -1279,19 +1694,30 @@ static void managed_space_topology_post_mouse_event(CGEventType type, CGPoint po
     CFRelease(event);
 }
 
-static void managed_space_topology_drag(CGPoint source, CGPoint destination)
+static bool managed_space_topology_visible_intersection(CGRect frame,
+                                                        CGRect display_frame,
+                                                        CGRect *visible_frame)
+{
+    CGRect intersection = CGRectIntersection(frame, display_frame);
+    if (CGRectIsNull(intersection) || CGRectIsEmpty(intersection)) return false;
+    if (visible_frame) *visible_frame = intersection;
+    return true;
+}
+
+static CGPoint managed_space_topology_current_mouse_location(CGPoint fallback)
 {
     CGEventRef current_event = CGEventCreate(NULL);
-    CGPoint original = current_event ? CGEventGetLocation(current_event) : source;
+    CGPoint original = current_event ? CGEventGetLocation(current_event) : fallback;
     if (current_event) CFRelease(current_event);
+    return original;
+}
 
-    managed_space_topology_post_mouse_event(kCGEventMouseMoved, source);
-    usleep(MANAGED_SPACE_TOPOLOGY_DRAG_INITIAL_DELAY_US);
-    managed_space_topology_post_mouse_event(kCGEventLeftMouseDown, source);
-    usleep(MANAGED_SPACE_TOPOLOGY_DRAG_HOLD_DELAY_US);
-
-    for (int i = 1; i <= 12; ++i) {
-        double progress = (double) i / 12.0;
+static void managed_space_topology_drag_segment(CGPoint source,
+                                                CGPoint destination,
+                                                int step_count)
+{
+    for (int i = 1; i <= step_count; ++i) {
+        double progress = (double) i / step_count;
         CGPoint point = {
             .x = source.x + (destination.x - source.x) * progress,
             .y = source.y + (destination.y - source.y) * progress
@@ -1299,11 +1725,236 @@ static void managed_space_topology_drag(CGPoint source, CGPoint destination)
         managed_space_topology_post_mouse_event(kCGEventLeftMouseDragged, point);
         usleep(MANAGED_SPACE_TOPOLOGY_DRAG_STEP_DELAY_US);
     }
+}
 
+static void managed_space_topology_begin_drag(CGPoint source)
+{
+    managed_space_topology_post_mouse_event(kCGEventMouseMoved, source);
+    usleep(MANAGED_SPACE_TOPOLOGY_DRAG_INITIAL_DELAY_US);
+    managed_space_topology_post_mouse_event(kCGEventLeftMouseDown, source);
+    usleep(MANAGED_SPACE_TOPOLOGY_DRAG_HOLD_DELAY_US);
+}
+
+static void managed_space_topology_end_drag(CGPoint destination, CGPoint original)
+{
     usleep(MANAGED_SPACE_TOPOLOGY_DRAG_DROP_DELAY_US);
     managed_space_topology_post_mouse_event(kCGEventLeftMouseUp, destination);
     usleep(MANAGED_SPACE_TOPOLOGY_DRAG_RELEASE_DELAY_US);
     managed_space_topology_post_mouse_event(kCGEventMouseMoved, original);
+}
+
+static void managed_space_topology_drag(CGPoint source, CGPoint destination)
+{
+    CGPoint original = managed_space_topology_current_mouse_location(source);
+    managed_space_topology_begin_drag(source);
+    managed_space_topology_drag_segment(source, destination, 12);
+    managed_space_topology_end_drag(destination, original);
+}
+
+static bool managed_space_topology_drag_to_ax_target(CGPoint source,
+                                                     CGPoint target_hover,
+                                                     AXUIElementRef target,
+                                                     CGRect target_display_frame,
+                                                     CGRect *destination_frame)
+{
+    CGPoint original = managed_space_topology_current_mouse_location(source);
+    managed_space_topology_begin_drag(source);
+    managed_space_topology_drag_segment(source, target_hover, 12);
+    usleep((useconds_t) (MANAGED_SPACE_TOPOLOGY_SPACES_BAR_DELAY_SECONDS * 1000000.0));
+
+    CGRect refreshed_frame;
+    bool target_visible = managed_space_topology_ax_frame(target, &refreshed_frame) &&
+                          managed_space_topology_visible_intersection(refreshed_frame,
+                                                                     target_display_frame,
+                                                                     NULL);
+    if (!target_visible) {
+        managed_space_topology_drag_segment(target_hover, source, 12);
+        managed_space_topology_end_drag(source, original);
+        return false;
+    }
+
+    CGPoint destination = {
+        CGRectGetMidX(refreshed_frame),
+        CGRectGetMidY(refreshed_frame)
+    };
+    managed_space_topology_drag_segment(target_hover, destination, 6);
+    managed_space_topology_end_drag(destination, original);
+    if (destination_frame) *destination_frame = refreshed_frame;
+    return true;
+}
+
+static enum managed_space_topology_ax_result
+managed_space_topology_capture_ax_precondition(struct managed_space_topology *topology,
+                                               AXUIElementRef mission_control)
+{
+    struct managed_space_topology_request *request = &topology->current;
+    if (request->ax_precondition_observed) return MANAGED_SPACE_TOPOLOGY_AX_STARTED;
+
+    int target_ax_count = 0;
+    if (!managed_space_topology_ax_space_count(mission_control,
+                                               request->target_did,
+                                               &target_ax_count)) {
+        return MANAGED_SPACE_TOPOLOGY_AX_WAITING;
+    }
+
+    int target_sls_count = display_space_count(request->target_did);
+    topology->authority_did = request->target_did;
+    topology->authority_sls_count = target_sls_count;
+    topology->authority_ax_count = target_ax_count;
+    topology->authority_observed = true;
+    topology->authority_consistent = target_sls_count == request->pre_target_count &&
+                                     target_ax_count == target_sls_count;
+    if (target_sls_count != request->pre_target_count ||
+        target_ax_count != target_sls_count) {
+        debug("managed_space_topology_capture_ax_precondition: display %u "
+              "snapshot=%d sls=%d ax=%d\n",
+              request->target_did,
+              request->pre_target_count,
+              target_sls_count,
+              target_ax_count);
+        snprintf(topology->operation_error,
+                 sizeof(topology->operation_error),
+                 "%s",
+                 "topology-authority-diverged");
+        return MANAGED_SPACE_TOPOLOGY_AX_FAILED;
+    }
+
+    request->ax_target_count_before = target_ax_count;
+
+    if (request->operation == MANAGED_SPACE_TOPOLOGY_OPERATION_MOVE_DISPLAY &&
+        request->source_did != request->target_did) {
+        int source_ax_count = 0;
+        if (!managed_space_topology_ax_space_count(mission_control,
+                                                   request->source_did,
+                                                   &source_ax_count)) {
+            return MANAGED_SPACE_TOPOLOGY_AX_WAITING;
+        }
+
+        int source_sls_count = display_space_count(request->source_did);
+        topology->authority_did = request->source_did;
+        topology->authority_sls_count = source_sls_count;
+        topology->authority_ax_count = source_ax_count;
+        topology->authority_observed = true;
+        topology->authority_consistent = source_sls_count == request->pre_source_count &&
+                                         source_ax_count == source_sls_count;
+        if (source_sls_count != request->pre_source_count ||
+            source_ax_count != source_sls_count) {
+            debug("managed_space_topology_capture_ax_precondition: display %u "
+                  "snapshot=%d sls=%d ax=%d\n",
+                  request->source_did,
+                  request->pre_source_count,
+                  source_sls_count,
+                  source_ax_count);
+            snprintf(topology->operation_error,
+                     sizeof(topology->operation_error),
+                     "%s",
+                     "topology-authority-diverged");
+            return MANAGED_SPACE_TOPOLOGY_AX_FAILED;
+        }
+
+        request->ax_source_count_before = source_ax_count;
+    } else {
+        request->ax_source_count_before = target_ax_count;
+    }
+
+    request->ax_precondition_observed = true;
+    return MANAGED_SPACE_TOPOLOGY_AX_STARTED;
+}
+
+static void managed_space_topology_resolve_created_sid(struct managed_space_topology_request *request)
+{
+    if (request->created_sid || request->operation != MANAGED_SPACE_TOPOLOGY_OPERATION_CREATE) return;
+
+    int current_count = 0;
+    uint64_t *current_order = display_space_list(request->target_did, &current_count);
+    uint64_t candidate_sid = 0;
+    for (int i = 0; current_order && i < current_count; ++i) {
+        uint64_t sid = current_order[i];
+        if (!space_is_user(sid)) continue;
+        if (managed_space_topology_snapshot_contains(request->pre_target_order,
+                                                     request->pre_target_count,
+                                                     sid)) {
+            continue;
+        }
+        if (candidate_sid) return;
+        candidate_sid = sid;
+    }
+
+    request->created_sid = candidate_sid;
+}
+
+static bool managed_space_topology_observe_ax_postcondition(struct managed_space_topology *topology,
+                                                            AXUIElementRef mission_control)
+{
+    struct managed_space_topology_request *request = &topology->current;
+    if (!request->ax_precondition_observed) return false;
+
+    managed_space_topology_resolve_created_sid(request);
+    if (!managed_space_topology_request_is_satisfied(request)) return false;
+
+    int target_ax_count = 0;
+    if (!managed_space_topology_ax_space_count(mission_control,
+                                               request->target_did,
+                                               &target_ax_count)) {
+        return false;
+    }
+    int target_sls_count = display_space_count(request->target_did);
+
+    int expected_target_count = request->ax_target_count_before;
+    switch (request->operation) {
+    case MANAGED_SPACE_TOPOLOGY_OPERATION_CREATE:
+        ++expected_target_count;
+        break;
+    case MANAGED_SPACE_TOPOLOGY_OPERATION_DESTROY:
+        --expected_target_count;
+        break;
+    case MANAGED_SPACE_TOPOLOGY_OPERATION_MOVE_DISPLAY:
+        if (request->source_did != request->target_did) ++expected_target_count;
+        break;
+    case MANAGED_SPACE_TOPOLOGY_OPERATION_REORDER:
+    case MANAGED_SPACE_TOPOLOGY_OPERATION_SWAP:
+    case MANAGED_SPACE_TOPOLOGY_OPERATION_NONE:
+        break;
+    }
+
+    if (target_ax_count != expected_target_count ||
+        target_sls_count != expected_target_count) {
+        return false;
+    }
+
+    if (request->operation == MANAGED_SPACE_TOPOLOGY_OPERATION_MOVE_DISPLAY &&
+        request->source_did != request->target_did) {
+        int source_ax_count = 0;
+        int expected_source_count = request->ax_source_count_before - 1;
+        if (!managed_space_topology_ax_space_count(mission_control,
+                                                   request->source_did,
+                                                   &source_ax_count) ||
+            source_ax_count != expected_source_count ||
+            display_space_count(request->source_did) != expected_source_count) {
+            return false;
+        }
+    }
+
+    topology->authority_did = request->target_did;
+    topology->authority_sls_count = target_sls_count;
+    topology->authority_ax_count = target_ax_count;
+    topology->authority_observed = true;
+    topology->authority_consistent = true;
+    request->ax_postcondition_observed = true;
+    return true;
+}
+
+static bool managed_space_topology_request_postcondition_satisfied(struct managed_space_topology *topology)
+{
+    if (!managed_space_topology_request_is_satisfied(&topology->current)) return false;
+    if (topology->current.backend == MANAGED_SPACE_TOPOLOGY_BACKEND_ACTIVE_ACCESSIBILITY) {
+        return topology->current.ax_postcondition_observed ||
+               topology->current.dock_postcondition_observed;
+    }
+    if (topology->current.backend == MANAGED_SPACE_TOPOLOGY_BACKEND_ACTIVE_BRIDGE) {
+        return topology->current.dock_postcondition_observed;
+    }
+    return true;
 }
 
 static bool managed_space_topology_ax_create(struct managed_space_topology *topology, AXUIElementRef mission_control)
@@ -1313,7 +1964,7 @@ static bool managed_space_topology_ax_create(struct managed_space_topology *topo
 
     AXUIElementRef add = managed_space_topology_copy_ax_child(spaces, CFSTR("mc.spaces.add"));
     CFRelease(spaces);
-    int space_count = display_space_count(topology->current.target_did);
+    int space_count = topology->current.ax_target_count_before;
     if (!add) {
         if (space_count >= MANAGED_SPACE_TOPOLOGY_UI_SPACE_LIMIT) {
             managed_space_topology_record_space_limit(topology,
@@ -1323,11 +1974,6 @@ static bool managed_space_topology_ax_create(struct managed_space_topology *topo
                      sizeof(topology->operation_error),
                      "%s",
                      "space-limit-reached");
-        } else {
-            snprintf(topology->operation_error,
-                     sizeof(topology->operation_error),
-                     "%s",
-                     "accessibility-add-control-unavailable");
         }
         return false;
     }
@@ -1350,11 +1996,6 @@ static bool managed_space_topology_ax_create(struct managed_space_topology *topo
                      sizeof(topology->operation_error),
                      "%s",
                      "space-limit-reached");
-        } else if (!enabled) {
-            snprintf(topology->operation_error,
-                     sizeof(topology->operation_error),
-                     "%s",
-                     "accessibility-add-control-disabled");
         }
         return false;
     }
@@ -1427,6 +2068,8 @@ static bool managed_space_topology_ax_reorder(struct managed_space_topology *top
 
     AXUIElementRef spaces = managed_space_topology_copy_ax_spaces_group(mission_control, did);
     if (!spaces) return false;
+    CGRect spaces_frame;
+    bool have_spaces_frame = managed_space_topology_ax_frame(spaces, &spaces_frame);
     AXUIElementRef list = managed_space_topology_copy_ax_child(spaces, CFSTR("mc.spaces.list"));
     CFRelease(spaces);
     if (!list) return false;
@@ -1460,9 +2103,21 @@ static bool managed_space_topology_ax_reorder(struct managed_space_topology *top
             return false;
         }
 
+        CGRect visible_spaces;
+        if (!have_spaces_frame ||
+            !managed_space_topology_visible_intersection(spaces_frame,
+                                                         display_frame,
+                                                         &visible_spaces)) {
+            snprintf(topology->operation_error,
+                     sizeof(topology->operation_error),
+                     "%s",
+                     "accessibility-spaces-group-unavailable");
+            return false;
+        }
+
         CGPoint hover_point = {
-            CGRectGetMidX(display_frame),
-            CGRectGetMinY(display_frame) + 1.0
+            CGRectGetMidX(visible_spaces),
+            CGRectGetMinY(visible_spaces) + CGRectGetHeight(visible_spaces) * 0.05
         };
         request->ax_spaces_bar_hovered = true;
         managed_space_topology_post_mouse_event(kCGEventMouseMoved, hover_point);
@@ -1506,6 +2161,7 @@ static bool managed_space_topology_ax_reorder(struct managed_space_topology *top
     request->mutation_started = true;
     topology->state = MANAGED_SPACE_TOPOLOGY_STATE_WAITING_FOR_SETTLE;
     managed_space_topology_schedule_step(topology, MANAGED_SPACE_TOPOLOGY_SETTLE_DELAY_SECONDS);
+    managed_space_topology_schedule_watchdog(topology);
     return true;
 }
 
@@ -1532,6 +2188,11 @@ static bool managed_space_topology_ax_move_display(struct managed_space_topology
         return false;
     }
 
+    CGRect source_spaces_frame;
+    CGRect target_spaces_frame;
+    bool have_spaces_frames =
+        managed_space_topology_ax_frame(source_spaces, &source_spaces_frame) &&
+        managed_space_topology_ax_frame(target_spaces, &target_spaces_frame);
     AXUIElementRef source_list = managed_space_topology_copy_ax_child(source_spaces, CFSTR("mc.spaces.list"));
     AXUIElementRef target_list = managed_space_topology_copy_ax_child(target_spaces, CFSTR("mc.spaces.list"));
     CFRelease(source_spaces);
@@ -1550,8 +2211,16 @@ static bool managed_space_topology_ax_move_display(struct managed_space_topology
     }
 
     int target_count = 0;
-    display_space_list(request->target_did, &target_count);
-    AXUIElementRef target = managed_space_topology_copy_ax_list_child(target_list, MAX(0, target_count - 1));
+    uint64_t *target_space_list = display_space_list(request->target_did, &target_count);
+    int target_index = -1;
+    for (int i = target_count - 1; i >= 0; --i) {
+        if (!space_is_user(target_space_list[i])) continue;
+        target_index = i;
+        break;
+    }
+    AXUIElementRef target = target_index >= 0
+        ? managed_space_topology_copy_ax_list_child(target_list, target_index)
+        : NULL;
     CFRelease(target_list);
     if (!target) {
         CFRelease(source);
@@ -1563,11 +2232,15 @@ static bool managed_space_topology_ax_move_display(struct managed_space_topology
     bool have_frames = managed_space_topology_ax_frame(source, &source_frame) &&
                        managed_space_topology_ax_frame(target, &target_frame);
     CFRelease(source);
-    CFRelease(target);
-    if (!have_frames) return false;
+    if (!have_frames) {
+        CFRelease(target);
+        return false;
+    }
 
     CGRect source_display_frame = CGDisplayBounds(source_did);
-    if (!CGRectIntersectsRect(source_frame, source_display_frame)) {
+    if (!managed_space_topology_visible_intersection(source_frame,
+                                                     source_display_frame,
+                                                     NULL)) {
         if (request->ax_spaces_bar_hovered) {
             debug("managed_space_topology_ax_move_display: source space %llu frame "
                   "(%.1f, %.1f, %.1f, %.1f) did not expand on display %u\n",
@@ -1581,32 +2254,47 @@ static bool managed_space_topology_ax_move_display(struct managed_space_topology
                      sizeof(topology->operation_error),
                      "%s",
                      "accessibility-spaces-bar-unavailable");
+            CFRelease(target);
+            return false;
+        }
+
+        CGRect visible_source_spaces;
+        if (!have_spaces_frames ||
+            !managed_space_topology_visible_intersection(source_spaces_frame,
+                                                         source_display_frame,
+                                                         &visible_source_spaces)) {
+            snprintf(topology->operation_error,
+                     sizeof(topology->operation_error),
+                     "%s",
+                     "accessibility-source-spaces-group-unavailable");
+            CFRelease(target);
             return false;
         }
 
         CGPoint hover_point = {
-            CGRectGetMidX(source_display_frame),
-            CGRectGetMinY(source_display_frame) + 1.0
+            CGRectGetMidX(visible_source_spaces),
+            CGRectGetMinY(visible_source_spaces) + CGRectGetHeight(visible_source_spaces) * 0.05
         };
         request->ax_spaces_bar_hovered = true;
         managed_space_topology_post_mouse_event(kCGEventMouseMoved, hover_point);
         topology->state = MANAGED_SPACE_TOPOLOGY_STATE_WAITING_FOR_SETTLE;
         managed_space_topology_schedule_step(topology,
                                              MANAGED_SPACE_TOPOLOGY_SPACES_BAR_DELAY_SECONDS);
+        CFRelease(target);
         return true;
     }
 
-    if (request->mutation_started) return false;
+    if (request->mutation_started) {
+        CFRelease(target);
+        return false;
+    }
 
     CGRect target_display_frame = CGDisplayBounds(request->target_did);
-    bool target_frame_visible = CGRectIntersectsRect(target_frame, target_display_frame);
+    bool target_frame_visible = managed_space_topology_visible_intersection(target_frame,
+                                                                            target_display_frame,
+                                                                            NULL);
     CGPoint source_point = { CGRectGetMidX(source_frame), CGRectGetMidY(source_frame) };
-    CGPoint target_point = {
-        CGRectGetMidX(target_frame),
-        target_frame_visible
-            ? CGRectGetMidY(target_frame)
-            : CGRectGetMinY(target_display_frame) + 60.0
-    };
+    CGPoint target_point = { CGRectGetMidX(target_frame), CGRectGetMidY(target_frame) };
     debug("managed_space_topology_ax_move_display: dragging space %llu from display %u "
           "(%.1f, %.1f, %.1f, %.1f) to display %u "
           "(%.1f, %.1f, %.1f, %.1f), points (%.1f, %.1f) -> (%.1f, %.1f)\n",
@@ -1625,19 +2313,72 @@ static bool managed_space_topology_ax_move_display(struct managed_space_topology
           source_point.y,
           target_point.x,
           target_point.y);
-    managed_space_topology_drag(source_point, target_point);
+
+    bool dragged = target_frame_visible;
+    if (target_frame_visible) {
+        managed_space_topology_drag(source_point, target_point);
+    } else {
+        CGRect visible_target_spaces;
+        if (!have_spaces_frames ||
+            !managed_space_topology_visible_intersection(target_spaces_frame,
+                                                         target_display_frame,
+                                                         &visible_target_spaces)) {
+            snprintf(topology->operation_error,
+                     sizeof(topology->operation_error),
+                     "%s",
+                     "accessibility-target-spaces-group-unavailable");
+        } else {
+            CGPoint target_hover = {
+                fmin(fmax(CGRectGetMidX(target_frame), CGRectGetMinX(visible_target_spaces)),
+                     CGRectGetMaxX(visible_target_spaces)),
+                CGRectGetMinY(visible_target_spaces) +
+                    CGRectGetHeight(visible_target_spaces) * 0.05
+            };
+            CGRect refreshed_target_frame;
+            dragged = managed_space_topology_drag_to_ax_target(source_point,
+                                                                target_hover,
+                                                                target,
+                                                                target_display_frame,
+                                                                &refreshed_target_frame);
+            if (dragged) {
+                debug("managed_space_topology_ax_move_display: destination expanded "
+                      "to (%.1f, %.1f, %.1f, %.1f)\n",
+                      refreshed_target_frame.origin.x,
+                      refreshed_target_frame.origin.y,
+                      refreshed_target_frame.size.width,
+                      refreshed_target_frame.size.height);
+            } else {
+                snprintf(topology->operation_error,
+                         sizeof(topology->operation_error),
+                         "%s",
+                         "accessibility-target-spaces-bar-unavailable");
+            }
+        }
+    }
+    CFRelease(target);
+    if (!dragged) return false;
+
     request->mutation_started = true;
     topology->state = MANAGED_SPACE_TOPOLOGY_STATE_WAITING_FOR_SETTLE;
     managed_space_topology_schedule_step(topology, MANAGED_SPACE_TOPOLOGY_SETTLE_DELAY_SECONDS);
+    managed_space_topology_schedule_watchdog(topology);
     return true;
 }
 
-static bool managed_space_topology_execute_accessibility(struct managed_space_topology *topology)
+static enum managed_space_topology_ax_result
+managed_space_topology_execute_accessibility(struct managed_space_topology *topology)
 {
-    if (managed_space_topology_request_is_satisfied(&topology->current)) {
-        topology->state = MANAGED_SPACE_TOPOLOGY_STATE_WAITING_FOR_SETTLE;
-        managed_space_topology_schedule_step(topology, 0);
-        return true;
+    if (!topology->current.mutation_started &&
+        managed_space_topology_request_is_satisfied(&topology->current)) {
+        if (managed_space_topology_observe_persisted_postcondition(topology)) {
+            return MANAGED_SPACE_TOPOLOGY_AX_STARTED;
+        }
+        if (!topology->current.readiness_retry_scheduled) {
+            topology->current.readiness_retry_scheduled = true;
+            managed_space_topology_schedule_step(topology,
+                                                 MANAGED_SPACE_TOPOLOGY_SETTLE_DELAY_SECONDS);
+        }
+        return MANAGED_SPACE_TOPOLOGY_AX_WAITING;
     }
 
     if (!topology->current.mutation_started &&
@@ -1646,13 +2387,45 @@ static bool managed_space_topology_execute_accessibility(struct managed_space_to
                  sizeof(topology->operation_error),
                  "%s",
                  "stale-topology");
-        return false;
+        return MANAGED_SPACE_TOPOLOGY_AX_FAILED;
     }
 
     pid_t dock_pid = 0;
     AXUIElementRef mission_control = managed_space_topology_copy_mission_control(&dock_pid);
-    if (!mission_control) return false;
+    if (!mission_control) {
+        if (!topology->current.readiness_retry_scheduled) {
+            topology->current.readiness_retry_scheduled = true;
+            managed_space_topology_schedule_step(topology,
+                                                 MANAGED_SPACE_TOPOLOGY_SETTLE_DELAY_SECONDS);
+        }
+        return MANAGED_SPACE_TOPOLOGY_AX_WAITING;
+    }
     managed_space_topology_observe_mission_control(topology, dock_pid, mission_control);
+
+    enum managed_space_topology_ax_result precondition_result =
+        managed_space_topology_capture_ax_precondition(topology, mission_control);
+    if (precondition_result != MANAGED_SPACE_TOPOLOGY_AX_STARTED) {
+        CFRelease(mission_control);
+        if (precondition_result == MANAGED_SPACE_TOPOLOGY_AX_WAITING &&
+            !topology->current.readiness_retry_scheduled) {
+            topology->current.readiness_retry_scheduled = true;
+            managed_space_topology_schedule_step(topology,
+                                                 MANAGED_SPACE_TOPOLOGY_SETTLE_DELAY_SECONDS);
+        }
+        return precondition_result;
+    }
+
+    if (managed_space_topology_observe_ax_postcondition(topology, mission_control)) {
+        CFRelease(mission_control);
+        return MANAGED_SPACE_TOPOLOGY_AX_STARTED;
+    }
+
+    if (topology->current.mutation_started &&
+        topology->current.operation != MANAGED_SPACE_TOPOLOGY_OPERATION_REORDER &&
+        topology->current.operation != MANAGED_SPACE_TOPOLOGY_OPERATION_SWAP) {
+        CFRelease(mission_control);
+        return MANAGED_SPACE_TOPOLOGY_AX_WAITING;
+    }
 
     bool result = false;
     switch (topology->current.operation) {
@@ -1674,10 +2447,15 @@ static bool managed_space_topology_execute_accessibility(struct managed_space_to
     }
 
     CFRelease(mission_control);
-    if (result && topology->current.operation != MANAGED_SPACE_TOPOLOGY_OPERATION_NONE) {
-        managed_space_topology_schedule_watchdog(topology);
+    if (result) return MANAGED_SPACE_TOPOLOGY_AX_STARTED;
+    if (topology->operation_error[0]) return MANAGED_SPACE_TOPOLOGY_AX_FAILED;
+
+    if (!topology->current.readiness_retry_scheduled) {
+        topology->current.readiness_retry_scheduled = true;
+        managed_space_topology_schedule_step(topology,
+                                             MANAGED_SPACE_TOPOLOGY_SETTLE_DELAY_SECONDS);
     }
-    return result;
+    return MANAGED_SPACE_TOPOLOGY_AX_WAITING;
 }
 
 static uint64_t managed_space_topology_other_user_space(uint32_t did, uint64_t sid)
@@ -1693,18 +2471,94 @@ static uint64_t managed_space_topology_other_user_space(uint32_t did, uint64_t s
     return 0;
 }
 
+static bool managed_space_topology_ax_activate_space(uint64_t sid)
+{
+    uint32_t did = space_display_id(sid);
+    int space_count = 0;
+    uint64_t *space_list = display_space_list(did, &space_count);
+    int index = managed_space_topology_find_sid(space_list, space_count, sid);
+    if (!did || index < 0) return false;
+
+    pid_t dock_pid = 0;
+    AXUIElementRef mission_control = managed_space_topology_copy_mission_control(&dock_pid);
+    if (!mission_control) return false;
+
+    AXUIElementRef list = managed_space_topology_copy_ax_spaces_list(mission_control, did);
+    CFRelease(mission_control);
+    if (!list) return false;
+
+    int ax_count = 0;
+    bool count_matches = managed_space_topology_ax_list_count(list, &ax_count) &&
+                         ax_count == space_count;
+    AXUIElementRef child = count_matches
+        ? managed_space_topology_copy_ax_list_child(list, index)
+        : NULL;
+    CFRelease(list);
+    if (!child) return false;
+
+    AXError result = AXUIElementPerformAction(child, kAXPressAction);
+    CFRelease(child);
+    debug("managed_space_topology_ax_activate_space: activating space %llu on "
+          "display %u through AXPress returned %d\n",
+          sid,
+          did,
+          result);
+    return result == kAXErrorSuccess;
+}
+
 static void managed_space_topology_start_accessibility(struct managed_space_topology *topology)
 {
+    if (!topology->current.mutation_started &&
+        managed_space_topology_request_is_satisfied(&topology->current)) {
+        topology->state = MANAGED_SPACE_TOPOLOGY_STATE_WAITING_FOR_SETTLE;
+        managed_space_topology_schedule_step(topology, 0);
+        managed_space_topology_schedule_watchdog(topology);
+        return;
+    }
+
     if (topology->current.operation == MANAGED_SPACE_TOPOLOGY_OPERATION_DESTROY &&
         topology->current.phase == 0 &&
         display_space_id(topology->current.target_did) == topology->current.sid) {
+        uint64_t active_sid = space_manager_active_space();
+        if (active_sid != topology->current.sid) {
+            topology->current.restore_focus_sid = active_sid;
+        }
+
+        if (topology->owns_mission_control &&
+            (mission_control_is_active() || managed_space_topology_mission_control_ui_exists())) {
+            managed_space_topology_schedule_owned_mission_control_deactivation(topology);
+            return;
+        }
+
         uint64_t focus_sid = managed_space_topology_other_user_space(topology->current.target_did,
                                                                      topology->current.sid);
         enum space_op_error result = focus_sid
             ? space_manager_focus_space(focus_sid)
             : SPACE_OP_ERROR_MISSING_DST;
+        debug("managed_space_topology_start_accessibility: focusing %llu before "
+              "destroying active space %llu returned %d\n",
+              focus_sid,
+              topology->current.sid,
+              result);
+        if ((result == SPACE_OP_ERROR_DISPLAY_IS_ANIMATING ||
+             result == SPACE_OP_ERROR_IN_MISSION_CONTROL) &&
+            !topology->current.readiness_retry_scheduled) {
+            topology->current.readiness_retry_scheduled = true;
+            topology->state = MANAGED_SPACE_TOPOLOGY_STATE_QUEUED;
+            managed_space_topology_schedule_step(topology,
+                                                 MANAGED_SPACE_TOPOLOGY_SETTLE_DELAY_SECONDS);
+            managed_space_topology_schedule_watchdog(topology);
+            return;
+        }
         if (result != SPACE_OP_ERROR_SUCCESS && result != SPACE_OP_ERROR_SAME_SPACE) {
-            managed_space_topology_fail_current(topology, "could-not-focus-destroy-target");
+            if (managed_space_topology_request_is_satisfied(&topology->current)) {
+                topology->state = MANAGED_SPACE_TOPOLOGY_STATE_WAITING_FOR_SETTLE;
+                managed_space_topology_schedule_step(topology, 0);
+                managed_space_topology_schedule_watchdog(topology);
+                return;
+            }
+            managed_space_topology_fail_current(topology,
+                                                "could-not-deactivate-destroy-target");
             return;
         }
 
@@ -1749,14 +2603,23 @@ static void managed_space_topology_begin_current(struct managed_space_topology *
         topology->current.backend == MANAGED_SPACE_TOPOLOGY_BACKEND_ACTIVE_ACCESSIBILITY) {
         uint32_t source_did = space_display_id(topology->current.sid);
         bool source_is_active = display_space_id(source_did) == topology->current.sid;
+        debug("managed_space_topology_begin_current: move-display generation=%llu "
+              "phase=%d sid=%llu source=%u current=%llu global=%llu "
+              "focus=%d placeholder=%d\n",
+              topology->current.generation,
+              topology->current.phase,
+              topology->current.sid,
+              source_did,
+              display_space_id(source_did),
+              space_manager_active_space(),
+              topology->current.focus_space,
+              topology->current.placeholder_required);
 
         if (topology->current.phase == 0 && source_is_active) {
             if (topology->owns_mission_control &&
                 (mission_control_is_active() || managed_space_topology_mission_control_ui_exists())) {
-                topology->current.phase = -1;
-                topology->state = MANAGED_SPACE_TOPOLOGY_STATE_WAITING_FOR_MISSION_CONTROL_EXIT;
-                managed_space_topology_close_owned_mission_control(topology);
-                managed_space_topology_schedule_watchdog(topology);
+                topology->current.restore_focus_sid = space_manager_active_space();
+                managed_space_topology_schedule_owned_mission_control_deactivation(topology);
                 return;
             }
 
@@ -1769,6 +2632,11 @@ static void managed_space_topology_begin_current(struct managed_space_topology *
 
             topology->current.restore_focus_sid = space_manager_active_space();
             enum space_op_error result = space_manager_focus_space(focus_sid);
+            debug("managed_space_topology_begin_current: deactivating move source "
+                  "%llu through %llu returned %d\n",
+                  topology->current.sid,
+                  focus_sid,
+                  result);
             if (result != SPACE_OP_ERROR_SUCCESS && result != SPACE_OP_ERROR_SAME_SPACE) {
                 managed_space_topology_fail_current(topology, "could-not-deactivate-move-source");
                 return;
@@ -1793,13 +2661,28 @@ static void managed_space_topology_begin_current(struct managed_space_topology *
                 restore_sid &&
                 restore_sid != space_manager_active_space()) {
                 enum space_op_error result = space_manager_focus_space(restore_sid);
+                debug("managed_space_topology_begin_current: restoring focus to %llu "
+                      "before move returned %d\n",
+                      restore_sid,
+                      result);
                 if (result != SPACE_OP_ERROR_SUCCESS && result != SPACE_OP_ERROR_SAME_SPACE) {
                     managed_space_topology_fail_current(topology, "could-not-restore-focus-before-move");
                     return;
                 }
                 topology->current.restore_focus_sid = 0;
             }
+
             topology->current.phase = 2;
+            topology->state = MANAGED_SPACE_TOPOLOGY_STATE_QUEUED;
+            managed_space_topology_schedule_step(topology,
+                                                 MANAGED_SPACE_TOPOLOGY_SETTLE_DELAY_SECONDS);
+            managed_space_topology_schedule_watchdog(topology);
+            return;
+        }
+
+        if (topology->current.phase == 2 && source_is_active) {
+            managed_space_topology_fail_current(topology, "move-source-reactivated");
+            return;
         }
     }
 
@@ -1822,12 +2705,14 @@ static void managed_space_topology_begin_current(struct managed_space_topology *
         return;
     }
 
+    bool backend_changed = false;
     if (topology->owns_mission_control &&
         topology->current.backend == MANAGED_SPACE_TOPOLOGY_BACKEND_ACTIVE_SCRIPTING_ADDITION &&
         topology->policy == MANAGED_SPACE_TOPOLOGY_BACKEND_AUTO) {
         topology->current.backend = managed_space_topology_select_fallback_backend(
             topology,
             topology->current.operation);
+        backend_changed = true;
     }
 
     if (topology->current.backend == MANAGED_SPACE_TOPOLOGY_BACKEND_ACTIVE_SCRIPTING_ADDITION) {
@@ -1841,10 +2726,17 @@ static void managed_space_topology_begin_current(struct managed_space_topology *
         topology->current.backend = managed_space_topology_select_fallback_backend(
             topology,
             topology->current.operation);
+        backend_changed = true;
         if (topology->current.backend == MANAGED_SPACE_TOPOLOGY_BACKEND_NONE) {
             managed_space_topology_fail_current(topology, "scripting-addition-unavailable");
             return;
         }
+    }
+
+    if (backend_changed) {
+        topology->state = MANAGED_SPACE_TOPOLOGY_STATE_QUEUED;
+        managed_space_topology_begin_current(topology);
+        return;
     }
 
     if (topology->current.backend == MANAGED_SPACE_TOPOLOGY_BACKEND_ACTIVE_BRIDGE) {
@@ -1878,6 +2770,7 @@ static void managed_space_topology_start_next(struct managed_space_topology *top
     topology->current.precondition_hash = managed_space_topology_snapshot_hash();
     managed_space_topology_copy_space_uuid(topology->current.sid, topology->current.sid_uuid);
     managed_space_topology_copy_space_uuid(topology->current.target_sid, topology->current.target_uuid);
+    managed_space_topology_capture_request_snapshot(&topology->current);
     if (topology->current.operation == MANAGED_SPACE_TOPOLOGY_OPERATION_MOVE_DISPLAY) {
         topology->current.focus_space = topology->current.sid == space_manager_active_space();
     }
@@ -1891,11 +2784,30 @@ static bool managed_space_topology_event_matches(struct managed_space_topology_r
                                                  uint64_t sid)
 {
     if (request->operation != operation) return false;
+    if (!request->mutation_started) return false;
     if (operation == MANAGED_SPACE_TOPOLOGY_OPERATION_CREATE) {
+        if (managed_space_topology_snapshot_contains(request->pre_target_order,
+                                                     request->pre_target_count,
+                                                     sid)) {
+            return false;
+        }
         return !request->created_sid || request->created_sid == sid;
     }
 
     return request->sid == sid;
+}
+
+static bool managed_space_topology_created_space_matches_request(
+    struct managed_space_topology_request *request,
+    uint64_t sid,
+    uint32_t did,
+    bool is_user)
+{
+    return is_user &&
+           did == request->target_did &&
+           managed_space_topology_event_matches(request,
+                                                MANAGED_SPACE_TOPOLOGY_OPERATION_CREATE,
+                                                sid);
 }
 
 void managed_space_topology_handle_space_created(struct managed_space_topology *topology, uint64_t sid)
@@ -1909,19 +2821,29 @@ void managed_space_topology_handle_space_created(struct managed_space_topology *
         }
     }
 
-    if (!managed_space_topology_event_matches(&topology->current,
-                                              MANAGED_SPACE_TOPOLOGY_OPERATION_CREATE,
-                                              sid)) {
-        if (!topology->space_limit_reached) {
+    if (!managed_space_topology_created_space_matches_request(&topology->current,
+                                                              sid,
+                                                              space_display_id(sid),
+                                                              space_is_user(sid))) {
+        if (topology->current.operation == MANAGED_SPACE_TOPOLOGY_OPERATION_NONE &&
+            !topology->space_limit_reached) {
             managed_space_topology_note_configuration_changed(topology);
         }
         return;
     }
     topology->current.created_sid = sid;
+    topology->current.topology_event_observed = true;
     managed_space_topology_copy_space_uuid(sid, topology->current.sid_uuid);
     if (!managed_space_topology_request_is_satisfied(&topology->current)) return;
 
-    managed_space_topology_complete_current(topology);
+    if (topology->current.backend == MANAGED_SPACE_TOPOLOGY_BACKEND_ACTIVE_ACCESSIBILITY ||
+        topology->current.backend == MANAGED_SPACE_TOPOLOGY_BACKEND_ACTIVE_BRIDGE) {
+        topology->state = MANAGED_SPACE_TOPOLOGY_STATE_WAITING_FOR_SETTLE;
+        managed_space_topology_schedule_step(topology,
+                                             MANAGED_SPACE_TOPOLOGY_SETTLE_DELAY_SECONDS);
+    } else {
+        managed_space_topology_complete_current(topology);
+    }
 }
 
 void managed_space_topology_handle_space_destroyed(struct managed_space_topology *topology, uint64_t sid)
@@ -1938,13 +2860,22 @@ void managed_space_topology_handle_space_destroyed(struct managed_space_topology
     if (!managed_space_topology_event_matches(&topology->current,
                                               MANAGED_SPACE_TOPOLOGY_OPERATION_DESTROY,
                                               sid)) {
-        if (!topology->space_limit_reached) {
+        if (topology->current.operation == MANAGED_SPACE_TOPOLOGY_OPERATION_NONE &&
+            !topology->space_limit_reached) {
             managed_space_topology_note_configuration_changed(topology);
         }
         return;
     }
 
-    managed_space_topology_complete_current(topology);
+    topology->current.topology_event_observed = true;
+    if (topology->current.backend == MANAGED_SPACE_TOPOLOGY_BACKEND_ACTIVE_ACCESSIBILITY ||
+        topology->current.backend == MANAGED_SPACE_TOPOLOGY_BACKEND_ACTIVE_BRIDGE) {
+        topology->state = MANAGED_SPACE_TOPOLOGY_STATE_WAITING_FOR_SETTLE;
+        managed_space_topology_schedule_step(topology,
+                                             MANAGED_SPACE_TOPOLOGY_SETTLE_DELAY_SECONDS);
+    } else {
+        managed_space_topology_complete_current(topology);
+    }
 }
 
 void managed_space_topology_handle_mission_control_enter(struct managed_space_topology *topology)
@@ -1958,6 +2889,12 @@ void managed_space_topology_handle_mission_control_enter(struct managed_space_to
 
 void managed_space_topology_handle_mission_control_exit(struct managed_space_topology *topology)
 {
+    if (topology->current.operation != MANAGED_SPACE_TOPOLOGY_OPERATION_NONE &&
+        topology->current.backend == MANAGED_SPACE_TOPOLOGY_BACKEND_ACTIVE_ACCESSIBILITY &&
+        !topology->current.ax_postcondition_observed) {
+        managed_space_topology_observe_persisted_postcondition(topology);
+    }
+
     bool space_limit_failure =
         topology->current.operation == MANAGED_SPACE_TOPOLOGY_OPERATION_CREATE &&
         string_equals(topology->operation_error, "space-limit-reached");
@@ -1970,14 +2907,15 @@ void managed_space_topology_handle_mission_control_exit(struct managed_space_top
     topology->owns_mission_control = false;
     managed_space_topology_restore_pending_focus(topology);
 
-    if (topology->current.operation == MANAGED_SPACE_TOPOLOGY_OPERATION_NONE) {
-        managed_space_topology_note_configuration_changed(topology);
-    }
-
-    if (topology->current.operation == MANAGED_SPACE_TOPOLOGY_OPERATION_MOVE_DISPLAY &&
+    if ((topology->current.operation == MANAGED_SPACE_TOPOLOGY_OPERATION_MOVE_DISPLAY ||
+         topology->current.operation == MANAGED_SPACE_TOPOLOGY_OPERATION_DESTROY) &&
         topology->state == MANAGED_SPACE_TOPOLOGY_STATE_WAITING_FOR_MISSION_CONTROL_EXIT &&
-        topology->current.phase == -1) {
-        topology->current.phase = 0;
+        (topology->current.phase == MANAGED_SPACE_TOPOLOGY_PHASE_CLOSE_MISSION_CONTROL ||
+         topology->current.phase == MANAGED_SPACE_TOPOLOGY_PHASE_DEACTIVATE_IN_MISSION_CONTROL ||
+         topology->current.phase == 1)) {
+        if (topology->current.phase != 1) {
+            topology->current.phase = 0;
+        }
         topology->state = MANAGED_SPACE_TOPOLOGY_STATE_QUEUED;
         managed_space_topology_schedule_step(topology,
                                              MANAGED_SPACE_TOPOLOGY_MISSION_CONTROL_DELAY_SECONDS);
@@ -1992,7 +2930,7 @@ void managed_space_topology_handle_mission_control_exit(struct managed_space_top
 
     if (topology->current.operation != MANAGED_SPACE_TOPOLOGY_OPERATION_NONE &&
         topology->current.backend == MANAGED_SPACE_TOPOLOGY_BACKEND_ACTIVE_ACCESSIBILITY &&
-        managed_space_topology_request_is_satisfied(&topology->current)) {
+        managed_space_topology_request_postcondition_satisfied(topology)) {
         managed_space_topology_complete_current(topology);
         return;
     }
@@ -2065,6 +3003,60 @@ void managed_space_topology_step(struct managed_space_topology *topology, uint64
     if (token != topology->step_token) return;
     if (topology->current.generation != topology->step_generation) return;
 
+    if (topology->state == MANAGED_SPACE_TOPOLOGY_STATE_WAITING_FOR_MISSION_CONTROL_EXIT &&
+        topology->current.phase == MANAGED_SPACE_TOPOLOGY_PHASE_DEACTIVATE_IN_MISSION_CONTROL) {
+        uint32_t source_did = space_display_id(topology->current.sid);
+        uint64_t focus_sid = managed_space_topology_other_user_space(source_did,
+                                                                     topology->current.sid);
+        if (!focus_sid) {
+            managed_space_topology_fail_current(topology,
+                                                "could-not-deactivate-topology-target");
+            return;
+        }
+
+        if (managed_space_topology_ax_activate_space(focus_sid)) {
+            topology->current.phase = 1;
+            managed_space_topology_schedule_step(
+                topology,
+                MANAGED_SPACE_TOPOLOGY_SETTLE_DELAY_SECONDS);
+            managed_space_topology_schedule_watchdog(topology);
+            return;
+        }
+
+        managed_space_topology_schedule_owned_mission_control_exit(topology);
+        return;
+    }
+
+    if (topology->state == MANAGED_SPACE_TOPOLOGY_STATE_WAITING_FOR_MISSION_CONTROL_EXIT &&
+        topology->current.phase == 1) {
+        uint32_t source_did = space_display_id(topology->current.sid);
+        if (display_space_id(source_did) == topology->current.sid) {
+            managed_space_topology_schedule_owned_mission_control_exit(topology);
+            return;
+        }
+
+        topology->state = MANAGED_SPACE_TOPOLOGY_STATE_QUEUED;
+        managed_space_topology_begin_current(topology);
+        return;
+    }
+
+    if (topology->state == MANAGED_SPACE_TOPOLOGY_STATE_WAITING_FOR_MISSION_CONTROL_EXIT &&
+        topology->current.phase == MANAGED_SPACE_TOPOLOGY_PHASE_CLOSE_MISSION_CONTROL) {
+        if (!mission_control_is_active() &&
+            !managed_space_topology_mission_control_ui_exists()) {
+            topology->owns_mission_control = false;
+            topology->current.phase = 0;
+            topology->state = MANAGED_SPACE_TOPOLOGY_STATE_QUEUED;
+            managed_space_topology_schedule_step(
+                topology,
+                MANAGED_SPACE_TOPOLOGY_MISSION_CONTROL_DELAY_SECONDS);
+            return;
+        }
+
+        managed_space_topology_close_owned_mission_control(topology);
+        return;
+    }
+
     if (topology->state == MANAGED_SPACE_TOPOLOGY_STATE_QUEUED) {
         managed_space_topology_begin_current(topology);
         return;
@@ -2079,8 +3071,19 @@ void managed_space_topology_step(struct managed_space_topology *topology, uint64
     if (topology->current.backend == MANAGED_SPACE_TOPOLOGY_BACKEND_ACTIVE_SCRIPTING_ADDITION ||
         topology->current.backend == MANAGED_SPACE_TOPOLOGY_BACKEND_ACTIVE_BRIDGE) {
         if (topology->state != MANAGED_SPACE_TOPOLOGY_STATE_WAITING_FOR_SETTLE) return;
+        if (topology->current.backend == MANAGED_SPACE_TOPOLOGY_BACKEND_ACTIVE_BRIDGE &&
+            managed_space_topology_request_is_satisfied(&topology->current)) {
+            managed_space_topology_observe_persisted_postcondition(topology);
+        }
         if (managed_space_topology_request_is_satisfied(&topology->current)) {
-            managed_space_topology_complete_current(topology);
+            if (managed_space_topology_request_postcondition_satisfied(topology)) {
+                managed_space_topology_complete_current(topology);
+            } else if (!topology->current.readiness_retry_scheduled) {
+                topology->current.readiness_retry_scheduled = true;
+                managed_space_topology_schedule_step(
+                    topology,
+                    MANAGED_SPACE_TOPOLOGY_SETTLE_DELAY_SECONDS);
+            }
         }
         return;
     }
@@ -2088,23 +3091,29 @@ void managed_space_topology_step(struct managed_space_topology *topology, uint64
     if (topology->current.backend != MANAGED_SPACE_TOPOLOGY_BACKEND_ACTIVE_ACCESSIBILITY) return;
 
     if (topology->state != MANAGED_SPACE_TOPOLOGY_STATE_WAITING_FOR_ACCESSIBILITY &&
+        topology->state != MANAGED_SPACE_TOPOLOGY_STATE_WAITING_FOR_EVENT &&
         topology->state != MANAGED_SPACE_TOPOLOGY_STATE_WAITING_FOR_SETTLE) return;
-
-    bool was_waiting_for_settle = topology->state == MANAGED_SPACE_TOPOLOGY_STATE_WAITING_FOR_SETTLE;
-    if (was_waiting_for_settle && managed_space_topology_request_is_satisfied(&topology->current)) {
-        managed_space_topology_complete_current(topology);
-        return;
-    }
 
     if (topology->current.operation == MANAGED_SPACE_TOPOLOGY_OPERATION_DESTROY &&
         topology->current.phase == 1 &&
         !mission_control_is_active()) {
+        if (display_space_id(topology->current.target_did) == topology->current.sid) {
+            managed_space_topology_fail_current(topology,
+                                                "could-not-deactivate-destroy-target");
+            return;
+        }
         managed_space_topology_start_accessibility(topology);
         return;
     }
 
-    topology->state = MANAGED_SPACE_TOPOLOGY_STATE_WAITING_FOR_ACCESSIBILITY;
-    if (!managed_space_topology_execute_accessibility(topology)) {
+    if (!topology->current.mutation_started) {
+        topology->state = MANAGED_SPACE_TOPOLOGY_STATE_WAITING_FOR_ACCESSIBILITY;
+    }
+    enum managed_space_topology_ax_result result =
+        managed_space_topology_execute_accessibility(topology);
+    if (managed_space_topology_request_postcondition_satisfied(topology)) {
+        managed_space_topology_complete_current(topology);
+    } else if (result == MANAGED_SPACE_TOPOLOGY_AX_FAILED) {
         char *error = topology->operation_error[0]
             ? topology->operation_error
             : "accessibility-operation-failed";
@@ -2132,7 +3141,12 @@ void managed_space_topology_watchdog(struct managed_space_topology *topology, ui
     }
     if (topology->current.generation != topology->watchdog_generation) return;
 
-    if (managed_space_topology_request_is_satisfied(&topology->current)) {
+    if (topology->current.backend == MANAGED_SPACE_TOPOLOGY_BACKEND_ACTIVE_BRIDGE &&
+        managed_space_topology_request_is_satisfied(&topology->current)) {
+        managed_space_topology_observe_persisted_postcondition(topology);
+    }
+
+    if (managed_space_topology_request_postcondition_satisfied(topology)) {
         managed_space_topology_complete_current(topology);
     } else {
         managed_space_topology_fail_current(topology, "operation-timed-out");
@@ -2155,6 +3169,15 @@ bool managed_space_topology_owns_mission_control(struct managed_space_topology *
     return topology->owns_mission_control;
 }
 
+bool managed_space_topology_defers_destroy_membership(struct managed_space_topology *topology, uint64_t sid)
+{
+    struct managed_space_topology_request *request = &topology->current;
+    return request->operation == MANAGED_SPACE_TOPOLOGY_OPERATION_DESTROY &&
+           request->origin == MANAGED_SPACE_TOPOLOGY_ORIGIN_COMMAND &&
+           request->mutation_started &&
+           request->sid == sid;
+}
+
 void managed_space_topology_finish_batch(struct managed_space_topology *topology)
 {
     if (!topology->owns_mission_control) return;
@@ -2169,7 +3192,18 @@ void managed_space_topology_finish_batch(struct managed_space_topology *topology
 void managed_space_topology_write_query(FILE *rsp, struct managed_space_topology *topology)
 {
     struct managed_space_topology_request *request = &topology->current;
+    char source_display_uuid[64] = {0};
     char target_display_uuid[64] = {0};
+    if (request->source_did) {
+        CFStringRef uuid = display_uuid(request->source_did);
+        if (uuid) {
+            CFStringGetCString(uuid,
+                               source_display_uuid,
+                               sizeof(source_display_uuid),
+                               kCFStringEncodingUTF8);
+            CFRelease(uuid);
+        }
+    }
     if (request->target_did) {
         CFStringRef uuid = display_uuid(request->target_did);
         if (uuid) {
@@ -2192,10 +3226,22 @@ void managed_space_topology_write_query(FILE *rsp, struct managed_space_topology
             "\t\"topology-backend-policy\":\"%s\",\n"
             "\t\"topology-os-build\":\"%s\",\n"
             "\t\"topology-accessibility-trusted\":%s,\n"
+            "\t\"topology-authority-observed\":%s,\n"
+            "\t\"topology-authority-consistent\":%s,\n"
+            "\t\"topology-authority-display\":%d,\n"
+            "\t\"topology-authority-sls-count\":%d,\n"
+            "\t\"topology-authority-ax-count\":%d,\n"
             "\t\"topology-capabilities\":{",
             managed_space_topology_backend_policy_name(topology->policy),
             topology->os_build,
-            json_bool(AXIsProcessTrusted()));
+            json_bool(AXIsProcessTrusted()),
+            json_bool(topology->authority_observed),
+            json_bool(topology->authority_consistent),
+            topology->authority_did
+                ? display_manager_display_id_arrangement(topology->authority_did)
+                : 0,
+            topology->authority_sls_count,
+            topology->authority_ax_count);
 
     for (int i = 0; i < array_count(operations); ++i) {
         enum managed_space_topology_operation operation = operations[i];
@@ -2213,13 +3259,14 @@ void managed_space_topology_write_query(FILE *rsp, struct managed_space_topology
         }
 
         fprintf(rsp,
-                "%s\"%s\":{\"primary\":\"%s\",\"fallback\":\"%s\",\"bridge-available\":%s,\"bridge-validated\":%s,\"accessibility\":true}",
+                "%s\"%s\":{\"primary\":\"%s\",\"fallback\":\"%s\",\"bridge-available\":%s,\"bridge-validated\":%s,\"accessibility\":%s}",
                 i ? "," : "",
                 managed_space_topology_operation_name(operation),
                 primary,
                 fallback_name,
                 json_bool(bridge_available),
-                json_bool(bridge_validated));
+                json_bool(bridge_validated),
+                json_bool(AXIsProcessTrusted()));
     }
 
     fprintf(rsp,
@@ -2235,10 +3282,20 @@ void managed_space_topology_write_query(FILE *rsp, struct managed_space_topology
             "\t\"topology-operation-target-space\":%llu,\n"
             "\t\"topology-operation-target-space-uuid\":\"%s\",\n"
             "\t\"topology-operation-created-space\":%llu,\n"
+            "\t\"topology-operation-source-display\":%d,\n"
+            "\t\"topology-operation-source-display-uuid\":\"%s\",\n"
             "\t\"topology-operation-target-display\":%d,\n"
             "\t\"topology-operation-target-display-uuid\":\"%s\",\n"
+            "\t\"topology-operation-pre-source-count\":%d,\n"
+            "\t\"topology-operation-pre-target-count\":%d,\n"
+            "\t\"topology-operation-ax-source-count\":%d,\n"
+            "\t\"topology-operation-ax-target-count\":%d,\n"
             "\t\"topology-operation-phase\":%d,\n"
             "\t\"topology-operation-mutation-started\":%s,\n"
+            "\t\"topology-operation-event-observed\":%s,\n"
+            "\t\"topology-operation-ax-precondition-observed\":%s,\n"
+            "\t\"topology-operation-ax-postcondition-observed\":%s,\n"
+            "\t\"topology-operation-dock-postcondition-observed\":%s,\n"
             "\t\"topology-queue-depth\":%d,\n"
             "\t\"topology-owns-mission-control\":%s,\n"
             "\t\"topology-reconciliation-blocked\":%s,\n"
@@ -2262,10 +3319,20 @@ void managed_space_topology_write_query(FILE *rsp, struct managed_space_topology
             request->target_sid,
             request->target_uuid,
             request->created_sid,
+            request->source_did ? display_manager_display_id_arrangement(request->source_did) : 0,
+            source_display_uuid,
             request->target_did ? display_manager_display_id_arrangement(request->target_did) : 0,
             target_display_uuid,
+            request->pre_source_count,
+            request->pre_target_count,
+            request->ax_source_count_before,
+            request->ax_target_count_before,
             request->phase,
             json_bool(request->mutation_started),
+            json_bool(request->topology_event_observed),
+            json_bool(request->ax_precondition_observed),
+            json_bool(request->ax_postcondition_observed),
+            json_bool(request->dock_postcondition_observed),
             buf_len(topology->queue),
             json_bool(topology->owns_mission_control),
             json_bool(topology->reconciliation_blocked),

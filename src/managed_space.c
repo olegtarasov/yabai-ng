@@ -365,19 +365,42 @@ static struct managed_space_entry *managed_space_add_entry(struct managed_space 
     return &ms->spaces[buf_len(ms->spaces) - 1];
 }
 
+static void managed_space_remove_entry_at_index(struct managed_space *ms, int index)
+{
+    managed_space_entry_destroy(&ms->spaces[index]);
+    buf_del(ms->spaces, index);
+    managed_space_renumber(ms);
+    ms->last_managed_count = buf_len(ms->spaces);
+}
+
 static bool managed_space_remove_entry(struct managed_space *ms, uint64_t sid)
 {
     for (int i = 0; i < buf_len(ms->spaces); ++i) {
-        if (ms->spaces[i].sid == sid) {
-            managed_space_entry_destroy(&ms->spaces[i]);
-            buf_del(ms->spaces, i);
-            managed_space_renumber(ms);
-            ms->last_managed_count = buf_len(ms->spaces);
-            return true;
-        }
+        if (ms->spaces[i].sid != sid) continue;
+        managed_space_remove_entry_at_index(ms, i);
+        return true;
     }
 
     return false;
+}
+
+static bool managed_space_remove_entry_by_uuid_string(struct managed_space *ms, const char *uuid_string)
+{
+    CFStringRef uuid = CFStringCreateWithCString(NULL,
+                                                 uuid_string,
+                                                 kCFStringEncodingUTF8);
+    if (!uuid) return false;
+
+    bool removed = false;
+    for (int i = 0; i < buf_len(ms->spaces); ++i) {
+        if (!ms->spaces[i].uuid || !CFEqual(ms->spaces[i].uuid, uuid)) continue;
+        managed_space_remove_entry_at_index(ms, i);
+        removed = true;
+        break;
+    }
+
+    CFRelease(uuid);
+    return removed;
 }
 
 static void managed_space_set_window_namespace(struct managed_space *ms, struct managed_window_entry *window_entry, uint32_t wid, CFStringRef space_uuid)
@@ -1798,6 +1821,10 @@ void managed_space_handle_space_created(struct managed_space *ms, uint64_t sid)
 void managed_space_handle_space_destroyed(struct managed_space *ms, uint64_t sid)
 {
     if (!ms->enabled) return;
+    if (managed_space_topology_defers_destroy_membership(&g_managed_space_topology, sid)) {
+        debug("managed_space_handle_space_destroyed: deferring explicit destroy membership for %llu\n", sid);
+        return;
+    }
 
     struct managed_space_entry *entry = managed_space_find_by_sid_internal(ms, sid);
     if (entry) {
@@ -1833,7 +1860,9 @@ void managed_space_handle_topology_operation_completed(struct managed_space *ms,
 
     switch (request->operation) {
     case MANAGED_SPACE_TOPOLOGY_OPERATION_DESTROY:
-        if (managed_space_remove_entry(ms, request->sid)) {
+        if (request->origin == MANAGED_SPACE_TOPOLOGY_ORIGIN_COMMAND &&
+            (managed_space_remove_entry_by_uuid_string(ms, request->sid_uuid) ||
+             managed_space_remove_entry(ms, request->sid))) {
             managed_space_publish_presentation_if_needed(ms);
         }
         break;
@@ -1860,6 +1889,14 @@ void managed_space_handle_topology_operation_failed(struct managed_space *ms, st
         int pending_create_index = managed_space_find_pending_create_index(ms, request->target_did);
         if (pending_create_index >= 0) {
             managed_space_remove_pending_create_at_index(ms, pending_create_index);
+        }
+
+        if (request->origin == MANAGED_SPACE_TOPOLOGY_ORIGIN_COMMAND &&
+            request->created_sid &&
+            ((request->sid_uuid[0] &&
+              managed_space_remove_entry_by_uuid_string(ms, request->sid_uuid)) ||
+             managed_space_remove_entry(ms, request->created_sid))) {
+            managed_space_publish_presentation_if_needed(ms);
         }
 
         if (ms->pending_replacement_order > 0) {

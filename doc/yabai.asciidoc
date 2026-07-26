@@ -157,6 +157,8 @@ Global Settings
     asynchronously. The scripting addition remains the primary backend. With
     full System Integrity Protection, yabai falls back to an exact-build
     validated SkyLight bridge or Mission Control Accessibility automation. The
+    bridge is enabled automatically only after the operation agrees across SLS,
+    Dock's Accessibility topology, persisted Dock state, and a Dock restart.
     Accessibility fallback briefly shows Mission Control and requires yabai to
     be enabled in System Settings -> Privacy & Security -> Accessibility. If the
     user already opened Mission Control, yabai waits for that session to end
@@ -191,7 +193,9 @@ Global Settings
     `scripting-addition`, `bridge`, and `accessibility` force a backend for
     diagnostics. Forced bridge mode bypasses the per-build validation table so
     an available bridge operation can be tested before it is added to that
-    table. This setting affects topology changes only while
+    table. A successful SLS event alone is not sufficient validation because a
+    bridge mutation can exist in WindowServer without being persisted by Dock.
+    This setting affects topology changes only while
     `managed_spaces` is enabled.
 
 *external_bar* ['<main|all|off>:<top_padding>:<bottom_padding>']::
@@ -723,6 +727,11 @@ MANAGED SPACES
     "topology-backend-policy": string,
     "topology-os-build": string,
     "topology-accessibility-trusted": bool,
+    "topology-authority-observed": bool,
+    "topology-authority-consistent": bool,
+    "topology-authority-display": number,
+    "topology-authority-sls-count": number,
+    "topology-authority-ax-count": number,
     "topology-capabilities": object {
         "<operation>": object {
             "primary": string,
@@ -743,10 +752,20 @@ MANAGED SPACES
     "topology-operation-target-space": number,
     "topology-operation-target-space-uuid": string,
     "topology-operation-created-space": number,
+    "topology-operation-source-display": number,
+    "topology-operation-source-display-uuid": string,
     "topology-operation-target-display": number,
     "topology-operation-target-display-uuid": string,
+    "topology-operation-pre-source-count": number,
+    "topology-operation-pre-target-count": number,
+    "topology-operation-ax-source-count": number,
+    "topology-operation-ax-target-count": number,
     "topology-operation-phase": number,
     "topology-operation-mutation-started": bool,
+    "topology-operation-event-observed": bool,
+    "topology-operation-ax-precondition-observed": bool,
+    "topology-operation-ax-postcondition-observed": bool,
+    "topology-operation-dock-postcondition-observed": bool,
     "topology-queue-depth": number,
     "topology-owns-mission-control": bool,
     "topology-reconciliation-blocked": bool,
@@ -780,7 +799,11 @@ normal space and managed-space signals. An immediate validation failure is
 returned to the caller. An asynchronous failure updates the
 `topology-last-*` fields and emits `managed_space_topology_failed`. A failed
 reconciliation remains blocked until a configuration or external topology
-change prevents repeated retries against unchanged state.
+change prevents repeated retries against unchanged state. Accessibility
+operations begin only when SLS and Mission Control report the same per-display
+space count. They commit after Mission Control reports the expected topology,
+or after Dock's persisted topology proves the same postcondition during an
+unexpected Mission Control exit.
 
 Each managed space object contains:
 

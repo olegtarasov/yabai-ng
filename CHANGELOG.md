@@ -16,6 +16,33 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - Managed `space --create`, `--destroy`, `--display`, `--move`, and same-display
   `--swap` operations now commit managed metadata only after their topology
   postconditions are confirmed.
+- Accessibility topology operations now verify that the pre-operation SLS and
+  Mission Control views agree, then require either an AX postcondition or the
+  persisted Dock topology before committing.
+- Bridged topology mutations now require a matching persisted Dock
+  postcondition at runtime, including when bridge mode is forced for diagnostics.
+
+### Fixed
+- Removed macOS 26.4.1 build 25E253 from automatic SkyLight bridge selection
+  after three-authority validation showed that bridge-created spaces could
+  exist in WindowServer without being accepted or persisted by Dock.
+- Fixed unrelated or pre-mutation space events completing the active topology
+  transaction.
+- Fixed explicit managed-space destruction racing reconciliation and recreating
+  the deleted slot before command-owned membership was committed.
+- Fixed interrupted Accessibility creates leaving partially committed managed
+  membership when Mission Control exited after SLS changed but before AX
+  confirmation.
+- Fixed automatic scripting-addition fallback skipping Accessibility-specific
+  active-space preparation on the first request.
+- Fixed cross-display moves when the source is the display's current or only
+  managed space by selecting a confirmed replacement through the live Mission
+  Control AX hierarchy before dragging.
+- Fixed collapsed or differently scaled multi-display Spaces bars by deriving
+  hover and drop targets from current AX frames instead of display-relative
+  coordinates.
+- Fixed placeholder cleanup racing macOS automatic removal after a
+  cross-display move.
 
 ## [26.1.3] - 2026-07-26
 ### Changed

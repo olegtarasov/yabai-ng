@@ -39,6 +39,7 @@ typedef TEST_SIG(function);
     TEST_ENTRY(managed_space_display_policy_can_be_set_while_disabled)\
     TEST_ENTRY(managed_space_display_affinity_names_are_stable) \
     TEST_ENTRY(managed_space_pending_create_counts_only_managed_spaces) \
+    TEST_ENTRY(managed_space_explicit_destroy_removes_membership_by_uuid_after_sid_refresh) \
     TEST_ENTRY(managed_space_topology_backend_selection_is_operation_scoped) \
     TEST_ENTRY(managed_space_topology_backend_policy_values_are_stable) \
     TEST_ENTRY(managed_space_topology_validated_bridge_matrix_is_build_scoped) \
@@ -47,9 +48,15 @@ typedef TEST_SIG(function);
     TEST_ENTRY(managed_space_topology_queue_serializes_and_records_origin) \
     TEST_ENTRY(managed_space_topology_stale_watchdogs_are_rejected) \
     TEST_ENTRY(managed_space_topology_events_match_only_the_active_request) \
+    TEST_ENTRY(managed_space_topology_create_events_must_be_new_to_the_request) \
+    TEST_ENTRY(managed_space_topology_mutation_backends_require_authoritative_postconditions) \
+    TEST_ENTRY(managed_space_topology_persisted_postconditions_are_transactional) \
+    TEST_ENTRY(managed_space_topology_explicit_destroy_defers_membership_commit) \
     TEST_ENTRY(managed_space_topology_failed_reorder_keeps_previous_desired_order) \
     TEST_ENTRY(managed_space_topology_swap_expected_order_is_transactional) \
     TEST_ENTRY(managed_space_topology_mission_control_ownership_is_explicit) \
+    TEST_ENTRY(managed_space_topology_owned_deactivation_is_generation_checked) \
+    TEST_ENTRY(managed_space_topology_drag_targets_use_visible_ax_frames) \
     TEST_ENTRY(managed_space_topology_ax_display_mapping_accepts_numeric_ids) \
     TEST_ENTRY(managed_space_topology_space_limit_is_display_scoped) \
     TEST_ENTRY(managed_space_topology_normal_order_excludes_fullscreen_entries)

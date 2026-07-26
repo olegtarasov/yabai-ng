@@ -94,6 +94,14 @@ Run the relevant checks before handing work back:
 - `make -C tests`
 - `git diff --check`
 
+When upstream changes `src/osax/common.h`, `src/osax/arm64_payload.m`, or
+`src/osax/x64_payload.m`, run `make clean` before rebuilding. `make clean-build`
+does not remove the generated `src/osax/payload_bin.c`, so it can otherwise
+embed a stale scripting-addition payload whose version differs from the host
+binary. After such a rebuild, uninstall and reinstall the scripting addition,
+load it, and verify that its handshake reports the current `OSAX_VERSION` with
+all capability bits present before restarting the yabai service.
+
 For runtime changes, validate with a local yabai instance before recommending
 installation or service restart.
 
@@ -130,6 +138,9 @@ When merging a new upstream release tag:
   runtime include, and bridged move operation in the shared space move helpers;
   also keep upstream's `SLSSpaceSetFrontPSN` after sending a window to another
   space.
+- If an upstream merge changes scripting-addition versioning or architecture
+  payload sources, use `make clean`, not only `make clean-build`, so the
+  generated embedded payload is regenerated before building and installing.
 - After resolving, search conflict-prone files for leftover conflict markers,
   inspect `git diff --check`, then run `make clean-build && make` and
   `make -C tests`. If runtime behavior changed, smoke-test a local yabai before

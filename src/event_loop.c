@@ -1119,6 +1119,7 @@ static EVENT_HANDLER(SLS_SPACE_CREATED)
         debug("%s: %lld, %d\n", __FUNCTION__, sid, type);
         space_manager_find_view(&g_space_manager, sid);
         managed_space_handle_space_created(&g_managed_space, sid);
+        managed_space_topology_handle_space_created(&g_managed_space_topology, sid);
         event_signal_push(SIGNAL_SPACE_CREATED, context);
     }
 }
@@ -1126,6 +1127,8 @@ static EVENT_HANDLER(SLS_SPACE_CREATED)
 static EVENT_HANDLER(SLS_SPACE_DESTROYED)
 {
     uint64_t sid = (uint64_t)(intptr_t) context;
+    managed_space_topology_handle_space_destroyed(&g_managed_space_topology, sid);
+
     struct view *view = table_find(&g_space_manager.view, &sid);
     if (view) {
         debug("%s: %lld\n", __FUNCTION__, sid);
@@ -1142,6 +1145,7 @@ static EVENT_HANDLER(SPACE_CHANGED)
 {
     g_space_manager.last_space_id = g_space_manager.current_space_id;
     g_space_manager.current_space_id = space_manager_active_space();
+    managed_space_topology_handle_focus_changed(&g_managed_space_topology);
     managed_space_note_focus_changed(&g_managed_space);
     event_signal_flush();
 
@@ -1191,6 +1195,7 @@ static EVENT_HANDLER(DISPLAY_CHANGED)
 
     g_space_manager.last_space_id = g_space_manager.current_space_id;
     g_space_manager.current_space_id = display_space_id(g_display_manager.current_display_id);
+    managed_space_topology_handle_focus_changed(&g_managed_space_topology);
 
     uint32_t expected_display_id = space_display_id(g_space_manager.current_space_id);
     if (g_display_manager.current_display_id != expected_display_id) {
@@ -1236,6 +1241,7 @@ static EVENT_HANDLER(DISPLAY_MAIN_CHANGED)
     uint32_t did = (uint32_t)(intptr_t) context;
     debug("%s: %d\n", __FUNCTION__, did);
     space_manager_mark_spaces_invalid(&g_space_manager);
+    managed_space_topology_note_configuration_changed(&g_managed_space_topology);
     managed_space_note_topology_event(&g_managed_space);
 }
 
@@ -1245,6 +1251,7 @@ static EVENT_HANDLER(DISPLAY_ADDED)
     debug("%s: %d\n", __FUNCTION__, did);
     space_manager_handle_display_add(&g_space_manager, did);
     window_manager_handle_display_add_and_remove(&g_space_manager, &g_window_manager, did);
+    managed_space_topology_note_configuration_changed(&g_managed_space_topology);
     event_signal_push(SIGNAL_DISPLAY_ADDED, context);
     managed_space_note_topology_event(&g_managed_space);
 }
@@ -1255,6 +1262,7 @@ static EVENT_HANDLER(DISPLAY_REMOVED)
     debug("%s: %d\n", __FUNCTION__, did);
     display_manager_remove_label_for_display(&g_display_manager, did);
     window_manager_handle_display_add_and_remove(&g_space_manager, &g_window_manager, display_manager_main_display_id());
+    managed_space_topology_note_configuration_changed(&g_managed_space_topology);
     event_signal_push(SIGNAL_DISPLAY_REMOVED, context);
     managed_space_note_topology_event(&g_managed_space);
 }
@@ -1619,6 +1627,7 @@ static EVENT_HANDLER(MISSION_CONTROL_SHOW_ALL_WINDOWS)
 {
     debug("%s:\n", __FUNCTION__);
     g_mission_control_mode = MISSION_CONTROL_MODE_SHOW_ALL_WINDOWS;
+    managed_space_topology_handle_mission_control_enter(&g_managed_space_topology);
     event_signal_push(SIGNAL_MISSION_CONTROL_ENTER, (void*)(uintptr_t)g_mission_control_mode);
 }
 
@@ -1626,6 +1635,7 @@ static EVENT_HANDLER(MISSION_CONTROL_SHOW_FRONT_WINDOWS)
 {
     debug("%s:\n", __FUNCTION__);
     g_mission_control_mode = MISSION_CONTROL_MODE_SHOW_FRONT_WINDOWS;
+    managed_space_topology_handle_mission_control_enter(&g_managed_space_topology);
     event_signal_push(SIGNAL_MISSION_CONTROL_ENTER, (void*)(uintptr_t)g_mission_control_mode);
 }
 
@@ -1633,6 +1643,7 @@ static EVENT_HANDLER(MISSION_CONTROL_SHOW_DESKTOP)
 {
     debug("%s:\n", __FUNCTION__);
     g_mission_control_mode = MISSION_CONTROL_MODE_SHOW_DESKTOP;
+    managed_space_topology_handle_mission_control_enter(&g_managed_space_topology);
     event_signal_push(SIGNAL_MISSION_CONTROL_ENTER, (void*)(uintptr_t)g_mission_control_mode);
 }
 
@@ -1640,6 +1651,7 @@ static EVENT_HANDLER(MISSION_CONTROL_ENTER)
 {
     debug("%s:\n", __FUNCTION__);
     g_mission_control_mode = MISSION_CONTROL_MODE_SHOW;
+    managed_space_topology_handle_mission_control_enter(&g_managed_space_topology);
 
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 0.1f * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
         event_loop_post(&g_event_loop, MISSION_CONTROL_CHECK_FOR_EXIT, NULL, 0);
@@ -1706,6 +1718,7 @@ static EVENT_HANDLER(MISSION_CONTROL_EXIT)
 
     event_signal_push(SIGNAL_MISSION_CONTROL_EXIT, (void*)(uintptr_t)g_mission_control_mode);
     g_mission_control_mode = MISSION_CONTROL_MODE_INACTIVE;
+    managed_space_topology_handle_mission_control_exit(&g_managed_space_topology);
     managed_space_note_topology_event(&g_managed_space);
 }
 
@@ -1722,6 +1735,7 @@ static EVENT_HANDLER(DOCK_DID_RESTART)
         mission_control_observe();
     }
 
+    managed_space_topology_handle_dock_restart(&g_managed_space_topology);
     event_signal_push(SIGNAL_DOCK_DID_RESTART, NULL);
     managed_space_note_topology_event(&g_managed_space);
 }
@@ -1783,6 +1797,21 @@ static EVENT_HANDLER(SYSTEM_WOKE)
 static EVENT_HANDLER(MANAGED_SPACES_RECONCILE)
 {
     managed_space_reconcile(&g_managed_space);
+}
+
+static EVENT_HANDLER(MANAGED_SPACE_TOPOLOGY_STEP)
+{
+    managed_space_topology_step(&g_managed_space_topology, (uint64_t)(uintptr_t) context);
+}
+
+static EVENT_HANDLER(MANAGED_SPACE_TOPOLOGY_WATCHDOG)
+{
+    managed_space_topology_watchdog(&g_managed_space_topology, (uint64_t)(uintptr_t) context);
+}
+
+static EVENT_HANDLER(MANAGED_SPACE_TOPOLOGY_USER_INPUT)
+{
+    managed_space_topology_handle_user_interruption(&g_managed_space_topology, (uint64_t)(uintptr_t) context);
 }
 
 static EVENT_HANDLER(DAEMON_MESSAGE)

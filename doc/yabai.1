@@ -2,12 +2,12 @@
 .\"     Title: yabai
 .\"    Author: [see the "AUTHOR(S)" section]
 .\" Generator: Asciidoctor 2.0.26
-.\"      Date: 2026-06-07
+.\"      Date: 2026-07-26
 .\"    Manual: Yabai Manual
 .\"    Source: Yabai
 .\"  Language: English
 .\"
-.TH "YABAI" "1" "2026-06-07" "Yabai" "Yabai Manual"
+.TH "YABAI" "1" "2026-07-26" "Yabai" "Yabai Manual"
 .ie \n(.g .ds Aq \(aq
 .el       .ds Aq '
 .ss \n[.ss] 0
@@ -196,6 +196,17 @@ main display.
 .br
 Native fullscreen spaces are exempt and are never moved or destroyed by
 managed mode.
+.br
+With managed mode enabled, topology changes are serialized and may complete
+asynchronously. The scripting addition remains the primary backend. With
+full System Integrity Protection, yabai falls back to an exact\-build
+validated SkyLight bridge or Mission Control Accessibility automation. The
+Accessibility fallback briefly shows Mission Control and requires yabai to
+be enabled in System Settings \(-> Privacy & Security \(-> Accessibility. If the
+user already opened Mission Control, yabai waits for that session to end
+and does not close or control it. macOS exposes at most 16 normal spaces per
+display through Mission Control; reaching that limit blocks further managed
+creates until configuration or topology changes.
 .RE
 .sp
 \fBmanaged_space_names\fP [\fI<comma\-separated names>\fP]
@@ -223,6 +234,20 @@ reconciliation.
 \f(CRspace \-\-display\fP gives the moved managed space fixed display affinity.
 \f(CRspace \-\-create \-\-display\fP on a non\-main display creates a fixed managed
 space; other managed creates inherit this policy.
+.RE
+.sp
+\fBmanaged_space_topology_backend\fP [\fI<auto|scripting\-addition|bridge|accessibility>\fP]
+.RS 4
+Select the managed\-space topology backend.
+.br
+\f(CRauto\fP is the default. It tries the scripting addition first, then a
+SkyLight bridge only when the exact operation has passed reversible
+validation on the current macOS build, and otherwise uses Accessibility.
+\f(CRscripting\-addition\fP, \f(CRbridge\fP, and \f(CRaccessibility\fP force a backend for
+diagnostics. Forced bridge mode bypasses the per\-build validation table so
+an available bridge operation can be tested before it is added to that
+table. This setting affects topology changes only while
+\f(CRmanaged_spaces\fP is enabled.
 .RE
 .sp
 \fBexternal_bar\fP [\fI<main|all|off>:<top_padding>:<bottom_padding>\fP]
@@ -514,7 +539,9 @@ Create a new space on the given display.
 .br
 If none specified, use the display of the active space instead.
 .br
-System Integrity Protection must be partially disabled.
+With managed spaces enabled this command is queued through the configured
+topology backend and can run with full System Integrity Protection.
+Otherwise, System Integrity Protection must be partially disabled.
 .RE
 .sp
 \fB\-\-destroy\fP [\fI<SPACE_SEL>\fP]
@@ -523,7 +550,10 @@ Remove the given space.
 .br
 If none specified, use the selected space instead.
 .br
-System Integrity Protection must be partially disabled.
+Managed membership is removed only after deletion is confirmed. With
+managed spaces enabled this command is asynchronous and can run with full
+System Integrity Protection. Otherwise, System Integrity Protection must be
+partially disabled.
 .RE
 .sp
 \fB\-\-move\fP \fI<SPACE_SEL>\fP
@@ -532,7 +562,9 @@ Move position of the selected space to the position of the given space.
 .br
 The selected space and given space must both belong to the same display.
 .br
-System Integrity Protection must be partially disabled.
+With managed spaces enabled this command is asynchronous, persists the
+confirmed UUID order, and can run with full System Integrity Protection.
+Otherwise, System Integrity Protection must be partially disabled.
 .RE
 .sp
 \fB\-\-swap\fP \fI<SPACE_SEL>\fP
@@ -543,7 +575,10 @@ If the selected space and given space belong to different displays, all the wind
 .br
 If the selected space and given space belong to the same display, the actual spaces will swap.
 .br
-System Integrity Protection must be partially disabled.
+With managed spaces enabled, same\-display topology changes are asynchronous,
+persist only after the full swap is confirmed, and can run with full System
+Integrity Protection. Otherwise, System Integrity Protection must be
+partially disabled.
 .RE
 .sp
 \fB\-\-display\fP \fI<DISPLAY_SEL>\fP
@@ -551,9 +586,10 @@ System Integrity Protection must be partially disabled.
 Send the selected space to the given display.
 .br
 When managed spaces are enabled, sending a managed space to a display gives
-that managed space fixed display affinity.
-.br
-System Integrity Protection must be partially disabled.
+that managed space fixed display affinity after the move is confirmed. The
+managed command is asynchronous and can run with full System Integrity
+Protection. Otherwise, System Integrity Protection must be partially
+disabled.
 .RE
 .sp
 \fB\-\-equalize\fP [\fIx\-axis|y\-axis\fP]
@@ -794,7 +830,8 @@ Retrieve information about windows.
 .sp
 \fB\-\-managed\-spaces\fP
 .RS 4
-Retrieve managed space registry and reconciliation diagnostics.
+Retrieve managed space registry, topology backend capabilities, the current
+asynchronous operation, queue state, and the last topology failure.
 .RE
 .SS "ARGUMENT"
 .sp
@@ -979,6 +1016,43 @@ MANAGED SPACES
 .nf
 .fam C
 {
+    "topology\-backend\-policy": string,
+    "topology\-os\-build": string,
+    "topology\-accessibility\-trusted": bool,
+    "topology\-capabilities": object {
+        "<operation>": object {
+            "primary": string,
+            "fallback": string,
+            "bridge\-available": bool,
+            "bridge\-validated": bool,
+            "accessibility": bool
+        }
+    },
+    "topology\-state": string,
+    "topology\-operation": string,
+    "topology\-operation\-origin": string,
+    "topology\-operation\-backend": string,
+    "topology\-operation\-generation": number,
+    "topology\-operation\-precondition\-hash": string,
+    "topology\-operation\-space": number,
+    "topology\-operation\-space\-uuid": string,
+    "topology\-operation\-target\-space": number,
+    "topology\-operation\-target\-space\-uuid": string,
+    "topology\-operation\-created\-space": number,
+    "topology\-operation\-target\-display": number,
+    "topology\-operation\-target\-display\-uuid": string,
+    "topology\-operation\-phase": number,
+    "topology\-operation\-mutation\-started": bool,
+    "topology\-queue\-depth": number,
+    "topology\-owns\-mission\-control": bool,
+    "topology\-reconciliation\-blocked": bool,
+    "topology\-space\-limit\-reached": bool,
+    "topology\-space\-limit\-display": number,
+    "topology\-space\-limit\-count": number,
+    "topology\-last\-failed\-generation": number,
+    "topology\-last\-failed\-operation": string,
+    "topology\-last\-failed\-backend": string,
+    "topology\-last\-error": string,
     "enabled": bool,
     "managed\-space\-count": number,
     "extra\-space\-count": number,
@@ -997,6 +1071,14 @@ MANAGED SPACES
 .fam
 .fi
 .if n .RE
+.sp
+Topology\-changing commands return successfully and remain silent after a
+request is safely queued. Completion is observable through this query and the
+normal space and managed\-space signals. An immediate validation failure is
+returned to the caller. An asynchronous failure updates the
+\f(CRtopology\-last\-*\fP fields and emits \f(CRmanaged_space_topology_failed\fP. A failed
+reconciliation remains blocked until a configuration or external topology
+change prevents repeated retries against unchanged state.
 .sp
 Each managed space object contains:
 .sp
@@ -1469,6 +1551,15 @@ Triggered when the active managed or native fullscreen space changes.
 .br
 Passes four arguments: $YABAI_SPACE_INDEX, $YABAI_DISPLAY_INDEX,
 $YABAI_MANAGED_ORDER, $YABAI_MANAGED_SPACE_NAME
+.RE
+.sp
+\fBmanaged_space_topology_failed\fP
+.RS 4
+Triggered when a queued managed\-space topology request fails or an
+immediately selected topology backend is unavailable.
+.br
+Passes three arguments: $YABAI_MANAGED_SPACE_OPERATION,
+$YABAI_MANAGED_SPACE_BACKEND, $YABAI_MANAGED_SPACE_ERROR
 .RE
 .sp
 \fBspace_stacks_changed\fP

@@ -42,6 +42,7 @@ enum signal_type
     SIGNAL_SYSTEM_WOKE,
     SIGNAL_MANAGED_SPACES_CHANGED,
     SIGNAL_MANAGED_SPACE_FOCUSED,
+    SIGNAL_MANAGED_SPACE_TOPOLOGY_FAILED,
     SIGNAL_SPACE_STACKS_CHANGED,
     SIGNAL_SPACE_STACK_FOCUSED,
 
@@ -89,6 +90,7 @@ static const char *signal_type_str[] =
     [SIGNAL_SYSTEM_WOKE]                    = "system_woke",
     [SIGNAL_MANAGED_SPACES_CHANGED]         = "managed_spaces_changed",
     [SIGNAL_MANAGED_SPACE_FOCUSED]          = "managed_space_focused",
+    [SIGNAL_MANAGED_SPACE_TOPOLOGY_FAILED]  = "managed_space_topology_failed",
     [SIGNAL_SPACE_STACKS_CHANGED]           = "space_stacks_changed",
     [SIGNAL_SPACE_STACK_FOCUSED]            = "space_stack_focused",
 

@@ -8,6 +8,8 @@ extern int g_connection;
 #define MANAGED_SPACE_MAX_REPLACEMENT_RETRIES 3
 #define MANAGED_SPACE_REPLACEMENT_RETRY_DELAY_SECONDS 1
 
+static void managed_space_sort_entries_by_mission_control_order(struct managed_space *ms);
+
 const char *managed_space_display_affinity_name(enum managed_space_display_affinity display_affinity)
 {
     switch (display_affinity) {
@@ -865,6 +867,9 @@ static bool managed_space_move_requires_placeholder(struct managed_space *ms, ui
 static enum space_op_error managed_space_create_placeholder(struct managed_space *ms, uint32_t did)
 {
     if (!did) return SPACE_OP_ERROR_MISSING_DST;
+    if (managed_space_topology_space_limit_reached_for_display(&g_managed_space_topology, did)) {
+        return SPACE_OP_ERROR_LIMIT_REACHED;
+    }
     if (managed_space_find_pending_placeholder_create(ms, did)) return SPACE_OP_ERROR_SAME_SPACE;
 
     uint64_t candidate_sid = managed_space_find_empty_unmanaged_space_off_display(ms, did);
@@ -878,11 +883,39 @@ static enum space_op_error managed_space_create_placeholder(struct managed_space
     managed_space_add_pending_create(ms, did, MANAGED_SPACE_DISPLAY_FIXED, false);
 
     enum space_op_error result = space_manager_add_space(acting_sid);
-    if (result != SPACE_OP_ERROR_SUCCESS) {
+    if (result != SPACE_OP_ERROR_SUCCESS && result != SPACE_OP_ERROR_QUEUED) {
         managed_space_remove_pending_create_at_index(ms, buf_len(ms->pending_creates) - 1);
     }
 
     return result;
+}
+
+enum space_op_error managed_space_prepare_move_placeholder(struct managed_space *ms,
+                                                           uint64_t sid,
+                                                           uint32_t target_did,
+                                                           bool *required)
+{
+    if (required) *required = false;
+    if (!ms->enabled || !sid || !target_did) return SPACE_OP_ERROR_SUCCESS;
+
+    uint32_t source_did = space_display_id(sid);
+    if (!source_did || source_did == target_did) return SPACE_OP_ERROR_SUCCESS;
+    if (source_did == display_manager_main_display_id()) return SPACE_OP_ERROR_SUCCESS;
+    if (managed_space_unmanaged_user_space_count_for_display(ms, source_did) > 0) {
+        return SPACE_OP_ERROR_SUCCESS;
+    }
+    if (managed_space_normal_space_count_for_display(source_did) > 1) {
+        return SPACE_OP_ERROR_SUCCESS;
+    }
+
+    for (int i = 0; i < buf_len(ms->spaces); ++i) {
+        struct managed_space_entry *entry = &ms->spaces[i];
+        if (entry->sid == sid) continue;
+        if (managed_space_target_display_id(entry) == source_did) return SPACE_OP_ERROR_SUCCESS;
+    }
+
+    if (required) *required = true;
+    return managed_space_create_placeholder(ms, source_did);
 }
 
 static bool managed_space_move_spaces_to_target_displays(struct managed_space *ms, bool *changed)
@@ -904,6 +937,11 @@ static bool managed_space_move_spaces_to_target_displays(struct managed_space *m
                 return true;
             }
 
+            if (placeholder_result == SPACE_OP_ERROR_QUEUED) {
+                ms->pending_reconcile = true;
+                return true;
+            }
+
             if (placeholder_result == SPACE_OP_ERROR_SAME_SPACE) continue;
 
             if (placeholder_result == SPACE_OP_ERROR_DISPLAY_IS_ANIMATING ||
@@ -918,6 +956,11 @@ static bool managed_space_move_spaces_to_target_displays(struct managed_space *m
         enum space_op_error result = space_manager_move_space_to_display(&g_space_manager, entry->sid, target_did);
         if (result == SPACE_OP_ERROR_SUCCESS) {
             *changed = true;
+            return true;
+        }
+
+        if (result == SPACE_OP_ERROR_QUEUED) {
+            ms->pending_reconcile = true;
             return true;
         }
 
@@ -948,6 +991,11 @@ static bool managed_space_reorder_spaces(struct managed_space *ms, bool *changed
         enum space_op_error result = space_manager_move_space_to_space(left->sid, right->sid);
         if (result == SPACE_OP_ERROR_SUCCESS) {
             *changed = true;
+            return true;
+        }
+
+        if (result == SPACE_OP_ERROR_QUEUED) {
+            ms->pending_reconcile = true;
             return true;
         }
 
@@ -1034,6 +1082,11 @@ static bool managed_space_cleanup_one_extra(struct managed_space *ms, bool *chan
             return true;
         }
 
+        if (result == SPACE_OP_ERROR_QUEUED) {
+            ms->pending_reconcile = true;
+            return true;
+        }
+
         if (result == SPACE_OP_ERROR_DISPLAY_IS_ANIMATING ||
             result == SPACE_OP_ERROR_IN_MISSION_CONTROL) {
             ms->pending_reconcile = true;
@@ -1114,6 +1167,13 @@ static bool managed_space_recreate_missing_space(struct managed_space *ms, bool 
         return false;
     }
 
+    if (managed_space_topology_space_limit_reached_for_display(&g_managed_space_topology, target_did)) {
+        ms->pending_replacement_order = 0;
+        ms->pending_replacement_retries = 0;
+        ms->last_replacement_error = SPACE_OP_ERROR_LIMIT_REACHED;
+        return false;
+    }
+
     if (ms->pending_replacement_order == 0) {
         ms->pending_replacement_order = entry->order;
         ms->pending_replacement_retries = 0;
@@ -1121,6 +1181,16 @@ static bool managed_space_recreate_missing_space(struct managed_space *ms, bool 
 
     enum space_op_error result = space_manager_add_space(acting_sid);
     ms->last_replacement_error = result;
+
+    if (result == SPACE_OP_ERROR_QUEUED) {
+        ms->pending_reconcile = true;
+        return true;
+    }
+
+    if (result == SPACE_OP_ERROR_LIMIT_REACHED) {
+        return false;
+    }
+
     ++ms->pending_replacement_retries;
 
     if (result == SPACE_OP_ERROR_SUCCESS) {
@@ -1327,6 +1397,7 @@ void managed_space_destroy(struct managed_space *ms)
 
 void managed_space_set_names(struct managed_space *ms, char *names)
 {
+    managed_space_topology_note_configuration_changed(&g_managed_space_topology);
     managed_space_clear_names(ms);
 
     if (names && names[0]) {
@@ -1358,6 +1429,15 @@ void managed_space_set_names(struct managed_space *ms, char *names)
     }
 
     if (ms->enabled) {
+        int desired_count = buf_len(ms->names);
+        while (desired_count > 0 && buf_len(ms->spaces) > desired_count) {
+            int last_index = buf_len(ms->spaces) - 1;
+            managed_space_entry_destroy(&ms->spaces[last_index]);
+            --buf__hdr(ms->spaces)->len;
+        }
+        managed_space_renumber(ms);
+        ms->last_managed_count = buf_len(ms->spaces);
+
         managed_space_create_missing_named_spaces(ms);
         managed_space_apply_names(ms);
         managed_space_publish_presentation_if_needed(ms);
@@ -1431,10 +1511,16 @@ static void managed_space_create_missing_named_spaces(struct managed_space *ms)
 
     uint64_t acting_sid = did ? display_space_id(did) : 0;
     if (!acting_sid) return;
+    if (managed_space_topology_space_limit_reached_for_display(&g_managed_space_topology, did)) return;
 
     for (int i = 0; i < missing_count; ++i) {
         managed_space_add_pending_create(ms, did, ms->display_policy, true);
         enum space_op_error result = space_manager_add_space(acting_sid);
+        if (result == SPACE_OP_ERROR_QUEUED) {
+            ms->last_replacement_error = result;
+            break;
+        }
+
         if (result != SPACE_OP_ERROR_SUCCESS) {
             managed_space_remove_last_pending_user_create(ms);
             ms->last_replacement_error = result;
@@ -1447,6 +1533,7 @@ void managed_space_set_enabled(struct managed_space *ms, bool enabled)
 {
     if (ms->enabled == enabled) return;
 
+    managed_space_topology_set_enabled(&g_managed_space_topology, enabled);
     managed_space_clear(ms);
     ms->enabled = enabled;
 
@@ -1488,8 +1575,9 @@ void managed_space_query(FILE *rsp, struct managed_space *ms)
     managed_space_refresh_sids(ms);
     managed_space_refresh_topology_grace(ms);
 
+    fprintf(rsp, "{\n");
+    managed_space_topology_write_query(rsp, &g_managed_space_topology);
     fprintf(rsp,
-            "{\n"
             "\t\"enabled\":%s,\n"
             "\t\"managed-space-display-policy\":\"%s\",\n"
             "\t\"managed-space-count\":%d,\n"
@@ -1638,6 +1726,15 @@ void managed_space_note_user_space_display_changed(struct managed_space *ms, uin
     managed_space_request_reconcile(ms);
 }
 
+void managed_space_note_user_space_order_changed(struct managed_space *ms)
+{
+    if (!ms->enabled) return;
+
+    managed_space_sort_entries_by_mission_control_order(ms);
+    managed_space_publish_presentation_if_needed(ms);
+    managed_space_request_reconcile(ms);
+}
+
 void managed_space_note_space_label_changed(struct managed_space *ms, uint64_t sid)
 {
     if (!ms->enabled) return;
@@ -1711,6 +1808,69 @@ void managed_space_handle_space_destroyed(struct managed_space *ms, uint64_t sid
     managed_space_request_reconcile(ms);
 }
 
+static void managed_space_sort_entries_by_mission_control_order(struct managed_space *ms)
+{
+    for (int i = 0; i < buf_len(ms->spaces); ++i) {
+        for (int j = i + 1; j < buf_len(ms->spaces); ++j) {
+            int left_index = ms->spaces[i].sid ? space_manager_mission_control_index(ms->spaces[i].sid) : INT_MAX;
+            int right_index = ms->spaces[j].sid ? space_manager_mission_control_index(ms->spaces[j].sid) : INT_MAX;
+            if (left_index <= right_index) continue;
+
+            struct managed_space_entry temp = ms->spaces[i];
+            ms->spaces[i] = ms->spaces[j];
+            ms->spaces[j] = temp;
+        }
+    }
+
+    managed_space_renumber(ms);
+    managed_space_apply_names(ms);
+}
+
+void managed_space_handle_topology_operation_completed(struct managed_space *ms, struct managed_space_topology_request *request)
+{
+    if (!ms->enabled) return;
+    if (request->origin != MANAGED_SPACE_TOPOLOGY_ORIGIN_COMMAND) return;
+
+    switch (request->operation) {
+    case MANAGED_SPACE_TOPOLOGY_OPERATION_DESTROY:
+        if (managed_space_remove_entry(ms, request->sid)) {
+            managed_space_publish_presentation_if_needed(ms);
+        }
+        break;
+    case MANAGED_SPACE_TOPOLOGY_OPERATION_MOVE_DISPLAY:
+        managed_space_note_user_space_display_changed(ms, request->sid, request->target_did);
+        break;
+    case MANAGED_SPACE_TOPOLOGY_OPERATION_REORDER:
+    case MANAGED_SPACE_TOPOLOGY_OPERATION_SWAP:
+        managed_space_sort_entries_by_mission_control_order(ms);
+        managed_space_publish_presentation_if_needed(ms);
+        break;
+    case MANAGED_SPACE_TOPOLOGY_OPERATION_CREATE:
+    case MANAGED_SPACE_TOPOLOGY_OPERATION_NONE:
+        break;
+    }
+}
+
+void managed_space_handle_topology_operation_failed(struct managed_space *ms, struct managed_space_topology_request *request)
+{
+    if (!ms->enabled) return;
+
+    ms->last_replacement_error = SPACE_OP_ERROR_SCRIPTING_ADDITION;
+    if (request->operation == MANAGED_SPACE_TOPOLOGY_OPERATION_CREATE) {
+        int pending_create_index = managed_space_find_pending_create_index(ms, request->target_did);
+        if (pending_create_index >= 0) {
+            managed_space_remove_pending_create_at_index(ms, pending_create_index);
+        }
+
+        if (ms->pending_replacement_order > 0) {
+            ms->pending_replacement_order = 0;
+            ms->pending_replacement_retries = 0;
+        }
+    }
+
+    managed_space_request_reconcile(ms);
+}
+
 void managed_space_note_topology_event(struct managed_space *ms)
 {
     if (!ms->enabled) return;
@@ -1755,7 +1915,25 @@ void managed_space_reconcile(struct managed_space *ms)
         managed_space_refresh_sids(ms);
         managed_space_refresh_topology_grace(ms);
 
-        if (mission_control_is_active() || managed_space_any_display_animating()) {
+        if (managed_space_topology_reconciliation_blocked(&g_managed_space_topology)) {
+            break;
+        }
+
+        if (managed_space_topology_operation_pending(&g_managed_space_topology)) {
+            ms->pending_reconcile = true;
+            deferred = true;
+            break;
+        }
+
+        if ((mission_control_is_active() && !managed_space_topology_owns_mission_control(&g_managed_space_topology)) ||
+            managed_space_any_display_animating()) {
+            ms->pending_reconcile = true;
+            deferred = true;
+            break;
+        }
+
+        managed_space_create_missing_named_spaces(ms);
+        if (managed_space_topology_operation_pending(&g_managed_space_topology)) {
             ms->pending_reconcile = true;
             deferred = true;
             break;
@@ -1773,6 +1951,12 @@ void managed_space_reconcile(struct managed_space *ms)
         }
 
         if (managed_space_cleanup_one_extra(ms, &changed)) continue;
+
+        if (managed_space_topology_owns_mission_control(&g_managed_space_topology)) {
+            managed_space_topology_finish_batch(&g_managed_space_topology);
+            ms->pending_reconcile = true;
+            deferred = true;
+        }
 
         break;
     }

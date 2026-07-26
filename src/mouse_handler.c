@@ -21,6 +21,7 @@ static inline uint8_t mouse_mod_from_cgflags(uint32_t cgflags)
 static MOUSE_HANDLER(mouse_handler)
 {
     struct mouse_state *mouse_state = context;
+    managed_space_topology_note_input_event(&g_managed_space_topology, event);
 
     switch (type) {
     case kCGEventTapDisabledByTimeout:

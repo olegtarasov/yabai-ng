@@ -15,6 +15,7 @@ typedef TEST_SIG(function);
 #include "mouse.c"
 #include "stack_focus.c"
 #include "managed_space.c"
+#include "managed_space_topology.c"
 
 #define TEST_ENTRY(name) { #name, test_##name },
 #define TEST_LIST                                              \
@@ -37,7 +38,21 @@ typedef TEST_SIG(function);
     TEST_ENTRY(managed_space_display_policy_defaults_to_follow_main)\
     TEST_ENTRY(managed_space_display_policy_can_be_set_while_disabled)\
     TEST_ENTRY(managed_space_display_affinity_names_are_stable) \
-    TEST_ENTRY(managed_space_pending_create_counts_only_managed_spaces)
+    TEST_ENTRY(managed_space_pending_create_counts_only_managed_spaces) \
+    TEST_ENTRY(managed_space_topology_backend_selection_is_operation_scoped) \
+    TEST_ENTRY(managed_space_topology_backend_policy_values_are_stable) \
+    TEST_ENTRY(managed_space_topology_validated_bridge_matrix_is_build_scoped) \
+    TEST_ENTRY(managed_space_topology_backend_change_preserves_last_failure) \
+    TEST_ENTRY(managed_space_topology_failed_reconcile_waits_for_new_state) \
+    TEST_ENTRY(managed_space_topology_queue_serializes_and_records_origin) \
+    TEST_ENTRY(managed_space_topology_stale_watchdogs_are_rejected) \
+    TEST_ENTRY(managed_space_topology_events_match_only_the_active_request) \
+    TEST_ENTRY(managed_space_topology_failed_reorder_keeps_previous_desired_order) \
+    TEST_ENTRY(managed_space_topology_swap_expected_order_is_transactional) \
+    TEST_ENTRY(managed_space_topology_mission_control_ownership_is_explicit) \
+    TEST_ENTRY(managed_space_topology_ax_display_mapping_accepts_numeric_ids) \
+    TEST_ENTRY(managed_space_topology_space_limit_is_display_scoped) \
+    TEST_ENTRY(managed_space_topology_normal_order_excludes_fullscreen_entries)
 
 static struct {
     char *name;

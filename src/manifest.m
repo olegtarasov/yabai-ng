@@ -17,6 +17,7 @@
 #include <stddef.h>
 #include <stdlib.h>
 #include <stdint.h>
+#include <limits.h>
 #include <string.h>
 #include <dirent.h>
 #include <stdbool.h>
@@ -74,6 +75,7 @@
 #include "application.h"
 #include "display_manager.h"
 #include "space_manager.h"
+#include "managed_space_topology.h"
 #include "window_manager.h"
 #include "native_tab.h"
 #include "mouse_handler.h"
@@ -94,6 +96,7 @@
 #include "application.c"
 #include "display_manager.c"
 #include "space_manager.c"
+#include "managed_space_topology.m"
 #include "window_manager.c"
 #include "native_tab.c"
 #include "managed_space.c"

@@ -2,6 +2,8 @@
 #define MOUSE_H
 
 #define MOUSE_EVENT_MASK_FFM (1 << kCGEventMouseMoved) | \
+                             (1 << kCGEventKeyDown) | \
+                             (1 << kCGEventFlagsChanged) | \
                              (1 << kCGEventLeftMouseDown) | \
                              (1 << kCGEventLeftMouseUp) | \
                              (1 << kCGEventLeftMouseDragged) | \
@@ -11,6 +13,8 @@
                              (1 << /* kCGSEventDockControl */ 30)
 
 #define MOUSE_EVENT_MASK     (1 << kCGEventLeftMouseDown) | \
+                             (1 << kCGEventKeyDown) | \
+                             (1 << kCGEventFlagsChanged) | \
                              (1 << kCGEventLeftMouseUp) | \
                              (1 << kCGEventLeftMouseDragged) | \
                              (1 << kCGEventRightMouseDown) | \

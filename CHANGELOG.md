@@ -6,6 +6,17 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+### Added
+- Added a SIP-safe managed-space topology provider with serialized scripting-addition,
+  exact-build SkyLight bridge, and Mission Control Accessibility backends.
+- Added `managed_space_topology_backend`, managed topology query diagnostics, and
+  the `managed_space_topology_failed` signal.
+
+### Changed
+- Managed `space --create`, `--destroy`, `--display`, `--move`, and same-display
+  `--swap` operations now commit managed metadata only after their topology
+  postconditions are confirmed.
+
 ## [26.1.3] - 2026-07-26
 ### Changed
 - Fixed scripting-addition *add_space* pattern for macOS 26.6 Apple Silicon arm64 [#2799](https://github.com/asmvik/yabai/issues/2799)

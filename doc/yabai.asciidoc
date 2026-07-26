@@ -152,7 +152,17 @@ Global Settings
     display changes, reconciler moves follow-main managed spaces to the new
     main display. +
     Native fullscreen spaces are exempt and are never moved or destroyed by
-    managed mode.
+    managed mode. +
+    With managed mode enabled, topology changes are serialized and may complete
+    asynchronously. The scripting addition remains the primary backend. With
+    full System Integrity Protection, yabai falls back to an exact-build
+    validated SkyLight bridge or Mission Control Accessibility automation. The
+    Accessibility fallback briefly shows Mission Control and requires yabai to
+    be enabled in System Settings -> Privacy & Security -> Accessibility. If the
+    user already opened Mission Control, yabai waits for that session to end
+    and does not close or control it. macOS exposes at most 16 normal spaces per
+    display through Mission Control; reaching that limit blocks further managed
+    creates until configuration or topology changes.
 
 *managed_space_names* ['<comma-separated names>']::
     Configure optional managed slot names. +
@@ -172,6 +182,17 @@ Global Settings
     `space --display` gives the moved managed space fixed display affinity.
     `space --create --display` on a non-main display creates a fixed managed
     space; other managed creates inherit this policy.
+
+*managed_space_topology_backend* ['<auto|scripting-addition|bridge|accessibility>']::
+    Select the managed-space topology backend. +
+    `auto` is the default. It tries the scripting addition first, then a
+    SkyLight bridge only when the exact operation has passed reversible
+    validation on the current macOS build, and otherwise uses Accessibility.
+    `scripting-addition`, `bridge`, and `accessibility` force a backend for
+    diagnostics. Forced bridge mode bypasses the per-build validation table so
+    an available bridge operation can be tested before it is added to that
+    table. This setting affects topology changes only while
+    `managed_spaces` is enabled.
 
 *external_bar* ['<main|all|off>:<top_padding>:<bottom_padding>']::
     Specify top and bottom padding for a potential custom bar that you may be running. +
@@ -354,29 +375,41 @@ COMMAND
 *--create*  ['<DISPLAY_SEL>']::
     Create a new space on the given display. +
     If none specified, use the display of the active space instead. +
-    System Integrity Protection must be partially disabled.
+    With managed spaces enabled this command is queued through the configured
+    topology backend and can run with full System Integrity Protection.
+    Otherwise, System Integrity Protection must be partially disabled.
 
 *--destroy* ['<SPACE_SEL>']::
     Remove the given space. +
     If none specified, use the selected space instead. +
-    System Integrity Protection must be partially disabled.
+    Managed membership is removed only after deletion is confirmed. With
+    managed spaces enabled this command is asynchronous and can run with full
+    System Integrity Protection. Otherwise, System Integrity Protection must be
+    partially disabled.
 
 *--move* '<SPACE_SEL>'::
     Move position of the selected space to the position of the given space. +
     The selected space and given space must both belong to the same display. +
-    System Integrity Protection must be partially disabled.
+    With managed spaces enabled this command is asynchronous, persists the
+    confirmed UUID order, and can run with full System Integrity Protection.
+    Otherwise, System Integrity Protection must be partially disabled.
 
 *--swap* '<SPACE_SEL>'::
     Swap the selected space with the given space. +
     If the selected space and given space belong to different displays, all the windows will swap. +
     If the selected space and given space belong to the same display, the actual spaces will swap. +
-    System Integrity Protection must be partially disabled.
+    With managed spaces enabled, same-display topology changes are asynchronous,
+    persist only after the full swap is confirmed, and can run with full System
+    Integrity Protection. Otherwise, System Integrity Protection must be
+    partially disabled.
 
 *--display* '<DISPLAY_SEL>'::
     Send the selected space to the given display. +
     When managed spaces are enabled, sending a managed space to a display gives
-    that managed space fixed display affinity. +
-    System Integrity Protection must be partially disabled.
+    that managed space fixed display affinity after the move is confirmed. The
+    managed command is asynchronous and can run with full System Integrity
+    Protection. Otherwise, System Integrity Protection must be partially
+    disabled.
 
 *--equalize* ['x-axis|y-axis']::
     Reset the split ratios on the selected space to the default value along the given axis. +
@@ -530,7 +563,8 @@ COMMAND
     Retrieve information about windows.
 
 *--managed-spaces*::
-    Retrieve managed space registry and reconciliation diagnostics.
+    Retrieve managed space registry, topology backend capabilities, the current
+    asynchronous operation, queue state, and the last topology failure.
 
 ARGUMENT
 ^^^^^^^^
@@ -686,6 +720,43 @@ MANAGED SPACES
 [subs=+macros]
 ----
 {
+    "topology-backend-policy": string,
+    "topology-os-build": string,
+    "topology-accessibility-trusted": bool,
+    "topology-capabilities": object {
+        "<operation>": object {
+            "primary": string,
+            "fallback": string,
+            "bridge-available": bool,
+            "bridge-validated": bool,
+            "accessibility": bool
+        }
+    },
+    "topology-state": string,
+    "topology-operation": string,
+    "topology-operation-origin": string,
+    "topology-operation-backend": string,
+    "topology-operation-generation": number,
+    "topology-operation-precondition-hash": string,
+    "topology-operation-space": number,
+    "topology-operation-space-uuid": string,
+    "topology-operation-target-space": number,
+    "topology-operation-target-space-uuid": string,
+    "topology-operation-created-space": number,
+    "topology-operation-target-display": number,
+    "topology-operation-target-display-uuid": string,
+    "topology-operation-phase": number,
+    "topology-operation-mutation-started": bool,
+    "topology-queue-depth": number,
+    "topology-owns-mission-control": bool,
+    "topology-reconciliation-blocked": bool,
+    "topology-space-limit-reached": bool,
+    "topology-space-limit-display": number,
+    "topology-space-limit-count": number,
+    "topology-last-failed-generation": number,
+    "topology-last-failed-operation": string,
+    "topology-last-failed-backend": string,
+    "topology-last-error": string,
     "enabled": bool,
     "managed-space-count": number,
     "extra-space-count": number,
@@ -702,6 +773,14 @@ MANAGED SPACES
     "windows": array of object
 }
 ----
+
+Topology-changing commands return successfully and remain silent after a
+request is safely queued. Completion is observable through this query and the
+normal space and managed-space signals. An immediate validation failure is
+returned to the caller. An asynchronous failure updates the
+`topology-last-*` fields and emits `managed_space_topology_failed`. A failed
+reconciliation remains blocked until a configuration or external topology
+change prevents repeated retries against unchanged state.
 
 Each managed space object contains:
 
@@ -1013,6 +1092,12 @@ EVENT
     Triggered when the active managed or native fullscreen space changes. +
     Passes four arguments: $YABAI_SPACE_INDEX, $YABAI_DISPLAY_INDEX,
     $YABAI_MANAGED_ORDER, $YABAI_MANAGED_SPACE_NAME
+
+*managed_space_topology_failed*::
+    Triggered when a queued managed-space topology request fails or an
+    immediately selected topology backend is unavailable. +
+    Passes three arguments: $YABAI_MANAGED_SPACE_OPERATION,
+    $YABAI_MANAGED_SPACE_BACKEND, $YABAI_MANAGED_SPACE_ERROR
 
 *space_stacks_changed*::
     Triggered when a space's stack presentation changes. +

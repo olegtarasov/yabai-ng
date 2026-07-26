@@ -42,6 +42,10 @@ enum space_op_error
     SPACE_OP_ERROR_DISPLAY_IS_ANIMATING = 8,
     SPACE_OP_ERROR_IN_MISSION_CONTROL   = 9,
     SPACE_OP_ERROR_SCRIPTING_ADDITION   = 10,
+    SPACE_OP_ERROR_QUEUED               = 11,
+    SPACE_OP_ERROR_LIMIT_REACHED        = 12,
+    SPACE_OP_ERROR_ACCESSIBILITY        = 13,
+    SPACE_OP_ERROR_TOPOLOGY_BACKEND     = 14,
 };
 
 bool space_manager_query_space(FILE *rsp, uint64_t sid, uint64_t flags);

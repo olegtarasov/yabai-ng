@@ -1,6 +1,8 @@
 #ifndef MANAGED_SPACE_H
 #define MANAGED_SPACE_H
 
+struct managed_space_topology_request;
+
 enum managed_space_display_affinity
 {
     MANAGED_SPACE_DISPLAY_FOLLOW_MAIN,
@@ -72,14 +74,21 @@ void managed_space_query(FILE *rsp, struct managed_space *ms);
 
 void managed_space_prepare_user_space_create(struct managed_space *ms, uint32_t did, enum managed_space_display_affinity display_affinity);
 void managed_space_cancel_user_space_create(struct managed_space *ms);
+enum space_op_error managed_space_prepare_move_placeholder(struct managed_space *ms,
+                                                           uint64_t sid,
+                                                           uint32_t target_did,
+                                                           bool *required);
 void managed_space_note_user_space_destroyed(struct managed_space *ms, uint64_t sid);
 void managed_space_note_user_space_display_changed(struct managed_space *ms, uint64_t sid, uint32_t did);
+void managed_space_note_user_space_order_changed(struct managed_space *ms);
 void managed_space_note_space_label_changed(struct managed_space *ms, uint64_t sid);
 void managed_space_note_user_window_space_changed(struct managed_space *ms, struct window *window, uint64_t sid);
 void managed_space_note_focus_changed(struct managed_space *ms);
 
 void managed_space_handle_space_created(struct managed_space *ms, uint64_t sid);
 void managed_space_handle_space_destroyed(struct managed_space *ms, uint64_t sid);
+void managed_space_handle_topology_operation_completed(struct managed_space *ms, struct managed_space_topology_request *request);
+void managed_space_handle_topology_operation_failed(struct managed_space *ms, struct managed_space_topology_request *request);
 void managed_space_note_topology_event(struct managed_space *ms);
 void managed_space_request_reconcile(struct managed_space *ms);
 void managed_space_reconcile(struct managed_space *ms);

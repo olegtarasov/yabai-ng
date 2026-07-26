@@ -1,7 +1,7 @@
 FRAMEWORK_PATH = -F/System/Library/PrivateFrameworks
 FRAMEWORK      = -framework Carbon -framework Cocoa -framework CoreServices -framework CoreVideo -framework SkyLight
 CLI_FLAGS      =
-VERSION        ?= 26.1.2
+VERSION        ?= 26.1.3
 RELEASE_NAME   ?= yabai-ng
 VERSION_PARTS  := $(subst ., ,$(VERSION))
 VERSION_MAJOR  := $(word 1,$(VERSION_PARTS))
@@ -63,7 +63,7 @@ publish:
 	sed -i '' "s/^VERSION=.*/VERSION=\"$(VERSION)\"/" $(SCRIPT_PATH)/install.sh
 	sed -i '' "s/^EXPECTED_HASH=.*/EXPECTED_HASH=\"$(shell shasum -a 256 $(BUILD_PATH)/$(RELEASE_NAME)-v$(VERSION).tar.gz | cut -d " " -f 1)\"/" $(SCRIPT_PATH)/install.sh
 
-archive: man install sign icon
+archive: man install sign
 	rm -rf $(ARCH_PATH)
 	mkdir -p $(ARCH_PATH)
 	cp -r $(BUILD_PATH) $(ARCH_PATH)/

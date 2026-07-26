@@ -5,6 +5,8 @@ All notable changes to this project will be documented in this file.
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+
+## [26.1.3] - 2026-07-26
 ### Changed
 - Fixed scripting-addition *add_space* pattern for macOS 26.6 Apple Silicon arm64 [#2799](https://github.com/asmvik/yabai/issues/2799)
 - Fixed minor memory leak on space destruction, and added a few missing null checks to SkyLight API calls [#2791](https://github.com/asmvik/yabai/issues/2791)
@@ -16,6 +18,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ### Fixed
 - Fixed managed-space reconciliation not restoring managed Mission Control order
   after macOS display/fullscreen topology churn reordered normal spaces.
+- Fixed release archives containing a Finder resource fork that invalidated the
+  signed yabai binary.
 
 ## [26.1.2] - 2026-05-23
 ### Added

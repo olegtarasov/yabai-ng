@@ -8,7 +8,7 @@ surface small and explicit.
 
 Managed spaces are a fork-owned subsystem. Upstream files should only contain
 small, obvious hooks into that subsystem; substantial behavior belongs in
-`src/managed_space.h` and `src/managed_space.c`.
+the fork-owned managed-space files.
 
 ## Architecture Rules
 
@@ -44,6 +44,60 @@ small, obvious hooks into that subsystem; substantial behavior belongs in
 - Do not hardcode Sketchybar or any other bar integration in yabai. Expose
   queries and signals; let user config decide how to consume them.
 
+## Managed Topology Provider Boundary
+
+Managed topology has two deliberately separate implementations:
+
+- The `scripting-addition` provider is the legacy, synchronous implementation
+  for hosts where the matching scripting addition is available. Its observable
+  behavior is frozen to commit `7b67591`: validation order, private-API call
+  order, return codes, command timing, reconciliation timing, and managed
+  metadata semantics must remain unchanged.
+- The `sip-safe` provider is the asynchronous implementation for full-SIP
+  hosts. It owns SkyLight bridge validation, Mission Control Accessibility
+  automation, serialization, watchdogs, rollback, UI ownership, and
+  asynchronous metadata transactions.
+
+`src/managed_space_topology.*` is only the provider-selection and dispatch
+facade. In `auto` mode it performs one scripting-addition handshake when managed
+mode is enabled. An exact version with all capability bits selects the legacy
+provider; any other result selects the SIP-safe provider. The result is sticky
+for that managed-mode session. A Dock restart or operation failure must never
+switch providers implicitly. Reapplying the backend policy is the explicit
+refresh mechanism.
+
+Keep this boundary mechanically enforceable:
+
+- `src/space_manager.*` must not import or reference managed-space provider
+  code. Its legacy topology functions remain the authoritative synchronous
+  implementation.
+- `src/managed_space_legacy.*` must stay a transparent adapter over those
+  functions. Do not add provider validation, fallback, queueing, retries, or
+  metadata policy there.
+- `src/managed_space_sip_safe.*` must not be called directly outside the
+  provider facade, its completion hooks, and its failure-signal serializer.
+- Never fall through from a selected legacy operation to SIP-safe automation,
+  or from a selected SIP-safe operation to the scripting addition. Backend
+  fallback inside SIP-safe is limited to validated bridge-to-Accessibility
+  fallback before mutation begins.
+- AX observers, CoreDock notifications, topology bridge lookup, watchdogs,
+  request queues, Mission Control ownership, and input monitoring are SIP-safe
+  resources. Do not initialize them for the legacy provider.
+- Input monitoring required by SIP-safe operations must use a transient tap
+  owned by the SIP-safe session. Do not expand yabai's permanent mouse event
+  mask with keyboard or unrelated mouse events.
+- Safe-only limits, errors, retry state, async metadata commits, and query state
+  must not change legacy call sequences or leak into `enum space_op_error`.
+- Provider-independent registry and reconciliation policy remains in
+  `src/managed_space.c`. Every branch needed only for queued SIP-safe execution
+  must be guarded by `managed_space_topology_uses_sip_safe`.
+
+Run `tests/check_managed_space_provider_boundary.sh` for every topology change.
+In addition to unit tests, acceptance requires both a full-SIP SIP-safe run and
+a real compatible-scripting-addition run. The latter must verify synchronous
+commands, an idle SIP-safe queue, no Mission Control ownership, and no provider
+switch after a Dock restart.
+
 ## Fork Surface
 
 - `src/managed_space.h`
@@ -52,6 +106,15 @@ small, obvious hooks into that subsystem; substantial behavior belongs in
 - `src/managed_space.c`
   Managed registry, display affinity, window namespace cache, coalesced
   reconciler, query serialization, and signal counters.
+
+- `src/managed_space_topology.h` and `src/managed_space_topology.m`
+  Provider selection, sticky session policy, result translation, and dispatch.
+
+- `src/managed_space_legacy.h` and `src/managed_space_legacy.c`
+  Transparent adapter to the pre-SIP-safe synchronous scripting-addition path.
+
+- `src/managed_space_sip_safe.h` and `src/managed_space_sip_safe.m`
+  Serialized full-SIP bridge and Mission Control Accessibility implementation.
 
 - Small hook points in:
   `src/manifest.m`, `src/yabai.c`, `src/message.c`, `src/event_loop.*`,
@@ -86,12 +149,16 @@ small, obvious hooks into that subsystem; substantial behavior belongs in
 - `managed_space_focused`
   Signal emitted when the active managed or native fullscreen space changes.
 
+- `managed_space_topology_failed`
+  Signal emitted for an asynchronous SIP-safe topology failure.
+
 ## Validation
 
 Run the relevant checks before handing work back:
 
 - `make clean-build && make`
 - `make -C tests`
+- `tests/check_managed_space_provider_boundary.sh`
 - `git diff --check`
 
 When upstream changes `src/osax/common.h`, `src/osax/arm64_payload.m`, or

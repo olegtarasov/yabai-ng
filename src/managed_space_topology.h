@@ -9,12 +9,21 @@ enum managed_space_topology_backend_policy
     MANAGED_SPACE_TOPOLOGY_BACKEND_ACCESSIBILITY
 };
 
-enum managed_space_topology_backend
+enum managed_space_topology_provider
 {
-    MANAGED_SPACE_TOPOLOGY_BACKEND_NONE,
-    MANAGED_SPACE_TOPOLOGY_BACKEND_ACTIVE_SCRIPTING_ADDITION,
-    MANAGED_SPACE_TOPOLOGY_BACKEND_ACTIVE_BRIDGE,
-    MANAGED_SPACE_TOPOLOGY_BACKEND_ACTIVE_ACCESSIBILITY
+    MANAGED_SPACE_TOPOLOGY_PROVIDER_DISABLED,
+    MANAGED_SPACE_TOPOLOGY_PROVIDER_SCRIPTING_ADDITION,
+    MANAGED_SPACE_TOPOLOGY_PROVIDER_SIP_SAFE
+};
+
+enum managed_space_topology_selection_reason
+{
+    MANAGED_SPACE_TOPOLOGY_SELECTION_DISABLED,
+    MANAGED_SPACE_TOPOLOGY_SELECTION_COMPATIBLE_HANDSHAKE,
+    MANAGED_SPACE_TOPOLOGY_SELECTION_HANDSHAKE_UNAVAILABLE,
+    MANAGED_SPACE_TOPOLOGY_SELECTION_VERSION_MISMATCH,
+    MANAGED_SPACE_TOPOLOGY_SELECTION_CAPABILITIES_MISSING,
+    MANAGED_SPACE_TOPOLOGY_SELECTION_FORCED_POLICY
 };
 
 enum managed_space_topology_operation
@@ -33,137 +42,138 @@ enum managed_space_topology_origin
     MANAGED_SPACE_TOPOLOGY_ORIGIN_COMMAND
 };
 
-enum managed_space_topology_state
+enum managed_space_topology_provider_error
 {
-    MANAGED_SPACE_TOPOLOGY_STATE_IDLE,
-    MANAGED_SPACE_TOPOLOGY_STATE_QUEUED,
-    MANAGED_SPACE_TOPOLOGY_STATE_WAITING_FOR_USER_MISSION_CONTROL,
-    MANAGED_SPACE_TOPOLOGY_STATE_WAITING_FOR_MISSION_CONTROL,
-    MANAGED_SPACE_TOPOLOGY_STATE_WAITING_FOR_ACCESSIBILITY,
-    MANAGED_SPACE_TOPOLOGY_STATE_WAITING_FOR_EVENT,
-    MANAGED_SPACE_TOPOLOGY_STATE_WAITING_FOR_SETTLE,
-    MANAGED_SPACE_TOPOLOGY_STATE_WAITING_FOR_MISSION_CONTROL_EXIT,
-    MANAGED_SPACE_TOPOLOGY_STATE_FAILED
+    MANAGED_SPACE_TOPOLOGY_PROVIDER_ERROR_NONE          = 0,
+    MANAGED_SPACE_TOPOLOGY_PROVIDER_ERROR_LIMIT_REACHED = 12,
+    MANAGED_SPACE_TOPOLOGY_PROVIDER_ERROR_ACCESSIBILITY = 13,
+    MANAGED_SPACE_TOPOLOGY_PROVIDER_ERROR_BACKEND       = 14
 };
 
-struct managed_space_topology_request
+struct managed_space_topology_result
 {
-    enum managed_space_topology_operation operation;
-    enum managed_space_topology_origin origin;
-    enum managed_space_topology_backend backend;
-    uint64_t generation;
-    uint64_t precondition_hash;
-    uint64_t sid;
-    uint64_t target_sid;
-    uint64_t created_sid;
-    uint64_t restore_focus_sid;
-    uint64_t *pre_source_order;
-    uint64_t *pre_target_order;
-    uint32_t source_did;
-    uint32_t target_did;
-    int pre_source_count;
-    int pre_target_count;
-    int ax_source_count_before;
-    int ax_target_count_before;
-    int target_index;
-    int phase;
-    bool place_after;
-    bool mutation_started;
-    bool topology_event_observed;
-    bool ax_precondition_observed;
-    bool ax_postcondition_observed;
-    bool dock_postcondition_observed;
-    bool readiness_retry_scheduled;
-    bool focus_space;
-    bool ax_spaces_bar_hovered;
-    bool placeholder_required;
-    char sid_uuid[64];
-    char target_uuid[64];
-    uint64_t *desired_order;
-    int desired_order_count;
+    enum space_op_error space_error;
+    enum managed_space_topology_provider_error provider_error;
+    bool queued;
 };
 
 struct managed_space_topology
 {
     bool enabled;
-    bool command_origin;
-    bool owns_mission_control;
-    bool finish_batch_requested;
-    bool space_limit_reached;
-    bool reconciliation_blocked;
-    uint64_t next_generation;
-    uint64_t step_token;
-    uint64_t step_generation;
-    uint64_t watchdog_token;
-    uint64_t watchdog_generation;
-    uint64_t last_failed_generation;
-    uint64_t active_submission_generation;
-    uint64_t pending_focus_sid;
     enum managed_space_topology_backend_policy policy;
-    enum managed_space_topology_state state;
-    struct managed_space_topology_request current;
-    struct managed_space_topology_request *queue;
-    uint32_t space_limit_did;
-    uint32_t authority_did;
-    int space_limit_count;
-    int authority_sls_count;
-    int authority_ax_count;
-    bool authority_observed;
-    bool authority_consistent;
-    pid_t observed_dock_pid;
-    AXObserverRef ax_observer;
-    AXUIElementRef ax_observed_element;
-    char os_build[32];
-    char operation_error[128];
-    char last_error[128];
-    enum managed_space_topology_operation last_failed_operation;
-    enum managed_space_topology_backend last_failed_backend;
+    enum managed_space_topology_provider provider;
+    enum managed_space_topology_selection_reason selection_reason;
+    enum scripting_addition_probe_status scripting_addition_status;
+    char scripting_addition_version[64];
+    uint32_t scripting_addition_capabilities;
 };
 
 extern struct managed_space_topology g_managed_space_topology;
+
+static inline struct managed_space_topology_result
+managed_space_topology_result_completed(void)
+{
+    return (struct managed_space_topology_result) {
+        .space_error = SPACE_OP_ERROR_SUCCESS
+    };
+}
+
+static inline struct managed_space_topology_result
+managed_space_topology_result_space_error(enum space_op_error error)
+{
+    return (struct managed_space_topology_result) {
+        .space_error = error
+    };
+}
+
+static inline struct managed_space_topology_result
+managed_space_topology_result_provider_error(enum managed_space_topology_provider_error error)
+{
+    return (struct managed_space_topology_result) {
+        .space_error = SPACE_OP_ERROR_SUCCESS,
+        .provider_error = error
+    };
+}
+
+static inline struct managed_space_topology_result
+managed_space_topology_result_queued(void)
+{
+    return (struct managed_space_topology_result) {
+        .space_error = SPACE_OP_ERROR_SUCCESS,
+        .queued = true
+    };
+}
+
+static inline bool
+managed_space_topology_result_is_success(struct managed_space_topology_result result)
+{
+    return result.space_error == SPACE_OP_ERROR_SUCCESS &&
+           result.provider_error == MANAGED_SPACE_TOPOLOGY_PROVIDER_ERROR_NONE;
+}
+
+static inline bool
+managed_space_topology_result_is_completed(struct managed_space_topology_result result)
+{
+    return managed_space_topology_result_is_success(result) && !result.queued;
+}
+
+static inline int
+managed_space_topology_result_error_code(struct managed_space_topology_result result)
+{
+    if (result.space_error != SPACE_OP_ERROR_SUCCESS) return result.space_error;
+    return result.provider_error;
+}
 
 void managed_space_topology_init(struct managed_space_topology *topology);
 void managed_space_topology_destroy(struct managed_space_topology *topology);
 void managed_space_topology_set_enabled(struct managed_space_topology *topology, bool enabled);
 bool managed_space_topology_is_enabled(struct managed_space_topology *topology);
+bool managed_space_topology_uses_scripting_addition(struct managed_space_topology *topology);
+bool managed_space_topology_uses_sip_safe(struct managed_space_topology *topology);
 void managed_space_topology_note_configuration_changed(struct managed_space_topology *topology);
 
 const char *managed_space_topology_backend_policy_name(enum managed_space_topology_backend_policy policy);
 bool managed_space_topology_backend_policy_from_string(char *value, enum managed_space_topology_backend_policy *policy);
-void managed_space_topology_set_backend_policy(struct managed_space_topology *topology, enum managed_space_topology_backend_policy policy);
+bool managed_space_topology_set_backend_policy(struct managed_space_topology *topology,
+                                               enum managed_space_topology_backend_policy policy);
 enum managed_space_topology_backend_policy managed_space_topology_backend_policy(struct managed_space_topology *topology);
-
-const char *managed_space_topology_backend_name(enum managed_space_topology_backend backend);
+const char *managed_space_topology_provider_name(enum managed_space_topology_provider provider);
+const char *managed_space_topology_selection_reason_name(enum managed_space_topology_selection_reason reason);
 const char *managed_space_topology_operation_name(enum managed_space_topology_operation operation);
 const char *managed_space_topology_origin_name(enum managed_space_topology_origin origin);
-const char *managed_space_topology_state_name(enum managed_space_topology_state state);
 
-void managed_space_topology_begin_command(struct managed_space_topology *topology);
-void managed_space_topology_end_command(struct managed_space_topology *topology);
-void managed_space_topology_prepare_request(struct managed_space_topology *topology, struct managed_space_topology_request *request);
+struct managed_space_topology_result
+managed_space_topology_create(struct managed_space_topology *topology,
+                              enum managed_space_topology_origin origin,
+                              uint64_t acting_sid);
+struct managed_space_topology_result
+managed_space_topology_destroy_space(struct managed_space_topology *topology,
+                                     enum managed_space_topology_origin origin,
+                                     uint64_t sid);
+struct managed_space_topology_result
+managed_space_topology_move_space(struct managed_space_topology *topology,
+                                  enum managed_space_topology_origin origin,
+                                  uint64_t sid,
+                                  uint64_t target_sid);
+struct managed_space_topology_result
+managed_space_topology_swap_spaces(struct managed_space_topology *topology,
+                                   enum managed_space_topology_origin origin,
+                                   uint64_t sid,
+                                   uint64_t target_sid);
+struct managed_space_topology_result
+managed_space_topology_move_space_to_display(struct managed_space_topology *topology,
+                                             enum managed_space_topology_origin origin,
+                                             uint64_t sid,
+                                             uint32_t did,
+                                             bool placeholder_required);
 
-enum space_op_error managed_space_topology_create(struct managed_space_topology *topology, uint64_t acting_sid);
-enum space_op_error managed_space_topology_destroy_space(struct managed_space_topology *topology, uint64_t sid);
-enum space_op_error managed_space_topology_move_space(struct managed_space_topology *topology, uint64_t sid, uint64_t target_sid);
-enum space_op_error managed_space_topology_swap_spaces(struct managed_space_topology *topology, uint64_t sid, uint64_t target_sid);
-enum space_op_error managed_space_topology_move_space_to_display(struct managed_space_topology *topology,
-                                                                uint64_t sid,
-                                                                uint32_t did,
-                                                                bool placeholder_required);
-bool managed_space_topology_prepare_move_request(struct managed_space_topology_request *request, uint64_t sid, uint64_t target_sid);
-bool managed_space_topology_prepare_swap_request(struct managed_space_topology_request *request, uint64_t sid, uint64_t target_sid);
-enum space_op_error managed_space_topology_submit_request(struct managed_space_topology *topology, struct managed_space_topology_request request);
-void managed_space_topology_discard_request(struct managed_space_topology_request *request);
-bool managed_space_topology_request_is_satisfied(struct managed_space_topology_request *request);
 bool managed_space_topology_space_limit_reached_for_display(struct managed_space_topology *topology, uint32_t did);
-
 void managed_space_topology_handle_space_created(struct managed_space_topology *topology, uint64_t sid);
 void managed_space_topology_handle_space_destroyed(struct managed_space_topology *topology, uint64_t sid);
 void managed_space_topology_handle_focus_changed(struct managed_space_topology *topology);
 void managed_space_topology_handle_mission_control_enter(struct managed_space_topology *topology);
 void managed_space_topology_handle_mission_control_exit(struct managed_space_topology *topology);
 void managed_space_topology_handle_dock_restart(struct managed_space_topology *topology);
-void managed_space_topology_note_input_event(struct managed_space_topology *topology, CGEventRef event);
 void managed_space_topology_handle_user_interruption(struct managed_space_topology *topology, uint64_t generation);
 void managed_space_topology_step(struct managed_space_topology *topology, uint64_t token);
 void managed_space_topology_watchdog(struct managed_space_topology *topology, uint64_t token);

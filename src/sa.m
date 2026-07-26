@@ -267,6 +267,24 @@ out:
     return result;
 }
 
+void scripting_addition_probe(struct scripting_addition_probe_result *result)
+{
+    memset(result, 0, sizeof(struct scripting_addition_probe_result));
+    result->status = SCRIPTING_ADDITION_PROBE_UNAVAILABLE;
+
+    char version[SA_SOCKET_BUFF_LEN] = {0};
+    if (!scripting_addition_request_handshake(version, &result->capabilities)) return;
+
+    snprintf(result->version, sizeof(result->version), "%s", version);
+    if (!string_equals(version, OSAX_VERSION)) {
+        result->status = SCRIPTING_ADDITION_PROBE_VERSION_MISMATCH;
+    } else if ((result->capabilities & OSAX_ATTRIB_ALL) != OSAX_ATTRIB_ALL) {
+        result->status = SCRIPTING_ADDITION_PROBE_CAPABILITIES_MISSING;
+    } else {
+        result->status = SCRIPTING_ADDITION_PROBE_COMPATIBLE;
+    }
+}
+
 static int scripting_addition_perform_validation(void)
 {
     uint32_t attrib = 0;

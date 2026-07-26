@@ -1,9 +1,12 @@
-.PHONY: clean build run all
+.PHONY: clean boundary build run all
 
-all: clean build run
+all: clean boundary build run
 
 clean:
 	rm -rf ./bin
+
+boundary:
+	./check_managed_space_provider_boundary.sh
 
 build:
 	mkdir -p ./bin

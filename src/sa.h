@@ -6,8 +6,24 @@ extern unsigned int __src_osax_payload_len;
 extern unsigned char __src_osax_loader[];
 extern unsigned int __src_osax_loader_len;
 
+enum scripting_addition_probe_status
+{
+    SCRIPTING_ADDITION_PROBE_UNAVAILABLE,
+    SCRIPTING_ADDITION_PROBE_COMPATIBLE,
+    SCRIPTING_ADDITION_PROBE_VERSION_MISMATCH,
+    SCRIPTING_ADDITION_PROBE_CAPABILITIES_MISSING
+};
+
+struct scripting_addition_probe_result
+{
+    enum scripting_addition_probe_status status;
+    char version[64];
+    uint32_t capabilities;
+};
+
 int scripting_addition_load(void);
 int scripting_addition_uninstall(void);
+void scripting_addition_probe(struct scripting_addition_probe_result *result);
 
 bool scripting_addition_create_space(uint64_t sid);
 bool scripting_addition_destroy_space(uint64_t sid);

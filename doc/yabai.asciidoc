@@ -153,18 +153,23 @@ Global Settings
     main display. +
     Native fullscreen spaces are exempt and are never moved or destroyed by
     managed mode. +
-    With managed mode enabled, topology changes are serialized and may complete
-    asynchronously. The scripting addition remains the primary backend. With
-    full System Integrity Protection, yabai falls back to an exact-build
-    validated SkyLight bridge or Mission Control Accessibility automation. The
-    bridge is enabled automatically only after the operation agrees across SLS,
-    Dock's Accessibility topology, persisted Dock state, and a Dock restart.
-    Accessibility fallback briefly shows Mission Control and requires yabai to
-    be enabled in System Settings -> Privacy & Security -> Accessibility. If the
-    user already opened Mission Control, yabai waits for that session to end
-    and does not close or control it. macOS exposes at most 16 normal spaces per
-    display through Mission Control; reaching that limit blocks further managed
-    creates until configuration or topology changes.
+    With managed mode enabled, `auto` selects one topology provider for the
+    managed-mode session. An exact scripting-addition version with every
+    required capability keeps the original synchronous scripting-addition
+    behavior. With full System Integrity Protection, the separate SIP-safe
+    provider serializes requests and uses an exact-build validated SkyLight
+    bridge or Mission Control Accessibility automation. Provider selection is
+    sticky: a Dock restart or operation failure never changes implementations
+    implicitly. Reapply `managed_space_topology_backend` to explicitly
+    re-evaluate `auto`. +
+    The bridge is enabled automatically only after the operation agrees across
+    SLS, Dock's Accessibility topology, persisted Dock state, and a Dock
+    restart. Accessibility automation briefly shows Mission Control and
+    requires yabai to be enabled in System Settings -> Privacy & Security ->
+    Accessibility. If the user already opened Mission Control, yabai waits for
+    that session to end and does not close or control it. macOS exposes at most
+    16 normal spaces per display through Mission Control; reaching that limit
+    blocks further SIP-safe creates until configuration or topology changes.
 
 *managed_space_names* ['<comma-separated names>']::
     Configure optional managed slot names. +
@@ -186,17 +191,24 @@ Global Settings
     space; other managed creates inherit this policy.
 
 *managed_space_topology_backend* ['<auto|scripting-addition|bridge|accessibility>']::
-    Select the managed-space topology backend. +
-    `auto` is the default. It tries the scripting addition first, then a
-    SkyLight bridge only when the exact operation has passed reversible
-    validation on the current macOS build, and otherwise uses Accessibility.
-    `scripting-addition`, `bridge`, and `accessibility` force a backend for
-    diagnostics. Forced bridge mode bypasses the per-build validation table so
-    an available bridge operation can be tested before it is added to that
-    table. A successful SLS event alone is not sufficient validation because a
-    bridge mutation can exist in WindowServer without being persisted by Dock.
-    This setting affects topology changes only while
-    `managed_spaces` is enabled.
+    Select the managed-space topology provider policy. +
+    `auto` is the default. When managed mode is enabled, yabai performs a
+    read-only scripting-addition handshake. An exact version with every
+    required capability selects the original synchronous scripting-addition
+    provider; an unavailable, stale, or incomplete handshake selects the
+    separate SIP-safe provider. The selection remains fixed until managed mode
+    is disabled or this policy is explicitly reapplied. There is no implicit
+    cross-provider fallback. +
+    `scripting-addition` forces the synchronous provider and reports its normal
+    immediate errors if the scripting addition cannot perform an operation.
+    `bridge` and `accessibility` force the SIP-safe provider for diagnostics.
+    Forced bridge mode bypasses the per-build validation table so an available
+    bridge operation can be tested before it is added to that table. Within the
+    SIP-safe provider, `auto` may fall back from a validated bridge operation to
+    Accessibility only if bridge mutation has not begun. A successful SLS event
+    alone is not sufficient validation because a bridge mutation can exist in
+    WindowServer without being persisted by Dock. This setting affects topology
+    changes only while `managed_spaces` is enabled.
 
 *external_bar* ['<main|all|off>:<top_padding>:<bottom_padding>']::
     Specify top and bottom padding for a potential custom bar that you may be running. +
@@ -379,41 +391,46 @@ COMMAND
 *--create*  ['<DISPLAY_SEL>']::
     Create a new space on the given display. +
     If none specified, use the display of the active space instead. +
-    With managed spaces enabled this command is queued through the configured
-    topology backend and can run with full System Integrity Protection.
-    Otherwise, System Integrity Protection must be partially disabled.
+    With managed spaces enabled, the scripting-addition provider preserves the
+    original synchronous command. The SIP-safe provider queues this command and
+    can run with full System Integrity Protection. Otherwise, System Integrity
+    Protection must be partially disabled.
 
 *--destroy* ['<SPACE_SEL>']::
     Remove the given space. +
     If none specified, use the selected space instead. +
-    Managed membership is removed only after deletion is confirmed. With
-    managed spaces enabled this command is asynchronous and can run with full
-    System Integrity Protection. Otherwise, System Integrity Protection must be
-    partially disabled.
+    With the SIP-safe provider, managed membership is removed only after
+    deletion is confirmed, the command is asynchronous, and it can run with
+    full System Integrity Protection. The scripting-addition provider preserves
+    the original synchronous command. Otherwise, System Integrity Protection
+    must be partially disabled.
 
 *--move* '<SPACE_SEL>'::
     Move position of the selected space to the position of the given space. +
     The selected space and given space must both belong to the same display. +
-    With managed spaces enabled this command is asynchronous, persists the
+    With the SIP-safe provider this command is asynchronous, persists the
     confirmed UUID order, and can run with full System Integrity Protection.
+    The scripting-addition provider preserves the original synchronous command.
     Otherwise, System Integrity Protection must be partially disabled.
 
 *--swap* '<SPACE_SEL>'::
     Swap the selected space with the given space. +
     If the selected space and given space belong to different displays, all the windows will swap. +
     If the selected space and given space belong to the same display, the actual spaces will swap. +
-    With managed spaces enabled, same-display topology changes are asynchronous,
+    With the SIP-safe provider, same-display topology changes are asynchronous,
     persist only after the full swap is confirmed, and can run with full System
-    Integrity Protection. Otherwise, System Integrity Protection must be
-    partially disabled.
+    Integrity Protection. The scripting-addition provider preserves the
+    original synchronous command. Otherwise, System Integrity Protection must
+    be partially disabled.
 
 *--display* '<DISPLAY_SEL>'::
     Send the selected space to the given display. +
     When managed spaces are enabled, sending a managed space to a display gives
-    that managed space fixed display affinity after the move is confirmed. The
-    managed command is asynchronous and can run with full System Integrity
-    Protection. Otherwise, System Integrity Protection must be partially
-    disabled.
+    that managed space fixed display affinity. The SIP-safe provider commits
+    that affinity after confirmation, runs asynchronously, and can work with
+    full System Integrity Protection. The scripting-addition provider preserves
+    the original synchronous command and commits affinity on return. Otherwise,
+    System Integrity Protection must be partially disabled.
 
 *--equalize* ['x-axis|y-axis']::
     Reset the split ratios on the selected space to the default value along the given axis. +
@@ -725,6 +742,11 @@ MANAGED SPACES
 ----
 {
     "topology-backend-policy": string,
+    "topology-resolved-provider": string,
+    "topology-provider-selection-reason": string,
+    "topology-scripting-addition-compatible": bool,
+    "topology-scripting-addition-version": string,
+    "topology-scripting-addition-capabilities": string,
     "topology-os-build": string,
     "topology-accessibility-trusted": bool,
     "topology-authority-observed": bool,
@@ -793,10 +815,15 @@ MANAGED SPACES
 }
 ----
 
-Topology-changing commands return successfully and remain silent after a
-request is safely queued. Completion is observable through this query and the
-normal space and managed-space signals. An immediate validation failure is
-returned to the caller. An asynchronous failure updates the
+The provider-selection fields identify the sticky managed-mode provider and the
+handshake result that selected it. With `scripting-addition`, topology commands
+retain their original synchronous result and error behavior; SIP-safe queue
+state stays idle and yabai does not own Mission Control. +
+
+With `sip-safe`, topology-changing commands return successfully and remain
+silent after a request is safely queued. Completion is observable through this
+query and the normal space and managed-space signals. An immediate validation
+failure is returned to the caller. An asynchronous failure updates the
 `topology-last-*` fields and emits `managed_space_topology_failed`. A failed
 reconciliation remains blocked until a configuration or external topology
 change prevents repeated retries against unchanged state. Accessibility

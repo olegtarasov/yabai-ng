@@ -16,6 +16,7 @@ typedef TEST_SIG(function);
 #include "stack_focus.c"
 #include "managed_space.c"
 #include "managed_space_topology.c"
+#include "managed_space_sip_safe.c"
 
 #define TEST_ENTRY(name) { #name, test_##name },
 #define TEST_LIST                                              \
@@ -40,26 +41,31 @@ typedef TEST_SIG(function);
     TEST_ENTRY(managed_space_display_affinity_names_are_stable) \
     TEST_ENTRY(managed_space_pending_create_counts_only_managed_spaces) \
     TEST_ENTRY(managed_space_explicit_destroy_removes_membership_by_uuid_after_sid_refresh) \
-    TEST_ENTRY(managed_space_topology_backend_selection_is_operation_scoped) \
     TEST_ENTRY(managed_space_topology_backend_policy_values_are_stable) \
-    TEST_ENTRY(managed_space_topology_validated_bridge_matrix_is_build_scoped) \
-    TEST_ENTRY(managed_space_topology_backend_change_preserves_last_failure) \
-    TEST_ENTRY(managed_space_topology_failed_reconcile_waits_for_new_state) \
-    TEST_ENTRY(managed_space_topology_queue_serializes_and_records_origin) \
-    TEST_ENTRY(managed_space_topology_stale_watchdogs_are_rejected) \
-    TEST_ENTRY(managed_space_topology_events_match_only_the_active_request) \
-    TEST_ENTRY(managed_space_topology_create_events_must_be_new_to_the_request) \
-    TEST_ENTRY(managed_space_topology_mutation_backends_require_authoritative_postconditions) \
-    TEST_ENTRY(managed_space_topology_persisted_postconditions_are_transactional) \
-    TEST_ENTRY(managed_space_topology_explicit_destroy_defers_membership_commit) \
-    TEST_ENTRY(managed_space_topology_failed_reorder_keeps_previous_desired_order) \
-    TEST_ENTRY(managed_space_topology_swap_expected_order_is_transactional) \
-    TEST_ENTRY(managed_space_topology_mission_control_ownership_is_explicit) \
-    TEST_ENTRY(managed_space_topology_owned_deactivation_is_generation_checked) \
-    TEST_ENTRY(managed_space_topology_drag_targets_use_visible_ax_frames) \
-    TEST_ENTRY(managed_space_topology_ax_display_mapping_accepts_numeric_ids) \
-    TEST_ENTRY(managed_space_topology_space_limit_is_display_scoped) \
-    TEST_ENTRY(managed_space_topology_normal_order_excludes_fullscreen_entries)
+    TEST_ENTRY(managed_space_topology_auto_selects_only_compatible_scripting_addition) \
+    TEST_ENTRY(managed_space_topology_forced_provider_never_cross_falls_back) \
+    TEST_ENTRY(managed_space_topology_legacy_dispatch_is_synchronous_and_safe_resources_stay_dormant) \
+    TEST_ENTRY(managed_space_topology_selection_is_sticky_until_explicit_refresh) \
+    TEST_ENTRY(managed_space_topology_result_keeps_provider_errors_out_of_space_manager) \
+    TEST_ENTRY(managed_space_sip_safe_backend_selection_is_operation_scoped) \
+    TEST_ENTRY(managed_space_sip_safe_validated_bridge_matrix_is_build_scoped) \
+    TEST_ENTRY(managed_space_sip_safe_backend_change_preserves_last_failure) \
+    TEST_ENTRY(managed_space_sip_safe_failed_reconcile_waits_for_new_state) \
+    TEST_ENTRY(managed_space_sip_safe_queue_serializes_and_records_origin) \
+    TEST_ENTRY(managed_space_sip_safe_stale_watchdogs_are_rejected) \
+    TEST_ENTRY(managed_space_sip_safe_events_match_only_the_active_request) \
+    TEST_ENTRY(managed_space_sip_safe_create_events_must_be_new_to_the_request) \
+    TEST_ENTRY(managed_space_sip_safe_mutation_backends_require_authoritative_postconditions) \
+    TEST_ENTRY(managed_space_sip_safe_persisted_postconditions_are_transactional) \
+    TEST_ENTRY(managed_space_sip_safe_explicit_destroy_defers_membership_commit) \
+    TEST_ENTRY(managed_space_sip_safe_failed_reorder_keeps_previous_desired_order) \
+    TEST_ENTRY(managed_space_sip_safe_swap_expected_order_is_transactional) \
+    TEST_ENTRY(managed_space_sip_safe_mission_control_ownership_is_explicit) \
+    TEST_ENTRY(managed_space_sip_safe_owned_deactivation_is_generation_checked) \
+    TEST_ENTRY(managed_space_sip_safe_drag_targets_use_visible_ax_frames) \
+    TEST_ENTRY(managed_space_sip_safe_ax_display_mapping_accepts_numeric_ids) \
+    TEST_ENTRY(managed_space_sip_safe_space_limit_is_display_scoped) \
+    TEST_ENTRY(managed_space_sip_safe_normal_order_excludes_fullscreen_entries)
 
 static struct {
     char *name;

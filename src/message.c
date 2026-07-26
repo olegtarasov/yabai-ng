@@ -1268,7 +1268,9 @@ static void handle_domain_config(FILE *rsp, struct token domain, char *message)
             } else {
                 enum managed_space_topology_backend_policy policy;
                 if (managed_space_topology_backend_policy_from_string(value.text, &policy)) {
-                    managed_space_topology_set_backend_policy(&g_managed_space_topology, policy);
+                    if (!managed_space_topology_set_backend_policy(&g_managed_space_topology, policy)) {
+                        daemon_fail(rsp, "cannot change managed-space topology backend while an operation is active.\n");
+                    }
                 } else {
                     daemon_fail(rsp, "unknown value '%.*s' given to command '%.*s' for domain '%.*s'\n", value.length, value.text, command.length, command.text, domain.length, domain.text);
                 }
@@ -1928,84 +1930,117 @@ static void handle_domain_space(FILE *rsp, struct token domain, char *message)
         } else if (token_equals(command, COMMAND_SPACE_MOVE)) {
             struct selector selector = parse_space_selector(rsp, &message, acting_sid, false);
             if (selector.did_parse && selector.sid) {
-                managed_space_topology_begin_command(&g_managed_space_topology);
-                enum space_op_error result = space_manager_move_space_to_space(acting_sid, selector.sid);
-                managed_space_topology_end_command(&g_managed_space_topology);
-                if (result == SPACE_OP_ERROR_SAME_SPACE) {
+                struct managed_space_topology_result result = managed_space_is_enabled(&g_managed_space)
+                    ? managed_space_topology_move_space(&g_managed_space_topology,
+                                                        MANAGED_SPACE_TOPOLOGY_ORIGIN_COMMAND,
+                                                        acting_sid,
+                                                        selector.sid)
+                    : managed_space_topology_result_space_error(
+                        space_manager_move_space_to_space(acting_sid, selector.sid));
+                if (result.space_error == SPACE_OP_ERROR_SAME_SPACE) {
                     daemon_fail(rsp, "cannot move space to itself.\n");
-                } else if (result == SPACE_OP_ERROR_SAME_DISPLAY) {
+                } else if (result.space_error == SPACE_OP_ERROR_SAME_DISPLAY) {
                     daemon_fail(rsp, "cannot move space across display boundaries. use --display instead.\n");
-                } else if (result == SPACE_OP_ERROR_INVALID_TYPE) {
+                } else if (result.space_error == SPACE_OP_ERROR_INVALID_TYPE) {
                     daemon_fail(rsp, "cannot move a macOS fullscreen space while managed spaces are enabled.\n");
-                } else if (result == SPACE_OP_ERROR_INVALID_DST) {
+                } else if (result.space_error == SPACE_OP_ERROR_INVALID_DST) {
                     daemon_fail(rsp, "cannot determine the requested managed-space order.\n");
-                } else if (result == SPACE_OP_ERROR_DISPLAY_IS_ANIMATING) {
+                } else if (result.space_error == SPACE_OP_ERROR_DISPLAY_IS_ANIMATING) {
                     daemon_fail(rsp, "cannot move space because the display is in the middle of an animation.\n");
-                } else if (result == SPACE_OP_ERROR_IN_MISSION_CONTROL) {
+                } else if (result.space_error == SPACE_OP_ERROR_IN_MISSION_CONTROL) {
                     daemon_fail(rsp, "cannot move space because mission-control is active.\n");
-                } else if (result == SPACE_OP_ERROR_SCRIPTING_ADDITION) {
+                } else if (result.space_error == SPACE_OP_ERROR_SCRIPTING_ADDITION) {
                     daemon_fail(rsp, "cannot move space due to an error with the scripting-addition.\n");
-                } else if (result == SPACE_OP_ERROR_ACCESSIBILITY) {
+                } else if (result.provider_error == MANAGED_SPACE_TOPOLOGY_PROVIDER_ERROR_ACCESSIBILITY) {
                     daemon_fail(rsp, "cannot move space because yabai does not have Accessibility permission.\n");
-                } else if (result == SPACE_OP_ERROR_TOPOLOGY_BACKEND) {
+                } else if (result.provider_error == MANAGED_SPACE_TOPOLOGY_PROVIDER_ERROR_BACKEND) {
                     daemon_fail(rsp, "cannot move space because the managed-space topology backend failed.\n");
-                } else if (result == SPACE_OP_ERROR_SUCCESS) {
-                    managed_space_note_user_space_order_changed(&g_managed_space);
                 }
             }
         } else if (token_equals(command, COMMAND_SPACE_SWAP)) {
             struct selector selector = parse_space_selector(rsp, &message, acting_sid, false);
             if (selector.did_parse && selector.sid) {
-                managed_space_topology_begin_command(&g_managed_space_topology);
-                enum space_op_error result = space_manager_swap_space_with_space(acting_sid, selector.sid);
-                managed_space_topology_end_command(&g_managed_space_topology);
-                if (result == SPACE_OP_ERROR_SAME_SPACE) {
+                struct managed_space_topology_result result = managed_space_is_enabled(&g_managed_space)
+                    ? managed_space_topology_swap_spaces(&g_managed_space_topology,
+                                                         MANAGED_SPACE_TOPOLOGY_ORIGIN_COMMAND,
+                                                         acting_sid,
+                                                         selector.sid)
+                    : managed_space_topology_result_space_error(
+                        space_manager_swap_space_with_space(acting_sid, selector.sid));
+                if (result.space_error == SPACE_OP_ERROR_SAME_SPACE) {
                     daemon_fail(rsp, "cannot swap space with itself.\n");
-                } else if (result == SPACE_OP_ERROR_INVALID_TYPE) {
+                } else if (result.space_error == SPACE_OP_ERROR_INVALID_TYPE) {
                     daemon_fail(rsp, "cannot swap a macOS fullscreen space while managed spaces are enabled.\n");
-                } else if (result == SPACE_OP_ERROR_INVALID_DST) {
+                } else if (result.space_error == SPACE_OP_ERROR_INVALID_DST) {
                     daemon_fail(rsp, "cannot determine the requested managed-space order.\n");
-                } else if (result == SPACE_OP_ERROR_DISPLAY_IS_ANIMATING) {
+                } else if (result.space_error == SPACE_OP_ERROR_DISPLAY_IS_ANIMATING) {
                     daemon_fail(rsp, "cannot swap space because the display is in the middle of an animation.\n");
-                } else if (result == SPACE_OP_ERROR_IN_MISSION_CONTROL) {
+                } else if (result.space_error == SPACE_OP_ERROR_IN_MISSION_CONTROL) {
                     daemon_fail(rsp, "cannot swap space because mission-control is active.\n");
-                } else if (result == SPACE_OP_ERROR_SCRIPTING_ADDITION) {
+                } else if (result.space_error == SPACE_OP_ERROR_SCRIPTING_ADDITION) {
                     daemon_fail(rsp, "cannot swap space due to an error with the scripting-addition.\n");
-                } else if (result == SPACE_OP_ERROR_ACCESSIBILITY) {
+                } else if (result.provider_error == MANAGED_SPACE_TOPOLOGY_PROVIDER_ERROR_ACCESSIBILITY) {
                     daemon_fail(rsp, "cannot swap space because yabai does not have Accessibility permission.\n");
-                } else if (result == SPACE_OP_ERROR_TOPOLOGY_BACKEND) {
+                } else if (result.provider_error == MANAGED_SPACE_TOPOLOGY_PROVIDER_ERROR_BACKEND) {
                     daemon_fail(rsp, "cannot swap space because the managed-space topology backend failed.\n");
-                } else if (result == SPACE_OP_ERROR_SUCCESS) {
-                    managed_space_note_user_space_order_changed(&g_managed_space);
                 }
             }
         } else if (token_equals(command, COMMAND_SPACE_DISPLAY)) {
             struct selector selector = parse_display_selector(rsp, &message, display_manager_active_display_id(), false);
             if (selector.did_parse && selector.did) {
-                managed_space_topology_begin_command(&g_managed_space_topology);
-                enum space_op_error result = space_manager_move_space_to_display(&g_space_manager, acting_sid, selector.did);
-                managed_space_topology_end_command(&g_managed_space_topology);
-                if (result == SPACE_OP_ERROR_MISSING_SRC) {
+                bool placeholder_required = false;
+                struct managed_space_topology_result result;
+                if (!managed_space_is_enabled(&g_managed_space)) {
+                    result = managed_space_topology_result_space_error(
+                        space_manager_move_space_to_display(&g_space_manager,
+                                                            acting_sid,
+                                                            selector.did));
+                } else if (managed_space_topology_uses_sip_safe(&g_managed_space_topology)) {
+                    result = managed_space_prepare_move_placeholder(&g_managed_space,
+                                                                    acting_sid,
+                                                                    selector.did,
+                                                                    &placeholder_required);
+                    if (managed_space_topology_result_is_success(result) ||
+                        result.space_error == SPACE_OP_ERROR_SAME_SPACE) {
+                        result = managed_space_topology_move_space_to_display(
+                            &g_managed_space_topology,
+                            MANAGED_SPACE_TOPOLOGY_ORIGIN_COMMAND,
+                            acting_sid,
+                            selector.did,
+                            placeholder_required);
+                    }
+                } else {
+                    result = managed_space_topology_move_space_to_display(
+                        &g_managed_space_topology,
+                        MANAGED_SPACE_TOPOLOGY_ORIGIN_COMMAND,
+                        acting_sid,
+                        selector.did,
+                        false);
+                }
+
+                if (result.space_error == SPACE_OP_ERROR_MISSING_SRC) {
                     daemon_fail(rsp, "could not locate the space to act on.\n");
-                } else if (result == SPACE_OP_ERROR_MISSING_DST) {
+                } else if (result.space_error == SPACE_OP_ERROR_MISSING_DST) {
                     daemon_fail(rsp, "could not locate the active space of the given display.\n");
-                } else if (result == SPACE_OP_ERROR_INVALID_SRC) {
+                } else if (result.space_error == SPACE_OP_ERROR_INVALID_SRC) {
                     daemon_fail(rsp, "acting space is the last user-space on the source display and cannot be moved.\n");
-                } else if (result == SPACE_OP_ERROR_INVALID_DST) {
+                } else if (result.space_error == SPACE_OP_ERROR_INVALID_DST) {
                     daemon_fail(rsp, "acting space is already located on the given display.\n");
-                } else if (result == SPACE_OP_ERROR_INVALID_TYPE) {
+                } else if (result.space_error == SPACE_OP_ERROR_INVALID_TYPE) {
                     daemon_fail(rsp, "cannot move a macOS fullscreen space while managed spaces are enabled.\n");
-                } else if (result == SPACE_OP_ERROR_DISPLAY_IS_ANIMATING) {
+                } else if (result.space_error == SPACE_OP_ERROR_DISPLAY_IS_ANIMATING) {
                     daemon_fail(rsp, "cannot send space to display because it is in the middle of an animation.\n");
-                } else if (result == SPACE_OP_ERROR_IN_MISSION_CONTROL) {
+                } else if (result.space_error == SPACE_OP_ERROR_IN_MISSION_CONTROL) {
                     daemon_fail(rsp, "cannot send space to display because mission-control is active.\n");
-                } else if (result == SPACE_OP_ERROR_SCRIPTING_ADDITION) {
+                } else if (result.space_error == SPACE_OP_ERROR_SCRIPTING_ADDITION) {
                     daemon_fail(rsp, "cannot send space to display due to an error with the scripting-addition.\n");
-                } else if (result == SPACE_OP_ERROR_ACCESSIBILITY) {
+                } else if (result.provider_error == MANAGED_SPACE_TOPOLOGY_PROVIDER_ERROR_ACCESSIBILITY) {
                     daemon_fail(rsp, "cannot send space to display because yabai does not have Accessibility permission.\n");
-                } else if (result == SPACE_OP_ERROR_TOPOLOGY_BACKEND) {
+                } else if (result.provider_error == MANAGED_SPACE_TOPOLOGY_PROVIDER_ERROR_BACKEND) {
                     daemon_fail(rsp, "cannot send space to display because the managed-space topology backend failed.\n");
-                } else if (result == SPACE_OP_ERROR_SUCCESS) {
+                } else if (result.provider_error == MANAGED_SPACE_TOPOLOGY_PROVIDER_ERROR_LIMIT_REACHED) {
+                    daemon_fail(rsp, "cannot send space to display because the Mission Control space limit has been reached.\n");
+                } else if (managed_space_topology_result_is_completed(result)) {
                     managed_space_note_user_space_display_changed(&g_managed_space, acting_sid, selector.did);
                 }
             }
@@ -2029,28 +2064,31 @@ static void handle_domain_space(FILE *rsp, struct token domain, char *message)
             }
 
             managed_space_prepare_user_space_create(&g_managed_space, create_did, display_affinity);
-            managed_space_topology_begin_command(&g_managed_space_topology);
-            enum space_op_error result = space_manager_add_space(acting_sid);
-            managed_space_topology_end_command(&g_managed_space_topology);
-            if (result == SPACE_OP_ERROR_MISSING_SRC) {
+            struct managed_space_topology_result result = managed_space_is_enabled(&g_managed_space)
+                ? managed_space_topology_create(&g_managed_space_topology,
+                                                MANAGED_SPACE_TOPOLOGY_ORIGIN_COMMAND,
+                                                acting_sid)
+                : managed_space_topology_result_space_error(
+                    space_manager_add_space(acting_sid));
+            if (result.space_error == SPACE_OP_ERROR_MISSING_SRC) {
                 managed_space_cancel_user_space_create(&g_managed_space);
                 daemon_fail(rsp, "could not locate the space to act on.\n");
-            } else if (result == SPACE_OP_ERROR_DISPLAY_IS_ANIMATING) {
+            } else if (result.space_error == SPACE_OP_ERROR_DISPLAY_IS_ANIMATING) {
                 managed_space_cancel_user_space_create(&g_managed_space);
                 daemon_fail(rsp, "cannot create space because the display is in the middle of an animation.\n");
-            } else if (result == SPACE_OP_ERROR_IN_MISSION_CONTROL) {
+            } else if (result.space_error == SPACE_OP_ERROR_IN_MISSION_CONTROL) {
                 managed_space_cancel_user_space_create(&g_managed_space);
                 daemon_fail(rsp, "cannot create space because mission-control is active.\n");
-            } else if (result == SPACE_OP_ERROR_SCRIPTING_ADDITION) {
+            } else if (result.space_error == SPACE_OP_ERROR_SCRIPTING_ADDITION) {
                 managed_space_cancel_user_space_create(&g_managed_space);
                 daemon_fail(rsp, "cannot create space due to an error with the scripting-addition.\n");
-            } else if (result == SPACE_OP_ERROR_ACCESSIBILITY) {
+            } else if (result.provider_error == MANAGED_SPACE_TOPOLOGY_PROVIDER_ERROR_ACCESSIBILITY) {
                 managed_space_cancel_user_space_create(&g_managed_space);
                 daemon_fail(rsp, "cannot create space because yabai does not have Accessibility permission.\n");
-            } else if (result == SPACE_OP_ERROR_TOPOLOGY_BACKEND) {
+            } else if (result.provider_error == MANAGED_SPACE_TOPOLOGY_PROVIDER_ERROR_BACKEND) {
                 managed_space_cancel_user_space_create(&g_managed_space);
                 daemon_fail(rsp, "cannot create space because the managed-space topology backend failed.\n");
-            } else if (result == SPACE_OP_ERROR_LIMIT_REACHED) {
+            } else if (result.provider_error == MANAGED_SPACE_TOPOLOGY_PROVIDER_ERROR_LIMIT_REACHED) {
                 managed_space_cancel_user_space_create(&g_managed_space);
                 daemon_fail(rsp, "cannot create space because the Mission Control space limit has been reached.\n");
             }
@@ -2065,26 +2103,29 @@ static void handle_domain_space(FILE *rsp, struct token domain, char *message)
                 }
             }
 
-            managed_space_topology_begin_command(&g_managed_space_topology);
-            enum space_op_error result = space_manager_destroy_space(acting_sid);
-            managed_space_topology_end_command(&g_managed_space_topology);
-            if (result == SPACE_OP_ERROR_MISSING_SRC) {
+            struct managed_space_topology_result result = managed_space_is_enabled(&g_managed_space)
+                ? managed_space_topology_destroy_space(&g_managed_space_topology,
+                                                       MANAGED_SPACE_TOPOLOGY_ORIGIN_COMMAND,
+                                                       acting_sid)
+                : managed_space_topology_result_space_error(
+                    space_manager_destroy_space(acting_sid));
+            if (result.space_error == SPACE_OP_ERROR_MISSING_SRC) {
                 daemon_fail(rsp, "could not locate the space to act on.\n");
-            } else if (result == SPACE_OP_ERROR_INVALID_SRC) {
+            } else if (result.space_error == SPACE_OP_ERROR_INVALID_SRC) {
                 daemon_fail(rsp, "acting space is the last user-space on the source display and cannot be destroyed.\n");
-            } else if (result == SPACE_OP_ERROR_INVALID_TYPE) {
+            } else if (result.space_error == SPACE_OP_ERROR_INVALID_TYPE) {
                 daemon_fail(rsp, "cannot destroy a macOS fullscreen space.\n");
-            } else if (result == SPACE_OP_ERROR_DISPLAY_IS_ANIMATING) {
+            } else if (result.space_error == SPACE_OP_ERROR_DISPLAY_IS_ANIMATING) {
                 daemon_fail(rsp, "cannot destroy space because the display is in the middle of an animation.\n");
-            } else if (result == SPACE_OP_ERROR_IN_MISSION_CONTROL) {
+            } else if (result.space_error == SPACE_OP_ERROR_IN_MISSION_CONTROL) {
                 daemon_fail(rsp, "cannot destroy space because mission-control is active.\n");
-            } else if (result == SPACE_OP_ERROR_SCRIPTING_ADDITION) {
+            } else if (result.space_error == SPACE_OP_ERROR_SCRIPTING_ADDITION) {
                 daemon_fail(rsp, "cannot destroy space due to an error with the scripting-addition.\n");
-            } else if (result == SPACE_OP_ERROR_ACCESSIBILITY) {
+            } else if (result.provider_error == MANAGED_SPACE_TOPOLOGY_PROVIDER_ERROR_ACCESSIBILITY) {
                 daemon_fail(rsp, "cannot destroy space because yabai does not have Accessibility permission.\n");
-            } else if (result == SPACE_OP_ERROR_TOPOLOGY_BACKEND) {
+            } else if (result.provider_error == MANAGED_SPACE_TOPOLOGY_PROVIDER_ERROR_BACKEND) {
                 daemon_fail(rsp, "cannot destroy space because the managed-space topology backend failed.\n");
-            } else if (result == SPACE_OP_ERROR_SUCCESS) {
+            } else if (managed_space_topology_result_is_completed(result)) {
                 managed_space_note_user_space_destroyed(&g_managed_space, acting_sid);
             }
         } else if (token_equals(command, COMMAND_SPACE_EQUALIZE)) {

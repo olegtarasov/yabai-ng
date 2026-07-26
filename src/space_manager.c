@@ -881,32 +881,17 @@ static enum space_op_error space_manager_swap_space_with_space_on_display(uint32
 
 enum space_op_error space_manager_swap_space_with_space(uint64_t acting_sid, uint64_t selector_sid)
 {
-    bool managed_topology = managed_space_topology_is_enabled(&g_managed_space_topology);
     bool is_in_mc = mission_control_is_active();
-    if (is_in_mc && !managed_topology) return SPACE_OP_ERROR_IN_MISSION_CONTROL;
+    if (is_in_mc) return SPACE_OP_ERROR_IN_MISSION_CONTROL;
 
     uint32_t acting_did = space_display_id(acting_sid);
     uint32_t selector_did = space_display_id(selector_sid);
 
     if (acting_sid == selector_sid) return SPACE_OP_ERROR_SAME_SPACE;
-    if (managed_topology &&
-        (!space_is_user(acting_sid) || !space_is_user(selector_sid))) {
-        return SPACE_OP_ERROR_INVALID_TYPE;
-    }
     if (acting_did != selector_did) return space_manager_swap_space_with_space_on_display(acting_did, acting_sid, selector_did, selector_sid);
 
     bool is_animating = display_manager_display_is_animating(acting_did);
     if (is_animating) return SPACE_OP_ERROR_DISPLAY_IS_ANIMATING;
-
-    if (managed_topology) {
-        struct managed_space_topology_request topology_request = {0};
-        if (managed_space_topology_prepare_swap_request(&topology_request, acting_sid, selector_sid)) {
-            return managed_space_topology_submit_request(&g_managed_space_topology, topology_request);
-        }
-
-        managed_space_topology_discard_request(&topology_request);
-        return SPACE_OP_ERROR_INVALID_DST;
-    }
 
     uint64_t acting_prev_sid = space_manager_prev_space(acting_sid);
     uint64_t selector_prev_sid = space_manager_prev_space(selector_sid);
@@ -946,32 +931,17 @@ enum space_op_error space_manager_swap_space_with_space(uint64_t acting_sid, uin
 
 enum space_op_error space_manager_move_space_to_space(uint64_t acting_sid, uint64_t selector_sid)
 {
-    bool managed_topology = managed_space_topology_is_enabled(&g_managed_space_topology);
     bool is_in_mc = mission_control_is_active();
-    if (is_in_mc && !managed_topology) return SPACE_OP_ERROR_IN_MISSION_CONTROL;
+    if (is_in_mc) return SPACE_OP_ERROR_IN_MISSION_CONTROL;
 
     uint32_t acting_did = space_display_id(acting_sid);
     uint32_t selector_did = space_display_id(selector_sid);
 
     if (acting_sid == selector_sid) return SPACE_OP_ERROR_SAME_SPACE;
-    if (managed_topology &&
-        (!space_is_user(acting_sid) || !space_is_user(selector_sid))) {
-        return SPACE_OP_ERROR_INVALID_TYPE;
-    }
     if (acting_did != selector_did) return SPACE_OP_ERROR_SAME_DISPLAY;
 
     bool is_animating = display_manager_display_is_animating(acting_did);
     if (is_animating) return SPACE_OP_ERROR_DISPLAY_IS_ANIMATING;
-
-    if (managed_topology) {
-        struct managed_space_topology_request topology_request = {0};
-        if (managed_space_topology_prepare_move_request(&topology_request, acting_sid, selector_sid)) {
-            return managed_space_topology_submit_request(&g_managed_space_topology, topology_request);
-        }
-
-        managed_space_topology_discard_request(&topology_request);
-        return SPACE_OP_ERROR_INVALID_DST;
-    }
 
     uint64_t acting_prev_sid = space_manager_prev_space(acting_sid);
     uint64_t selector_prev_sid = space_manager_prev_space(selector_sid);
@@ -1001,13 +971,9 @@ enum space_op_error space_manager_move_space_to_space(uint64_t acting_sid, uint6
 
 enum space_op_error space_manager_move_space_to_display(struct space_manager *sm, uint64_t sid, uint32_t did)
 {
-    bool managed_topology = managed_space_topology_is_enabled(&g_managed_space_topology);
     bool is_in_mc = mission_control_is_active();
-    if (is_in_mc && !managed_topology) return SPACE_OP_ERROR_IN_MISSION_CONTROL;
+    if (is_in_mc) return SPACE_OP_ERROR_IN_MISSION_CONTROL;
     if (!sid)     return SPACE_OP_ERROR_MISSING_SRC;
-    if (managed_topology && !space_is_user(sid)) {
-        return SPACE_OP_ERROR_INVALID_TYPE;
-    }
 
     uint32_t s_did = space_display_id(sid);
     if (s_did == did) return SPACE_OP_ERROR_INVALID_DST;
@@ -1016,35 +982,13 @@ enum space_op_error space_manager_move_space_to_display(struct space_manager *sm
     if (is_src_animating) return SPACE_OP_ERROR_DISPLAY_IS_ANIMATING;
 
     bool last_space = space_manager_is_space_last_user_space(sid);
-    bool placeholder_required = false;
-    if (last_space && managed_topology) {
-        enum space_op_error placeholder_result =
-            managed_space_prepare_move_placeholder(&g_managed_space,
-                                                   sid,
-                                                   did,
-                                                   &placeholder_required);
-        if (!placeholder_required) return SPACE_OP_ERROR_INVALID_SRC;
-        if (placeholder_result != SPACE_OP_ERROR_SUCCESS &&
-            placeholder_result != SPACE_OP_ERROR_QUEUED &&
-            placeholder_result != SPACE_OP_ERROR_SAME_SPACE) {
-            return placeholder_result;
-        }
-    } else if (last_space) {
-        return SPACE_OP_ERROR_INVALID_SRC;
-    }
+    if (last_space) return SPACE_OP_ERROR_INVALID_SRC;
 
     bool is_dst_animating = display_manager_display_is_animating(did);
     if (is_dst_animating) return SPACE_OP_ERROR_DISPLAY_IS_ANIMATING;
 
     uint64_t d_sid = display_space_id(did);
     if (!d_sid) return SPACE_OP_ERROR_MISSING_DST;
-
-    if (managed_topology) {
-        return managed_space_topology_move_space_to_display(&g_managed_space_topology,
-                                                            sid,
-                                                            did,
-                                                            placeholder_required);
-    }
 
     bool focus_space = sid == space_manager_active_space();
 
@@ -1173,9 +1117,8 @@ enum space_op_error space_manager_switch_space(uint64_t sid)
 
 enum space_op_error space_manager_destroy_space(uint64_t sid)
 {
-    bool managed_topology = managed_space_topology_is_enabled(&g_managed_space_topology);
     bool is_in_mc = mission_control_is_active();
-    if (is_in_mc && !managed_topology) return SPACE_OP_ERROR_IN_MISSION_CONTROL;
+    if (is_in_mc) return SPACE_OP_ERROR_IN_MISSION_CONTROL;
 
     if (!sid) return SPACE_OP_ERROR_MISSING_SRC;
     if (!space_is_user(sid)) return SPACE_OP_ERROR_INVALID_TYPE;
@@ -1186,10 +1129,6 @@ enum space_op_error space_manager_destroy_space(uint64_t sid)
 
     bool is_animating = display_manager_display_is_animating(did);
     if (is_animating) return SPACE_OP_ERROR_DISPLAY_IS_ANIMATING;
-
-    if (managed_topology) {
-        return managed_space_topology_destroy_space(&g_managed_space_topology, sid);
-    }
 
     bool success = scripting_addition_destroy_space(sid);
     if (!success) return SPACE_OP_ERROR_SCRIPTING_ADDITION;
@@ -1203,21 +1142,14 @@ enum space_op_error space_manager_destroy_space(uint64_t sid)
 
 enum space_op_error space_manager_add_space(uint64_t sid)
 {
-    bool managed_topology = managed_space_topology_is_enabled(&g_managed_space_topology);
     bool is_in_mc = mission_control_is_active();
-    if (is_in_mc && !managed_topology) return SPACE_OP_ERROR_IN_MISSION_CONTROL;
+    if (is_in_mc) return SPACE_OP_ERROR_IN_MISSION_CONTROL;
     if (!sid)     return SPACE_OP_ERROR_MISSING_SRC;
 
     bool is_animating = display_manager_display_is_animating(space_display_id(sid));
     if (is_animating) return SPACE_OP_ERROR_DISPLAY_IS_ANIMATING;
 
-    if (managed_topology) {
-        return managed_space_topology_create(&g_managed_space_topology, sid);
-    }
-
-    return scripting_addition_create_space(sid)
-        ? SPACE_OP_ERROR_SUCCESS
-        : SPACE_OP_ERROR_SCRIPTING_ADDITION;
+    return scripting_addition_create_space(sid) ? SPACE_OP_ERROR_SUCCESS : SPACE_OP_ERROR_SCRIPTING_ADDITION;
 }
 
 void space_manager_assign_process_to_space(pid_t pid, uint64_t sid)

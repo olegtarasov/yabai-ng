@@ -2,12 +2,12 @@
 .\"     Title: yabai
 .\"    Author: [see the "AUTHOR(S)" section]
 .\" Generator: Asciidoctor 2.0.26
-.\"      Date: 2026-07-26
+.\"      Date: 2026-07-27
 .\"    Manual: Yabai Manual
 .\"    Source: Yabai
 .\"  Language: English
 .\"
-.TH "YABAI" "1" "2026-07-26" "Yabai" "Yabai Manual"
+.TH "YABAI" "1" "2026-07-27" "Yabai" "Yabai Manual"
 .ie \n(.g .ds Aq \(aq
 .el       .ds Aq '
 .ss \n[.ss] 0
@@ -197,15 +197,15 @@ main display.
 Native fullscreen spaces are exempt and are never moved or destroyed by
 managed mode.
 .br
-With managed mode enabled, \f(CRauto\fP selects one topology provider for the
-managed\-mode session. An exact scripting\-addition version with every
-required capability keeps the original synchronous scripting\-addition
-behavior. With full System Integrity Protection, the separate SIP\-safe
-provider serializes requests and uses an exact\-build validated SkyLight
-bridge or Mission Control Accessibility automation. Provider selection is
-sticky: a Dock restart or operation failure never changes implementations
-implicitly. Reapply \f(CRmanaged_space_topology_backend\fP to explicitly
-re\-evaluate \f(CRauto\fP.
+The synchronous scripting\-addition provider is the primary managed\-topology
+implementation. With managed mode enabled, \f(CRauto\fP selects it whenever an
+exact scripting\-addition version with every required capability is
+available. Only when the primary provider is unavailable does \f(CRauto\fP select
+the contained \f(CRsip\-fallback\fP provider for a full\-SIP host. The fallback
+serializes requests and uses an exact\-build validated SkyLight bridge or
+Mission Control Accessibility automation. Provider selection is sticky: a
+Dock restart or operation failure never changes implementations implicitly.
+Reapply \f(CRmanaged_space_topology_backend\fP to explicitly re\-evaluate \f(CRauto\fP.
 .br
 The bridge is enabled automatically only after the operation agrees across
 SLS, Dock\(cqs Accessibility topology, persisted Dock state, and a Dock
@@ -214,7 +214,7 @@ requires yabai to be enabled in System Settings \(-> Privacy & Security \(->
 Accessibility. If the user already opened Mission Control, yabai waits for
 that session to end and does not close or control it. macOS exposes at most
 16 normal spaces per display through Mission Control; reaching that limit
-blocks further SIP\-safe creates until configuration or topology changes.
+blocks further fallback creates until configuration or topology changes.
 .RE
 .sp
 \fBmanaged_space_names\fP [\fI<comma\-separated names>\fP]
@@ -244,28 +244,30 @@ reconciliation.
 space; other managed creates inherit this policy.
 .RE
 .sp
-\fBmanaged_space_topology_backend\fP [\fI<auto|scripting\-addition|bridge|accessibility>\fP]
+\fBmanaged_space_topology_backend\fP [\fI<auto|scripting\-addition|sip\-fallback|bridge|accessibility>\fP]
 .RS 4
 Select the managed\-space topology provider policy.
 .br
 \f(CRauto\fP is the default. When managed mode is enabled, yabai performs a
 read\-only scripting\-addition handshake. An exact version with every
-required capability selects the original synchronous scripting\-addition
-provider; an unavailable, stale, or incomplete handshake selects the
-separate SIP\-safe provider. The selection remains fixed until managed mode
-is disabled or this policy is explicitly reapplied. There is no implicit
-cross\-provider fallback.
+required capability selects the primary synchronous scripting\-addition
+provider; an unavailable, stale, or incomplete handshake selects
+\f(CRsip\-fallback\fP. The selection remains fixed until managed mode is disabled
+or this policy is explicitly reapplied. There is no implicit cross\-provider
+fallback.
 .br
-\f(CRscripting\-addition\fP forces the synchronous provider and reports its normal
+\f(CRscripting\-addition\fP forces the primary provider and reports its normal
 immediate errors if the scripting addition cannot perform an operation.
-\f(CRbridge\fP and \f(CRaccessibility\fP force the SIP\-safe provider for diagnostics.
-Forced bridge mode bypasses the per\-build validation table so an available
-bridge operation can be tested before it is added to that table. Within the
-SIP\-safe provider, \f(CRauto\fP may fall back from a validated bridge operation to
-Accessibility only if bridge mutation has not begun. A successful SLS event
-alone is not sufficient validation because a bridge mutation can exist in
-WindowServer without being persisted by Dock. This setting affects topology
-changes only while \f(CRmanaged_spaces\fP is enabled.
+\f(CRsip\-fallback\fP forces the full\-SIP provider with its normal per\-operation
+backend selection. \f(CRbridge\fP and \f(CRaccessibility\fP force individual fallback
+sub\-backends for diagnostics. Forced bridge mode bypasses the per\-build
+validation table so an available bridge operation can be tested before it
+is added to that table. Within \f(CRsip\-fallback\fP, backend auto\-selection may
+fall back from a validated bridge operation to Accessibility only if bridge
+mutation has not begun. A successful SLS event alone is not sufficient
+validation because a bridge mutation can exist in WindowServer without
+being persisted by Dock. This setting affects topology changes only while
+\f(CRmanaged_spaces\fP is enabled.
 .RE
 .sp
 \fBexternal_bar\fP [\fI<main|all|off>:<top_padding>:<bottom_padding>\fP]
@@ -557,8 +559,8 @@ Create a new space on the given display.
 .br
 If none specified, use the display of the active space instead.
 .br
-With managed spaces enabled, the scripting\-addition provider preserves the
-original synchronous command. The SIP\-safe provider queues this command and
+With managed spaces enabled, the primary scripting\-addition provider
+executes this command synchronously. The SIP fallback provider queues it and
 can run with full System Integrity Protection. Otherwise, System Integrity
 Protection must be partially disabled.
 .RE
@@ -569,10 +571,10 @@ Remove the given space.
 .br
 If none specified, use the selected space instead.
 .br
-With the SIP\-safe provider, managed membership is removed only after
+With the SIP fallback provider, managed membership is removed only after
 deletion is confirmed, the command is asynchronous, and it can run with
-full System Integrity Protection. The scripting\-addition provider preserves
-the original synchronous command. Otherwise, System Integrity Protection
+full System Integrity Protection. The primary scripting\-addition provider
+executes the command synchronously. Otherwise, System Integrity Protection
 must be partially disabled.
 .RE
 .sp
@@ -582,9 +584,9 @@ Move position of the selected space to the position of the given space.
 .br
 The selected space and given space must both belong to the same display.
 .br
-With the SIP\-safe provider this command is asynchronous, persists the
+With the SIP fallback provider this command is asynchronous, persists the
 confirmed UUID order, and can run with full System Integrity Protection.
-The scripting\-addition provider preserves the original synchronous command.
+The primary scripting\-addition provider executes the command synchronously.
 Otherwise, System Integrity Protection must be partially disabled.
 .RE
 .sp
@@ -596,11 +598,11 @@ If the selected space and given space belong to different displays, all the wind
 .br
 If the selected space and given space belong to the same display, the actual spaces will swap.
 .br
-With the SIP\-safe provider, same\-display topology changes are asynchronous,
+With the SIP fallback provider, same\-display topology changes are asynchronous,
 persist only after the full swap is confirmed, and can run with full System
-Integrity Protection. The scripting\-addition provider preserves the
-original synchronous command. Otherwise, System Integrity Protection must
-be partially disabled.
+Integrity Protection. The primary scripting\-addition provider executes the
+command synchronously. Otherwise, System Integrity Protection must be
+partially disabled.
 .RE
 .sp
 \fB\-\-display\fP \fI<DISPLAY_SEL>\fP
@@ -608,11 +610,11 @@ be partially disabled.
 Send the selected space to the given display.
 .br
 When managed spaces are enabled, sending a managed space to a display gives
-that managed space fixed display affinity. The SIP\-safe provider commits
+that managed space fixed display affinity. The SIP fallback provider commits
 that affinity after confirmation, runs asynchronously, and can work with
-full System Integrity Protection. The scripting\-addition provider preserves
-the original synchronous command and commits affinity on return. Otherwise,
-System Integrity Protection must be partially disabled.
+full System Integrity Protection. The primary scripting\-addition provider
+executes synchronously and commits affinity on return. Otherwise, System
+Integrity Protection must be partially disabled.
 .RE
 .sp
 \fB\-\-equalize\fP [\fIx\-axis|y\-axis\fP]
@@ -1054,8 +1056,8 @@ MANAGED SPACES
     "topology\-authority\-ax\-count": number,
     "topology\-capabilities": object {
         "<operation>": object {
-            "primary": string,
-            "fallback": string,
+            "preferred\-backend": string,
+            "fallback\-backend": string,
             "bridge\-available": bool,
             "bridge\-validated": bool,
             "accessibility": bool
@@ -1116,12 +1118,13 @@ MANAGED SPACES
 .if n .RE
 .sp
 The provider\-selection fields identify the sticky managed\-mode provider and the
-handshake result that selected it. With \f(CRscripting\-addition\fP, topology commands
-retain their original synchronous result and error behavior; SIP\-safe queue
-state stays idle and yabai does not own Mission Control.
+handshake result that selected it. \f(CRscripting\-addition\fP is the primary provider:
+topology commands return synchronously, the fallback queue stays idle, and
+yabai does not own Mission Control. \f(CRtopology\-resolved\-provider\fP is one of
+\f(CRdisabled\fP, \f(CRscripting\-addition\fP, or \f(CRsip\-fallback\fP.
 .br
 .sp
-With \f(CRsip\-safe\fP, topology\-changing commands return successfully and remain
+With \f(CRsip\-fallback\fP, topology\-changing commands return successfully and remain
 silent after a request is safely queued. Completion is observable through this
 query and the normal space and managed\-space signals. An immediate validation
 failure is returned to the caller. An asynchronous failure updates the

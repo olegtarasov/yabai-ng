@@ -1995,7 +1995,7 @@ static void handle_domain_space(FILE *rsp, struct token domain, char *message)
                         space_manager_move_space_to_display(&g_space_manager,
                                                             acting_sid,
                                                             selector.did));
-                } else if (managed_space_topology_uses_sip_safe(&g_managed_space_topology)) {
+                } else if (managed_space_topology_uses_sip_fallback(&g_managed_space_topology)) {
                     result = managed_space_prepare_move_placeholder(&g_managed_space,
                                                                     acting_sid,
                                                                     selector.did,

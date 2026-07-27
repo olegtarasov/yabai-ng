@@ -3,53 +3,32 @@
 set -eu
 
 repository_root=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)
-baseline_file=$(mktemp "${TMPDIR:-/tmp}/yabai-legacy-baseline.XXXXXX")
-current_file=$(mktemp "${TMPDIR:-/tmp}/yabai-legacy-current.XXXXXX")
-trap 'rm -f "$baseline_file" "$current_file"' EXIT HUP INT TERM
+# Compose retired spellings so the repository itself can maintain a zero-match
+# terminology audit while this guard still rejects their reintroduction.
+obsolete_primary_role='leg'
+obsolete_primary_role="${obsolete_primary_role}acy"
+obsolete_fallback_qualifier='sa'
+obsolete_fallback_qualifier="${obsolete_fallback_qualifier}fe"
+obsolete_primary_module="managed_space_${obsolete_primary_role}"
+obsolete_fallback_module="managed_space_sip_${obsolete_fallback_qualifier}"
+obsolete_terms="${obsolete_primary_module}|sip[-_ ]${obsolete_fallback_qualifier}|(^|[^[:alnum:]_])${obsolete_primary_role}([^[:alnum:]_]|$)"
 
-extract_contract()
-{
-    awk '
-        function target(line) {
-            return line ~ /^enum space_op_error space_manager_swap_space_with_space\(/ ||
-                   line ~ /^enum space_op_error space_manager_move_space_to_space\(/ ||
-                   line ~ /^enum space_op_error space_manager_move_space_to_display\(/ ||
-                   line ~ /^enum space_op_error space_manager_destroy_space\(/ ||
-                   line ~ /^enum space_op_error space_manager_add_space\(/
-        }
+for obsolete_file in \
+    "$repository_root/src/${obsolete_primary_module}.c" \
+    "$repository_root/src/${obsolete_primary_module}.h" \
+    "$repository_root/src/${obsolete_fallback_module}.m" \
+    "$repository_root/src/${obsolete_fallback_module}.h"; do
+    if [ -e "$obsolete_file" ]; then
+        echo "obsolete managed topology provider file remains: $obsolete_file" >&2
+        exit 1
+    fi
+done
 
-        target($0) {
-            capture = 1
-            started = 0
-            depth = 0
-        }
-
-        capture {
-            print
-            opens = gsub(/{/, "{")
-            closes = gsub(/}/, "}")
-            if (opens > 0) started = 1
-            depth += opens - closes
-            if (started && depth == 0) {
-                print ""
-                capture = 0
-            }
-        }
-    '
-}
-
-if ! git -C "$repository_root" cat-file -e 7b67591^{commit} 2>/dev/null; then
-    echo "legacy provider baseline commit 7b67591 is unavailable" >&2
-    exit 1
-fi
-
-git -C "$repository_root" show 7b67591:src/space_manager.c |
-    extract_contract > "$baseline_file"
-extract_contract < "$repository_root/src/space_manager.c" > "$current_file"
-
-if ! cmp -s "$baseline_file" "$current_file"; then
-    echo "legacy scripting-addition topology functions differ from 7b67591" >&2
-    diff -u "$baseline_file" "$current_file" >&2 || true
+if git -C "$repository_root" grep -n -I -i -E \
+    "$obsolete_terms" \
+    -- AGENTS.md README.md CHANGELOG.md doc/yabai.asciidoc doc/yabai.1 \
+       'src/managed_space*' 'tests/src/managed_space*'; then
+    echo "obsolete managed topology terminology remains" >&2
     exit 1
 fi
 
@@ -64,48 +43,67 @@ if grep -Eq 'SPACE_OP_ERROR_(QUEUED|LIMIT_REACHED|ACCESSIBILITY|TOPOLOGY_BACKEND
     exit 1
 fi
 
-if grep -Eq 'managed_space_sip_safe|managed_space_topology|CoreDock|AXUIElement|CGEventTap|watchdog|queue' \
-    "$repository_root/src/managed_space_legacy.c" \
-    "$repository_root/src/managed_space_legacy.h"; then
-    echo "legacy adapter contains SIP-safe policy or resources" >&2
+if grep -Eq 'managed_space_sip_fallback|managed_space_topology|CoreDock|AXUIElement|CGEventTap|watchdog|queue' \
+    "$repository_root/src/managed_space_scripting_addition.c" \
+    "$repository_root/src/managed_space_scripting_addition.h"; then
+    echo "primary scripting-addition adapter contains SIP fallback policy or resources" >&2
     exit 1
 fi
 
 if grep -Eq 'SCRIPTING_ADDITION|scripting_addition_' \
-    "$repository_root/src/managed_space_sip_safe.m" \
-    "$repository_root/src/managed_space_sip_safe.h"; then
-    echo "SIP-safe implementation knows about the scripting-addition provider" >&2
+    "$repository_root/src/managed_space_sip_fallback.m" \
+    "$repository_root/src/managed_space_sip_fallback.h"; then
+    echo "SIP fallback implementation knows about the scripting-addition provider" >&2
     exit 1
 fi
 
-legacy_call_count=$(
-    grep -Ec 'return space_manager_(add_space|destroy_space|move_space_to_space|swap_space_with_space|move_space_to_display)' \
-        "$repository_root/src/managed_space_legacy.c"
+primary_function_count=$(
+    grep -Ec '^enum space_op_error managed_space_scripting_addition_' \
+        "$repository_root/src/managed_space_scripting_addition.c"
 )
-if [ "$legacy_call_count" -ne 5 ]; then
-    echo "legacy adapter is no longer a transparent five-operation adapter" >&2
+primary_call_count=$(
+    grep -Ec 'return space_manager_(add_space|destroy_space|move_space_to_space|swap_space_with_space|move_space_to_display)' \
+        "$repository_root/src/managed_space_scripting_addition.c"
+)
+if [ "$primary_function_count" -ne 5 ] || [ "$primary_call_count" -ne 5 ]; then
+    echo "primary scripting-addition adapter is no longer a transparent five-operation adapter" >&2
     exit 1
 fi
 
-grep -RIl 'managed_space_sip_safe_' "$repository_root/src" |
+primary_dispatch_count=$(
+    grep -Ec 'managed_space_scripting_addition_(create|destroy|move|swap|move_to_display)\(' \
+        "$repository_root/src/managed_space_topology.m"
+)
+if [ "$primary_dispatch_count" -ne 5 ]; then
+    echo "provider facade contains an unexpected primary scripting-addition dispatch" >&2
+    exit 1
+fi
+
+if grep -Eq '^[[:space:]]*(if|for|while|switch)[[:space:](]' \
+    "$repository_root/src/managed_space_scripting_addition.c"; then
+    echo "primary scripting-addition adapter contains provider policy" >&2
+    exit 1
+fi
+
+grep -RIl 'managed_space_sip_fallback_' "$repository_root/src" |
     sed "s|$repository_root/||" |
-    while IFS= read -r safe_reference_file; do
-        case "$safe_reference_file" in
+    while IFS= read -r fallback_reference_file; do
+        case "$fallback_reference_file" in
             src/event_signal.c | \
             src/managed_space.c | \
             src/managed_space.h | \
-            src/managed_space_sip_safe.h | \
-            src/managed_space_sip_safe.m | \
+            src/managed_space_sip_fallback.h | \
+            src/managed_space_sip_fallback.m | \
             src/managed_space_topology.m)
                 ;;
             *)
-                echo "SIP-safe implementation crossed into $safe_reference_file" >&2
+                echo "SIP fallback implementation crossed into $fallback_reference_file" >&2
                 exit 1
                 ;;
         esac
     done
 
 if grep -Eq 'kCGEvent(KeyDown|FlagsChanged)' "$repository_root/src/mouse_handler.h"; then
-    echo "SIP-safe keyboard monitoring leaked into the permanent mouse event mask" >&2
+    echo "SIP fallback keyboard monitoring leaked into the permanent mouse event mask" >&2
     exit 1
 fi

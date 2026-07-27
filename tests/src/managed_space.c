@@ -46,7 +46,7 @@ TEST_FUNC(managed_space_pending_create_counts_only_managed_spaces,
     managed_space_destroy(&ms);
 });
 
-TEST_FUNC(managed_space_sip_safe_destroy_preserves_remaining_uuid_order_after_sid_refresh,
+TEST_FUNC(managed_space_sip_fallback_destroy_preserves_remaining_uuid_order_after_sid_refresh,
 {
     struct managed_space ms;
     managed_space_init(&ms);
@@ -76,7 +76,7 @@ TEST_FUNC(managed_space_sip_safe_destroy_preserves_remaining_uuid_order_after_si
     managed_space_destroy(&ms);
 });
 
-TEST_FUNC(managed_space_legacy_destroy_keeps_pre_sip_safe_swap_delete_semantics,
+TEST_FUNC(managed_space_scripting_addition_destroy_preserves_primary_swap_delete_semantics,
 {
     struct managed_space ms;
     managed_space_init(&ms);
@@ -88,7 +88,7 @@ TEST_FUNC(managed_space_legacy_destroy_keeps_pre_sip_safe_swap_delete_semantics,
     buf_push(ms.spaces, second);
     buf_push(ms.spaces, third);
 
-    TEST_CHECK(managed_space_remove_entry_legacy(&ms, 11), true);
+    TEST_CHECK(managed_space_remove_entry_scripting_addition(&ms, 11), true);
     TEST_CHECK(buf_len(ms.spaces), 2);
     TEST_CHECK((int) ms.spaces[0].sid, 33);
     TEST_CHECK((int) ms.spaces[1].sid, 22);

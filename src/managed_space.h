@@ -1,7 +1,7 @@
 #ifndef MANAGED_SPACE_H
 #define MANAGED_SPACE_H
 
-struct managed_space_sip_safe_request;
+struct managed_space_sip_fallback_request;
 
 enum managed_space_display_affinity
 {
@@ -86,10 +86,10 @@ void managed_space_note_focus_changed(struct managed_space *ms);
 
 void managed_space_handle_space_created(struct managed_space *ms, uint64_t sid);
 void managed_space_handle_space_destroyed(struct managed_space *ms, uint64_t sid);
-void managed_space_handle_sip_safe_operation_completed(struct managed_space *ms,
-                                                       struct managed_space_sip_safe_request *request);
-void managed_space_handle_sip_safe_operation_failed(struct managed_space *ms,
-                                                    struct managed_space_sip_safe_request *request);
+void managed_space_handle_sip_fallback_operation_completed(struct managed_space *ms,
+                                                           struct managed_space_sip_fallback_request *request);
+void managed_space_handle_sip_fallback_operation_failed(struct managed_space *ms,
+                                                        struct managed_space_sip_fallback_request *request);
 void managed_space_note_topology_event(struct managed_space *ms);
 void managed_space_request_reconcile(struct managed_space *ms);
 void managed_space_reconcile(struct managed_space *ms);

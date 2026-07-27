@@ -5,6 +5,7 @@ enum managed_space_topology_backend_policy
 {
     MANAGED_SPACE_TOPOLOGY_BACKEND_AUTO,
     MANAGED_SPACE_TOPOLOGY_BACKEND_SCRIPTING_ADDITION,
+    MANAGED_SPACE_TOPOLOGY_BACKEND_SIP_FALLBACK,
     MANAGED_SPACE_TOPOLOGY_BACKEND_BRIDGE,
     MANAGED_SPACE_TOPOLOGY_BACKEND_ACCESSIBILITY
 };
@@ -13,7 +14,7 @@ enum managed_space_topology_provider
 {
     MANAGED_SPACE_TOPOLOGY_PROVIDER_DISABLED,
     MANAGED_SPACE_TOPOLOGY_PROVIDER_SCRIPTING_ADDITION,
-    MANAGED_SPACE_TOPOLOGY_PROVIDER_SIP_SAFE
+    MANAGED_SPACE_TOPOLOGY_PROVIDER_SIP_FALLBACK
 };
 
 enum managed_space_topology_selection_reason
@@ -129,7 +130,7 @@ void managed_space_topology_destroy(struct managed_space_topology *topology);
 void managed_space_topology_set_enabled(struct managed_space_topology *topology, bool enabled);
 bool managed_space_topology_is_enabled(struct managed_space_topology *topology);
 bool managed_space_topology_uses_scripting_addition(struct managed_space_topology *topology);
-bool managed_space_topology_uses_sip_safe(struct managed_space_topology *topology);
+bool managed_space_topology_uses_sip_fallback(struct managed_space_topology *topology);
 void managed_space_topology_note_configuration_changed(struct managed_space_topology *topology);
 
 const char *managed_space_topology_backend_policy_name(enum managed_space_topology_backend_policy policy);

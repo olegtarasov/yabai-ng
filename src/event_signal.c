@@ -384,7 +384,7 @@ void event_signal_push(enum signal_type type, void *context)
         snprintf(es->arg_value[3], arg_size, "%s", managed_space_active_name(managed_space));
     } break;
     case SIGNAL_MANAGED_SPACE_TOPOLOGY_FAILED: {
-        struct managed_space_sip_safe *topology = context;
+        struct managed_space_sip_fallback *topology = context;
 
         es->arg_name[0]  = ts_alloc_unaligned(arg_size);
         es->arg_value[0] = ts_alloc_unaligned(arg_size);
@@ -396,7 +396,7 @@ void event_signal_push(enum signal_type type, void *context)
         snprintf(es->arg_name[0],  arg_size, "%s", "YABAI_MANAGED_SPACE_OPERATION");
         snprintf(es->arg_value[0], arg_size, "%s", managed_space_topology_operation_name(topology->last_failed_operation));
         snprintf(es->arg_name[1],  arg_size, "%s", "YABAI_MANAGED_SPACE_BACKEND");
-        snprintf(es->arg_value[1], arg_size, "%s", managed_space_sip_safe_backend_name(topology->last_failed_backend));
+        snprintf(es->arg_value[1], arg_size, "%s", managed_space_sip_fallback_backend_name(topology->last_failed_backend));
         snprintf(es->arg_name[2],  arg_size, "%s", "YABAI_MANAGED_SPACE_ERROR");
         snprintf(es->arg_value[2], arg_size, "%s", topology->last_error);
     } break;

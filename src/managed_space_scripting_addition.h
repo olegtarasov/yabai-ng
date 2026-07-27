@@ -1,0 +1,10 @@
+#ifndef MANAGED_SPACE_SCRIPTING_ADDITION_H
+#define MANAGED_SPACE_SCRIPTING_ADDITION_H
+
+enum space_op_error managed_space_scripting_addition_create(uint64_t acting_sid);
+enum space_op_error managed_space_scripting_addition_destroy(uint64_t sid);
+enum space_op_error managed_space_scripting_addition_move(uint64_t sid, uint64_t target_sid);
+enum space_op_error managed_space_scripting_addition_swap(uint64_t sid, uint64_t target_sid);
+enum space_op_error managed_space_scripting_addition_move_to_display(uint64_t sid, uint32_t did);
+
+#endif

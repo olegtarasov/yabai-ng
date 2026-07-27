@@ -42,7 +42,7 @@ struct mouse_state g_mouse_state;
 struct event_loop g_event_loop;
 struct managed_space g_managed_space;
 struct managed_space_topology g_managed_space_topology;
-struct managed_space_sip_safe g_managed_space_sip_safe;
+struct managed_space_sip_fallback g_managed_space_sip_fallback;
 void *g_workspace_context;
 
 enum mission_control_mode g_mission_control_mode;

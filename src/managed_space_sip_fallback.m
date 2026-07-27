@@ -1,5 +1,5 @@
-// Full-SIP topology implementation. This file must only be reached through
-// the managed-space topology provider.
+// Full-SIP fallback topology implementation. This file must only be reached
+// through the managed-space topology provider.
 extern struct event_loop g_event_loop;
 extern struct managed_space g_managed_space;
 extern struct space_manager g_space_manager;
@@ -24,31 +24,31 @@ extern int g_connection;
 #define MANAGED_SPACE_TOPOLOGY_BRIDGE_REORDER 0x04
 #define MANAGED_SPACE_TOPOLOGY_BRIDGE_MOVE_DISPLAY 0x08
 
-enum managed_space_sip_safe_ax_result
+enum managed_space_sip_fallback_ax_result
 {
     MANAGED_SPACE_TOPOLOGY_AX_FAILED,
     MANAGED_SPACE_TOPOLOGY_AX_WAITING,
     MANAGED_SPACE_TOPOLOGY_AX_STARTED
 };
 
-typedef id (*managed_space_sip_safe_synchronous_bridge_fn)(void *);
+typedef id (*managed_space_sip_fallback_synchronous_bridge_fn)(void *);
 
-static managed_space_sip_safe_synchronous_bridge_fn managed_space_sip_safe_synchronous_bridge;
-static bool managed_space_sip_safe_bridge_symbols_resolved;
+static managed_space_sip_fallback_synchronous_bridge_fn managed_space_sip_fallback_synchronous_bridge;
+static bool managed_space_sip_fallback_bridge_symbols_resolved;
 
-static void managed_space_sip_safe_start_next(struct managed_space_sip_safe *topology);
-static bool managed_space_sip_safe_mission_control_ui_exists(void);
-static int managed_space_sip_safe_copy_matching_spaces(uint64_t *source,
-                                                       int source_count,
-                                                       uint64_t *destination,
-                                                       bool (*matches)(uint64_t));
+static void managed_space_sip_fallback_start_next(struct managed_space_sip_fallback *topology);
+static bool managed_space_sip_fallback_mission_control_ui_exists(void);
+static int managed_space_sip_fallback_copy_matching_spaces(uint64_t *source,
+                                                           int source_count,
+                                                           uint64_t *destination,
+                                                           bool (*matches)(uint64_t));
 
 #ifdef TESTS
-static bool managed_space_sip_safe_test_snapshot_override_enabled;
-static uint64_t managed_space_sip_safe_test_snapshot_override;
+static bool managed_space_sip_fallback_test_snapshot_override_enabled;
+static uint64_t managed_space_sip_fallback_test_snapshot_override;
 #endif
 
-static uint64_t managed_space_sip_safe_hash_u64(uint64_t hash, uint64_t value)
+static uint64_t managed_space_sip_fallback_hash_u64(uint64_t hash, uint64_t value)
 {
     for (int byte = 0; byte < 8; ++byte) {
         hash ^= value & 0xff;
@@ -59,11 +59,11 @@ static uint64_t managed_space_sip_safe_hash_u64(uint64_t hash, uint64_t value)
     return hash;
 }
 
-static uint64_t managed_space_sip_safe_snapshot_hash(void)
+static uint64_t managed_space_sip_fallback_snapshot_hash(void)
 {
 #ifdef TESTS
-    if (managed_space_sip_safe_test_snapshot_override_enabled) {
-        return managed_space_sip_safe_test_snapshot_override;
+    if (managed_space_sip_fallback_test_snapshot_override_enabled) {
+        return managed_space_sip_fallback_test_snapshot_override;
     }
 #endif
 
@@ -73,16 +73,16 @@ static uint64_t managed_space_sip_safe_snapshot_hash(void)
         uint64_t sid = space_manager_mission_control_space(index);
         if (!sid) break;
 
-        hash = managed_space_sip_safe_hash_u64(hash, sid);
-        hash = managed_space_sip_safe_hash_u64(hash, space_display_id(sid));
-        hash = managed_space_sip_safe_hash_u64(hash, index);
-        hash = managed_space_sip_safe_hash_u64(hash, SLSSpaceGetType(g_connection, sid));
+        hash = managed_space_sip_fallback_hash_u64(hash, sid);
+        hash = managed_space_sip_fallback_hash_u64(hash, space_display_id(sid));
+        hash = managed_space_sip_fallback_hash_u64(hash, index);
+        hash = managed_space_sip_fallback_hash_u64(hash, SLSSpaceGetType(g_connection, sid));
     }
 
     return hash;
 }
 
-static void managed_space_sip_safe_copy_space_uuid(uint64_t sid, char uuid[64])
+static void managed_space_sip_fallback_copy_space_uuid(uint64_t sid, char uuid[64])
 {
     if (!sid) return;
 
@@ -92,26 +92,26 @@ static void managed_space_sip_safe_copy_space_uuid(uint64_t sid, char uuid[64])
     CFRelease(uuid_ref);
 }
 
-void managed_space_sip_safe_discard_request(struct managed_space_sip_safe_request *request)
+void managed_space_sip_fallback_discard_request(struct managed_space_sip_fallback_request *request)
 {
     if (request->desired_order) free(request->desired_order);
     if (request->pre_source_order) free(request->pre_source_order);
     if (request->pre_target_order) free(request->pre_target_order);
-    memset(request, 0, sizeof(struct managed_space_sip_safe_request));
+    memset(request, 0, sizeof(struct managed_space_sip_fallback_request));
 }
 
-static void managed_space_sip_safe_clear_queue(struct managed_space_sip_safe *topology)
+static void managed_space_sip_fallback_clear_queue(struct managed_space_sip_fallback *topology)
 {
-    managed_space_sip_safe_discard_request(&topology->current);
+    managed_space_sip_fallback_discard_request(&topology->current);
     for (int i = 0; i < buf_len(topology->queue); ++i) {
-        managed_space_sip_safe_discard_request(&topology->queue[i]);
+        managed_space_sip_fallback_discard_request(&topology->queue[i]);
     }
 
     buf_free(topology->queue);
     topology->queue = NULL;
 }
 
-static void managed_space_sip_safe_schedule_step(struct managed_space_sip_safe *topology, double delay)
+static void managed_space_sip_fallback_schedule_step(struct managed_space_sip_fallback *topology, double delay)
 {
     uint64_t token = ++topology->step_token;
     topology->step_generation = topology->current.generation;
@@ -120,7 +120,7 @@ static void managed_space_sip_safe_schedule_step(struct managed_space_sip_safe *
     });
 }
 
-static void managed_space_sip_safe_schedule_watchdog(struct managed_space_sip_safe *topology)
+static void managed_space_sip_fallback_schedule_watchdog(struct managed_space_sip_fallback *topology)
 {
     uint64_t token = ++topology->watchdog_token;
     topology->watchdog_generation = topology->current.generation;
@@ -129,17 +129,17 @@ static void managed_space_sip_safe_schedule_watchdog(struct managed_space_sip_sa
     });
 }
 
-static void managed_space_sip_safe_cancel_step(struct managed_space_sip_safe *topology)
+static void managed_space_sip_fallback_cancel_step(struct managed_space_sip_fallback *topology)
 {
     ++topology->step_token;
 }
 
-static void managed_space_sip_safe_cancel_watchdog(struct managed_space_sip_safe *topology)
+static void managed_space_sip_fallback_cancel_watchdog(struct managed_space_sip_fallback *topology)
 {
     ++topology->watchdog_token;
 }
 
-static void managed_space_sip_safe_record_space_limit(struct managed_space_sip_safe *topology,
+static void managed_space_sip_fallback_record_space_limit(struct managed_space_sip_fallback *topology,
                                                       uint32_t did,
                                                       int count)
 {
@@ -148,7 +148,7 @@ static void managed_space_sip_safe_record_space_limit(struct managed_space_sip_s
     topology->space_limit_count = count;
 }
 
-static void managed_space_sip_safe_stop_ax_observer(struct managed_space_sip_safe *topology)
+static void managed_space_sip_fallback_stop_ax_observer(struct managed_space_sip_fallback *topology)
 {
     if (topology->ax_observer) {
         CFRunLoopSourceRef source = AXObserverGetRunLoopSource(topology->ax_observer);
@@ -162,7 +162,7 @@ static void managed_space_sip_safe_stop_ax_observer(struct managed_space_sip_saf
     topology->observed_dock_pid = 0;
 }
 
-static void managed_space_sip_safe_stop_input_event_tap(struct managed_space_sip_safe *topology)
+static void managed_space_sip_fallback_stop_input_event_tap(struct managed_space_sip_fallback *topology)
 {
     if (topology->input_event_source) {
         CFRunLoopRemoveSource(CFRunLoopGetMain(),
@@ -175,24 +175,24 @@ static void managed_space_sip_safe_stop_input_event_tap(struct managed_space_sip
     topology->input_event_tap = NULL;
 }
 
-static CGEventRef managed_space_sip_safe_input_event_callback(CGEventTapProxy proxy,
+static CGEventRef managed_space_sip_fallback_input_event_callback(CGEventTapProxy proxy,
                                                               CGEventType type,
                                                               CGEventRef event,
                                                               void *context)
 {
     (void) proxy;
-    struct managed_space_sip_safe *topology = context;
+    struct managed_space_sip_fallback *topology = context;
     if (type == kCGEventTapDisabledByTimeout ||
         type == kCGEventTapDisabledByUserInput) {
         if (topology->input_event_tap) CGEventTapEnable(topology->input_event_tap, true);
         return event;
     }
 
-    managed_space_sip_safe_note_input_event(topology, event);
+    managed_space_sip_fallback_note_input_event(topology, event);
     return event;
 }
 
-static bool managed_space_sip_safe_start_input_event_tap(struct managed_space_sip_safe *topology)
+static bool managed_space_sip_fallback_start_input_event_tap(struct managed_space_sip_fallback *topology)
 {
     if (topology->input_event_tap) return true;
 
@@ -204,7 +204,7 @@ static bool managed_space_sip_safe_start_input_event_tap(struct managed_space_si
                                                  kCGHeadInsertEventTap,
                                                  kCGEventTapOptionListenOnly,
                                                  mask,
-                                                 managed_space_sip_safe_input_event_callback,
+                                                 managed_space_sip_fallback_input_event_callback,
                                                  topology);
     if (!topology->input_event_tap) return false;
 
@@ -212,7 +212,7 @@ static bool managed_space_sip_safe_start_input_event_tap(struct managed_space_si
                                                                  topology->input_event_tap,
                                                                  0);
     if (!topology->input_event_source) {
-        managed_space_sip_safe_stop_input_event_tap(topology);
+        managed_space_sip_fallback_stop_input_event_tap(topology);
         return false;
     }
 
@@ -223,41 +223,41 @@ static bool managed_space_sip_safe_start_input_event_tap(struct managed_space_si
     return true;
 }
 
-static void managed_space_sip_safe_release_mission_control_ownership(struct managed_space_sip_safe *topology)
+static void managed_space_sip_fallback_release_mission_control_ownership(struct managed_space_sip_fallback *topology)
 {
     topology->owns_mission_control = false;
-    managed_space_sip_safe_stop_input_event_tap(topology);
+    managed_space_sip_fallback_stop_input_event_tap(topology);
 }
 
-const char *managed_space_sip_safe_backend_name(enum managed_space_sip_safe_backend backend)
+const char *managed_space_sip_fallback_backend_name(enum managed_space_sip_fallback_backend backend)
 {
     switch (backend) {
-    case MANAGED_SPACE_SIP_SAFE_BACKEND_NONE:          return "none";
-    case MANAGED_SPACE_SIP_SAFE_BACKEND_BRIDGE:        return "bridge";
-    case MANAGED_SPACE_SIP_SAFE_BACKEND_ACCESSIBILITY: return "accessibility";
+    case MANAGED_SPACE_SIP_FALLBACK_BACKEND_NONE:          return "none";
+    case MANAGED_SPACE_SIP_FALLBACK_BACKEND_BRIDGE:        return "bridge";
+    case MANAGED_SPACE_SIP_FALLBACK_BACKEND_ACCESSIBILITY: return "accessibility";
     }
 
     return "unknown";
 }
 
-const char *managed_space_sip_safe_state_name(enum managed_space_sip_safe_state state)
+const char *managed_space_sip_fallback_state_name(enum managed_space_sip_fallback_state state)
 {
     switch (state) {
-    case MANAGED_SPACE_SIP_SAFE_STATE_IDLE:                             return "idle";
-    case MANAGED_SPACE_SIP_SAFE_STATE_QUEUED:                           return "queued";
-    case MANAGED_SPACE_SIP_SAFE_STATE_WAITING_FOR_USER_MISSION_CONTROL: return "waiting-for-user-mission-control";
-    case MANAGED_SPACE_SIP_SAFE_STATE_WAITING_FOR_MISSION_CONTROL:      return "waiting-for-mission-control";
-    case MANAGED_SPACE_SIP_SAFE_STATE_WAITING_FOR_ACCESSIBILITY:        return "waiting-for-accessibility";
-    case MANAGED_SPACE_SIP_SAFE_STATE_WAITING_FOR_EVENT:                return "waiting-for-event";
-    case MANAGED_SPACE_SIP_SAFE_STATE_WAITING_FOR_SETTLE:               return "waiting-for-settle";
-    case MANAGED_SPACE_SIP_SAFE_STATE_WAITING_FOR_MISSION_CONTROL_EXIT: return "waiting-for-mission-control-exit";
-    case MANAGED_SPACE_SIP_SAFE_STATE_FAILED:                           return "failed";
+    case MANAGED_SPACE_SIP_FALLBACK_STATE_IDLE:                             return "idle";
+    case MANAGED_SPACE_SIP_FALLBACK_STATE_QUEUED:                           return "queued";
+    case MANAGED_SPACE_SIP_FALLBACK_STATE_WAITING_FOR_USER_MISSION_CONTROL: return "waiting-for-user-mission-control";
+    case MANAGED_SPACE_SIP_FALLBACK_STATE_WAITING_FOR_MISSION_CONTROL:      return "waiting-for-mission-control";
+    case MANAGED_SPACE_SIP_FALLBACK_STATE_WAITING_FOR_ACCESSIBILITY:        return "waiting-for-accessibility";
+    case MANAGED_SPACE_SIP_FALLBACK_STATE_WAITING_FOR_EVENT:                return "waiting-for-event";
+    case MANAGED_SPACE_SIP_FALLBACK_STATE_WAITING_FOR_SETTLE:               return "waiting-for-settle";
+    case MANAGED_SPACE_SIP_FALLBACK_STATE_WAITING_FOR_MISSION_CONTROL_EXIT: return "waiting-for-mission-control-exit";
+    case MANAGED_SPACE_SIP_FALLBACK_STATE_FAILED:                           return "failed";
     }
 
     return "unknown";
 }
 
-static uint32_t managed_space_sip_safe_known_bridge_operations(char *os_build)
+static uint32_t managed_space_sip_fallback_known_bridge_operations(char *os_build)
 {
     (void) os_build;
 
@@ -274,7 +274,7 @@ static uint32_t managed_space_sip_safe_known_bridge_operations(char *os_build)
     return 0;
 }
 
-static uint32_t managed_space_sip_safe_operation_bridge_bit(enum managed_space_topology_operation operation)
+static uint32_t managed_space_sip_fallback_operation_bridge_bit(enum managed_space_topology_operation operation)
 {
     switch (operation) {
     case MANAGED_SPACE_TOPOLOGY_OPERATION_CREATE:       return MANAGED_SPACE_TOPOLOGY_BRIDGE_CREATE;
@@ -288,10 +288,10 @@ static uint32_t managed_space_sip_safe_operation_bridge_bit(enum managed_space_t
     return 0;
 }
 
-static void managed_space_sip_safe_resolve_bridge_symbols(void)
+static void managed_space_sip_fallback_resolve_bridge_symbols(void)
 {
-    if (managed_space_sip_safe_bridge_symbols_resolved) return;
-    managed_space_sip_safe_bridge_symbols_resolved = true;
+    if (managed_space_sip_fallback_bridge_symbols_resolved) return;
+    managed_space_sip_fallback_bridge_symbols_resolved = true;
 
     char *skylight_path = "/System/Library/PrivateFrameworks/SkyLight.framework/Versions/A/SkyLight";
     if (!SLSPerformAsynchronousBridgedWindowManagementOperation) {
@@ -299,19 +299,19 @@ static void managed_space_sip_safe_resolve_bridge_symbols(void)
             skylight_path,
             "__ZL54SLSPerformAsynchronousBridgedWindowManagementOperationP47SLSAsynchronousBridgedWindowManagementOperation");
     }
-    managed_space_sip_safe_synchronous_bridge = macho_find_symbol(
+    managed_space_sip_fallback_synchronous_bridge = macho_find_symbol(
         skylight_path,
         "__ZL54_SLSPerformSynchronousBridgedWindowManagementOperationP46SLSSynchronousBridgedWindowManagementOperation");
 }
 
-static bool managed_space_sip_safe_bridge_symbol_available(enum managed_space_topology_operation operation)
+static bool managed_space_sip_fallback_bridge_symbol_available(enum managed_space_topology_operation operation)
 {
-    managed_space_sip_safe_resolve_bridge_symbols();
+    managed_space_sip_fallback_resolve_bridge_symbols();
     if (!SLSPerformAsynchronousBridgedWindowManagementOperation) return false;
 
     switch (operation) {
     case MANAGED_SPACE_TOPOLOGY_OPERATION_CREATE:
-        return managed_space_sip_safe_synchronous_bridge &&
+        return managed_space_sip_fallback_synchronous_bridge &&
                objc_getClass("SLSBridgedSpaceCreateOperation") &&
                objc_getClass("SLSBridgedMoveManagedSpaceToDisplayIndexOperation");
     case MANAGED_SPACE_TOPOLOGY_OPERATION_DESTROY:
@@ -327,33 +327,33 @@ static bool managed_space_sip_safe_bridge_symbol_available(enum managed_space_to
     return false;
 }
 
-static enum managed_space_sip_safe_backend managed_space_sip_safe_select_fallback_backend(struct managed_space_sip_safe *topology,
+static enum managed_space_sip_fallback_backend managed_space_sip_fallback_select_backend(struct managed_space_sip_fallback *topology,
                                                                                            enum managed_space_topology_operation operation)
 {
-    if (topology->policy == MANAGED_SPACE_SIP_SAFE_POLICY_BRIDGE) {
-        return managed_space_sip_safe_bridge_symbol_available(operation)
-            ? MANAGED_SPACE_SIP_SAFE_BACKEND_BRIDGE
-            : MANAGED_SPACE_SIP_SAFE_BACKEND_NONE;
+    if (topology->policy == MANAGED_SPACE_SIP_FALLBACK_POLICY_BRIDGE) {
+        return managed_space_sip_fallback_bridge_symbol_available(operation)
+            ? MANAGED_SPACE_SIP_FALLBACK_BACKEND_BRIDGE
+            : MANAGED_SPACE_SIP_FALLBACK_BACKEND_NONE;
     }
 
-    if (topology->policy == MANAGED_SPACE_SIP_SAFE_POLICY_ACCESSIBILITY) {
-        return MANAGED_SPACE_SIP_SAFE_BACKEND_ACCESSIBILITY;
+    if (topology->policy == MANAGED_SPACE_SIP_FALLBACK_POLICY_ACCESSIBILITY) {
+        return MANAGED_SPACE_SIP_FALLBACK_BACKEND_ACCESSIBILITY;
     }
 
-    uint32_t known_operations = managed_space_sip_safe_known_bridge_operations(topology->os_build);
-    uint32_t operation_bit = managed_space_sip_safe_operation_bridge_bit(operation);
-    if ((known_operations & operation_bit) && managed_space_sip_safe_bridge_symbol_available(operation)) {
-        return MANAGED_SPACE_SIP_SAFE_BACKEND_BRIDGE;
+    uint32_t known_operations = managed_space_sip_fallback_known_bridge_operations(topology->os_build);
+    uint32_t operation_bit = managed_space_sip_fallback_operation_bridge_bit(operation);
+    if ((known_operations & operation_bit) && managed_space_sip_fallback_bridge_symbol_available(operation)) {
+        return MANAGED_SPACE_SIP_FALLBACK_BACKEND_BRIDGE;
     }
 
-    return MANAGED_SPACE_SIP_SAFE_BACKEND_ACCESSIBILITY;
+    return MANAGED_SPACE_SIP_FALLBACK_BACKEND_ACCESSIBILITY;
 }
 
-void managed_space_sip_safe_init(struct managed_space_sip_safe *topology)
+void managed_space_sip_fallback_init(struct managed_space_sip_fallback *topology)
 {
-    memset(topology, 0, sizeof(struct managed_space_sip_safe));
-    topology->policy = MANAGED_SPACE_SIP_SAFE_POLICY_AUTO;
-    topology->state = MANAGED_SPACE_SIP_SAFE_STATE_IDLE;
+    memset(topology, 0, sizeof(struct managed_space_sip_fallback));
+    topology->policy = MANAGED_SPACE_SIP_FALLBACK_POLICY_AUTO;
+    topology->state = MANAGED_SPACE_SIP_FALLBACK_STATE_IDLE;
 
     size_t os_build_size = sizeof(topology->os_build);
     if (sysctlbyname("kern.osversion", topology->os_build, &os_build_size, NULL, 0) != 0) {
@@ -363,33 +363,33 @@ void managed_space_sip_safe_init(struct managed_space_sip_safe *topology)
 
 }
 
-void managed_space_sip_safe_destroy(struct managed_space_sip_safe *topology)
+void managed_space_sip_fallback_destroy(struct managed_space_sip_fallback *topology)
 {
-    managed_space_sip_safe_stop_ax_observer(topology);
-    managed_space_sip_safe_stop_input_event_tap(topology);
-    managed_space_sip_safe_cancel_step(topology);
-    managed_space_sip_safe_cancel_watchdog(topology);
-    managed_space_sip_safe_clear_queue(topology);
-    memset(topology, 0, sizeof(struct managed_space_sip_safe));
+    managed_space_sip_fallback_stop_ax_observer(topology);
+    managed_space_sip_fallback_stop_input_event_tap(topology);
+    managed_space_sip_fallback_cancel_step(topology);
+    managed_space_sip_fallback_cancel_watchdog(topology);
+    managed_space_sip_fallback_clear_queue(topology);
+    memset(topology, 0, sizeof(struct managed_space_sip_fallback));
 }
 
-void managed_space_sip_safe_set_enabled(struct managed_space_sip_safe *topology, bool enabled)
+void managed_space_sip_fallback_set_enabled(struct managed_space_sip_fallback *topology, bool enabled)
 {
     topology->enabled = enabled;
     if (enabled) return;
 
-    managed_space_sip_safe_stop_ax_observer(topology);
-    managed_space_sip_safe_stop_input_event_tap(topology);
-    managed_space_sip_safe_cancel_step(topology);
-    managed_space_sip_safe_cancel_watchdog(topology);
-    managed_space_sip_safe_clear_queue(topology);
-    topology->state = MANAGED_SPACE_SIP_SAFE_STATE_IDLE;
+    managed_space_sip_fallback_stop_ax_observer(topology);
+    managed_space_sip_fallback_stop_input_event_tap(topology);
+    managed_space_sip_fallback_cancel_step(topology);
+    managed_space_sip_fallback_cancel_watchdog(topology);
+    managed_space_sip_fallback_clear_queue(topology);
+    topology->state = MANAGED_SPACE_SIP_FALLBACK_STATE_IDLE;
     if (topology->owns_mission_control &&
-        (mission_control_is_active() || managed_space_sip_safe_mission_control_ui_exists())) {
+        (mission_control_is_active() || managed_space_sip_fallback_mission_control_ui_exists())) {
         CoreDockSendNotification(CFSTR("com.apple.expose.awake"), 0);
     }
 
-    managed_space_sip_safe_release_mission_control_ownership(topology);
+    managed_space_sip_fallback_release_mission_control_ownership(topology);
     topology->finish_batch_requested = false;
     topology->space_limit_reached = false;
     topology->space_limit_did = 0;
@@ -398,12 +398,12 @@ void managed_space_sip_safe_set_enabled(struct managed_space_sip_safe *topology,
     topology->pending_focus_sid = 0;
 }
 
-bool managed_space_sip_safe_is_enabled(struct managed_space_sip_safe *topology)
+bool managed_space_sip_fallback_is_enabled(struct managed_space_sip_fallback *topology)
 {
     return topology->enabled;
 }
 
-void managed_space_sip_safe_note_configuration_changed(struct managed_space_sip_safe *topology)
+void managed_space_sip_fallback_note_configuration_changed(struct managed_space_sip_fallback *topology)
 {
     topology->space_limit_reached = false;
     topology->space_limit_did = 0;
@@ -411,17 +411,17 @@ void managed_space_sip_safe_note_configuration_changed(struct managed_space_sip_
     topology->reconciliation_blocked = false;
 }
 
-void managed_space_sip_safe_set_backend_policy(struct managed_space_sip_safe *topology,
-                                               enum managed_space_sip_safe_policy policy)
+void managed_space_sip_fallback_set_backend_policy(struct managed_space_sip_fallback *topology,
+                                               enum managed_space_sip_fallback_policy policy)
 {
     if (topology->policy == policy) return;
 
     topology->policy = policy;
     topology->operation_error[0] = '\0';
-    managed_space_sip_safe_note_configuration_changed(topology);
+    managed_space_sip_fallback_note_configuration_changed(topology);
 }
 
-bool managed_space_sip_safe_request_is_satisfied(struct managed_space_sip_safe_request *request)
+bool managed_space_sip_fallback_request_is_satisfied(struct managed_space_sip_fallback_request *request)
 {
     switch (request->operation) {
     case MANAGED_SPACE_TOPOLOGY_OPERATION_CREATE:
@@ -458,11 +458,11 @@ bool managed_space_sip_safe_request_is_satisfied(struct managed_space_sip_safe_r
     return false;
 }
 
-static void managed_space_sip_safe_restore_pending_focus(struct managed_space_sip_safe *topology)
+static void managed_space_sip_fallback_restore_pending_focus(struct managed_space_sip_fallback *topology)
 {
     uint64_t sid = topology->pending_focus_sid;
     if (!sid) return;
-    if (mission_control_is_active() || managed_space_sip_safe_mission_control_ui_exists()) return;
+    if (mission_control_is_active() || managed_space_sip_fallback_mission_control_ui_exists()) return;
     if (!space_manager_mission_control_index(sid)) {
         topology->pending_focus_sid = 0;
         return;
@@ -474,18 +474,18 @@ static void managed_space_sip_safe_restore_pending_focus(struct managed_space_si
     }
 }
 
-void managed_space_sip_safe_handle_focus_changed(struct managed_space_sip_safe *topology)
+void managed_space_sip_fallback_handle_focus_changed(struct managed_space_sip_fallback *topology)
 {
     if (!topology->enabled) return;
-    managed_space_sip_safe_restore_pending_focus(topology);
+    managed_space_sip_fallback_restore_pending_focus(topology);
 }
 
-static void managed_space_sip_safe_complete_current(struct managed_space_sip_safe *topology)
+static void managed_space_sip_fallback_complete_current(struct managed_space_sip_fallback *topology)
 {
     if (topology->current.operation == MANAGED_SPACE_TOPOLOGY_OPERATION_NONE) return;
 
-    managed_space_sip_safe_cancel_step(topology);
-    managed_space_sip_safe_cancel_watchdog(topology);
+    managed_space_sip_fallback_cancel_step(topology);
+    managed_space_sip_fallback_cancel_watchdog(topology);
 
     if (topology->current.operation == MANAGED_SPACE_TOPOLOGY_OPERATION_DESTROY) {
         uint64_t validation_sid = space_manager_find_first_user_space_for_display(topology->current.target_did);
@@ -497,7 +497,7 @@ static void managed_space_sip_safe_complete_current(struct managed_space_sip_saf
         if (topology->current.restore_focus_sid) {
             topology->pending_focus_sid = topology->current.restore_focus_sid;
         }
-        managed_space_sip_safe_restore_pending_focus(topology);
+        managed_space_sip_fallback_restore_pending_focus(topology);
     } else if (topology->current.operation == MANAGED_SPACE_TOPOLOGY_OPERATION_MOVE_DISPLAY) {
         space_manager_mark_view_invalid(&g_space_manager, topology->current.sid);
         if (topology->current.focus_space) {
@@ -505,54 +505,54 @@ static void managed_space_sip_safe_complete_current(struct managed_space_sip_saf
         } else if (topology->current.restore_focus_sid) {
             topology->pending_focus_sid = topology->current.restore_focus_sid;
         }
-        managed_space_sip_safe_restore_pending_focus(topology);
+        managed_space_sip_fallback_restore_pending_focus(topology);
     }
 
-    managed_space_handle_sip_safe_operation_completed(&g_managed_space, &topology->current);
+    managed_space_handle_sip_fallback_operation_completed(&g_managed_space, &topology->current);
     topology->reconciliation_blocked = false;
-    managed_space_sip_safe_discard_request(&topology->current);
-    topology->state = MANAGED_SPACE_SIP_SAFE_STATE_IDLE;
+    managed_space_sip_fallback_discard_request(&topology->current);
+    topology->state = MANAGED_SPACE_SIP_FALLBACK_STATE_IDLE;
     topology->operation_error[0] = '\0';
 
     if (buf_len(topology->queue) > 0) {
-        managed_space_sip_safe_start_next(topology);
+        managed_space_sip_fallback_start_next(topology);
     } else {
         managed_space_request_reconcile(&g_managed_space);
     }
 }
 
-static void managed_space_sip_safe_close_owned_mission_control(struct managed_space_sip_safe *topology)
+static void managed_space_sip_fallback_close_owned_mission_control(struct managed_space_sip_fallback *topology)
 {
     if (!topology->owns_mission_control) return;
-    if (!mission_control_is_active() && !managed_space_sip_safe_mission_control_ui_exists()) {
-        managed_space_sip_safe_release_mission_control_ownership(topology);
+    if (!mission_control_is_active() && !managed_space_sip_fallback_mission_control_ui_exists()) {
+        managed_space_sip_fallback_release_mission_control_ownership(topology);
         return;
     }
 
     CoreDockSendNotification(CFSTR("com.apple.expose.awake"), 0);
 }
 
-static void managed_space_sip_safe_schedule_owned_mission_control_exit(
-    struct managed_space_sip_safe *topology)
+static void managed_space_sip_fallback_schedule_owned_mission_control_exit(
+    struct managed_space_sip_fallback *topology)
 {
     topology->current.phase = MANAGED_SPACE_TOPOLOGY_PHASE_CLOSE_MISSION_CONTROL;
-    topology->state = MANAGED_SPACE_SIP_SAFE_STATE_WAITING_FOR_MISSION_CONTROL_EXIT;
-    managed_space_sip_safe_schedule_step(topology,
+    topology->state = MANAGED_SPACE_SIP_FALLBACK_STATE_WAITING_FOR_MISSION_CONTROL_EXIT;
+    managed_space_sip_fallback_schedule_step(topology,
                                          MANAGED_SPACE_TOPOLOGY_MISSION_CONTROL_DELAY_SECONDS);
-    managed_space_sip_safe_schedule_watchdog(topology);
+    managed_space_sip_fallback_schedule_watchdog(topology);
 }
 
-static void managed_space_sip_safe_schedule_owned_mission_control_deactivation(
-    struct managed_space_sip_safe *topology)
+static void managed_space_sip_fallback_schedule_owned_mission_control_deactivation(
+    struct managed_space_sip_fallback *topology)
 {
     topology->current.phase = MANAGED_SPACE_TOPOLOGY_PHASE_DEACTIVATE_IN_MISSION_CONTROL;
-    topology->state = MANAGED_SPACE_SIP_SAFE_STATE_WAITING_FOR_MISSION_CONTROL_EXIT;
-    managed_space_sip_safe_schedule_step(topology,
+    topology->state = MANAGED_SPACE_SIP_FALLBACK_STATE_WAITING_FOR_MISSION_CONTROL_EXIT;
+    managed_space_sip_fallback_schedule_step(topology,
                                          MANAGED_SPACE_TOPOLOGY_SETTLE_DELAY_SECONDS);
-    managed_space_sip_safe_schedule_watchdog(topology);
+    managed_space_sip_fallback_schedule_watchdog(topology);
 }
 
-static void managed_space_sip_safe_fail_current(struct managed_space_sip_safe *topology, char *error)
+static void managed_space_sip_fallback_fail_current(struct managed_space_sip_fallback *topology, char *error)
 {
     if (topology->current.operation == MANAGED_SPACE_TOPOLOGY_OPERATION_NONE) return;
 
@@ -567,42 +567,42 @@ static void managed_space_sip_safe_fail_current(struct managed_space_sip_safe *t
     if (topology->current.origin == MANAGED_SPACE_TOPOLOGY_ORIGIN_RECONCILE) {
         topology->reconciliation_blocked = true;
     }
-    topology->state = MANAGED_SPACE_SIP_SAFE_STATE_FAILED;
+    topology->state = MANAGED_SPACE_SIP_FALLBACK_STATE_FAILED;
     if ((topology->current.operation == MANAGED_SPACE_TOPOLOGY_OPERATION_MOVE_DISPLAY ||
          topology->current.operation == MANAGED_SPACE_TOPOLOGY_OPERATION_DESTROY) &&
         topology->current.restore_focus_sid) {
         topology->pending_focus_sid = topology->current.restore_focus_sid;
     }
-    managed_space_sip_safe_cancel_step(topology);
-    managed_space_sip_safe_cancel_watchdog(topology);
+    managed_space_sip_fallback_cancel_step(topology);
+    managed_space_sip_fallback_cancel_watchdog(topology);
 
     if (topology->active_submission_generation != topology->current.generation) {
-        managed_space_handle_sip_safe_operation_failed(&g_managed_space, &topology->current);
+        managed_space_handle_sip_fallback_operation_failed(&g_managed_space, &topology->current);
     }
     event_signal_push(SIGNAL_MANAGED_SPACE_TOPOLOGY_FAILED, topology);
 
     bool wait_for_exit = topology->owns_mission_control &&
-                         (mission_control_is_active() || managed_space_sip_safe_mission_control_ui_exists());
+                         (mission_control_is_active() || managed_space_sip_fallback_mission_control_ui_exists());
     if (wait_for_exit) {
         topology->finish_batch_requested = true;
-        managed_space_sip_safe_close_owned_mission_control(topology);
+        managed_space_sip_fallback_close_owned_mission_control(topology);
         return;
     }
 
-    managed_space_sip_safe_release_mission_control_ownership(topology);
-    managed_space_sip_safe_discard_request(&topology->current);
-    topology->state = MANAGED_SPACE_SIP_SAFE_STATE_IDLE;
-    managed_space_sip_safe_restore_pending_focus(topology);
+    managed_space_sip_fallback_release_mission_control_ownership(topology);
+    managed_space_sip_fallback_discard_request(&topology->current);
+    topology->state = MANAGED_SPACE_SIP_FALLBACK_STATE_IDLE;
+    managed_space_sip_fallback_restore_pending_focus(topology);
     if (space_limit_failure) {
-        managed_space_sip_safe_record_space_limit(topology,
+        managed_space_sip_fallback_record_space_limit(topology,
                                                   space_limit_did,
                                                   space_limit_count);
     }
-    managed_space_sip_safe_start_next(topology);
+    managed_space_sip_fallback_start_next(topology);
     managed_space_request_reconcile(&g_managed_space);
 }
 
-static uint64_t *managed_space_sip_safe_copy_display_order(uint32_t did, int *count)
+static uint64_t *managed_space_sip_fallback_copy_display_order(uint32_t did, int *count)
 {
     int space_count = 0;
     uint64_t *space_list = display_space_list(did, &space_count);
@@ -611,7 +611,7 @@ static uint64_t *managed_space_sip_safe_copy_display_order(uint32_t did, int *co
     uint64_t *result = malloc(sizeof(uint64_t) * space_count);
     if (!result) return NULL;
 
-    int user_count = managed_space_sip_safe_copy_matching_spaces(space_list,
+    int user_count = managed_space_sip_fallback_copy_matching_spaces(space_list,
                                                                  space_count,
                                                                  result,
                                                                  space_is_user);
@@ -625,7 +625,7 @@ static uint64_t *managed_space_sip_safe_copy_display_order(uint32_t did, int *co
     return result;
 }
 
-static int managed_space_sip_safe_find_sid(uint64_t *space_list, int count, uint64_t sid)
+static int managed_space_sip_fallback_find_sid(uint64_t *space_list, int count, uint64_t sid)
 {
     for (int i = 0; i < count; ++i) {
         if (space_list[i] == sid) return i;
@@ -634,7 +634,7 @@ static int managed_space_sip_safe_find_sid(uint64_t *space_list, int count, uint
     return -1;
 }
 
-static uint64_t *managed_space_sip_safe_copy_full_display_order(uint32_t did, int *count)
+static uint64_t *managed_space_sip_fallback_copy_full_display_order(uint32_t did, int *count)
 {
     *count = 0;
     if (!did) return NULL;
@@ -651,12 +651,12 @@ static uint64_t *managed_space_sip_safe_copy_full_display_order(uint32_t did, in
     return result;
 }
 
-static bool managed_space_sip_safe_snapshot_contains(uint64_t *space_list, int count, uint64_t sid)
+static bool managed_space_sip_fallback_snapshot_contains(uint64_t *space_list, int count, uint64_t sid)
 {
-    return sid && managed_space_sip_safe_find_sid(space_list, count, sid) >= 0;
+    return sid && managed_space_sip_fallback_find_sid(space_list, count, sid) >= 0;
 }
 
-static void managed_space_sip_safe_capture_request_snapshot(struct managed_space_sip_safe_request *request)
+static void managed_space_sip_fallback_capture_request_snapshot(struct managed_space_sip_fallback_request *request)
 {
     if (!request->source_did && request->sid) {
         request->source_did = space_display_id(request->sid);
@@ -665,15 +665,15 @@ static void managed_space_sip_safe_capture_request_snapshot(struct managed_space
         request->target_did = request->source_did;
     }
 
-    request->pre_source_order = managed_space_sip_safe_copy_full_display_order(
+    request->pre_source_order = managed_space_sip_fallback_copy_full_display_order(
         request->source_did,
         &request->pre_source_count);
-    request->pre_target_order = managed_space_sip_safe_copy_full_display_order(
+    request->pre_target_order = managed_space_sip_fallback_copy_full_display_order(
         request->target_did,
         &request->pre_target_count);
 }
 
-static bool managed_space_sip_safe_copy_persisted_display_order(uint32_t did,
+static bool managed_space_sip_fallback_copy_persisted_display_order(uint32_t did,
                                                                 uint64_t **order,
                                                                 int *count)
 {
@@ -778,7 +778,7 @@ static bool managed_space_sip_safe_copy_persisted_display_order(uint32_t did,
     return true;
 }
 
-static bool managed_space_sip_safe_order_preserves_snapshot(uint64_t *order,
+static bool managed_space_sip_fallback_order_preserves_snapshot(uint64_t *order,
                                                             int count,
                                                             uint64_t *snapshot,
                                                             int snapshot_count,
@@ -799,8 +799,8 @@ static bool managed_space_sip_safe_order_preserves_snapshot(uint64_t *order,
     return true;
 }
 
-static bool managed_space_sip_safe_persisted_orders_satisfy_request(
-    struct managed_space_sip_safe_request *request,
+static bool managed_space_sip_fallback_persisted_orders_satisfy_request(
+    struct managed_space_sip_fallback_request *request,
     uint64_t *target_order,
     int target_count,
     uint64_t *source_order,
@@ -810,18 +810,18 @@ static bool managed_space_sip_safe_persisted_orders_satisfy_request(
     case MANAGED_SPACE_TOPOLOGY_OPERATION_CREATE:
         return request->created_sid &&
                target_count == request->pre_target_count + 1 &&
-               managed_space_sip_safe_find_sid(target_order,
+               managed_space_sip_fallback_find_sid(target_order,
                                                target_count,
                                                request->created_sid) >= 0 &&
-               managed_space_sip_safe_order_preserves_snapshot(target_order,
+               managed_space_sip_fallback_order_preserves_snapshot(target_order,
                                                                target_count,
                                                                request->pre_target_order,
                                                                request->pre_target_count,
                                                                0);
     case MANAGED_SPACE_TOPOLOGY_OPERATION_DESTROY:
         return target_count == request->pre_target_count - 1 &&
-               managed_space_sip_safe_find_sid(target_order, target_count, request->sid) < 0 &&
-               managed_space_sip_safe_order_preserves_snapshot(target_order,
+               managed_space_sip_fallback_find_sid(target_order, target_count, request->sid) < 0 &&
+               managed_space_sip_fallback_order_preserves_snapshot(target_order,
                                                                target_count,
                                                                request->pre_target_order,
                                                                request->pre_target_count,
@@ -832,7 +832,7 @@ static bool managed_space_sip_safe_persisted_orders_satisfy_request(
 
         int desired_index = 0;
         for (int i = 0; i < target_count; ++i) {
-            int index = managed_space_sip_safe_find_sid(request->desired_order,
+            int index = managed_space_sip_fallback_find_sid(request->desired_order,
                                                         request->desired_order_count,
                                                         target_order[i]);
             if (index < 0) continue;
@@ -844,18 +844,18 @@ static bool managed_space_sip_safe_persisted_orders_satisfy_request(
     case MANAGED_SPACE_TOPOLOGY_OPERATION_MOVE_DISPLAY:
         if (request->source_did == request->target_did) {
             return target_count == request->pre_target_count &&
-                   managed_space_sip_safe_find_sid(target_order, target_count, request->sid) >= 0;
+                   managed_space_sip_fallback_find_sid(target_order, target_count, request->sid) >= 0;
         }
         return target_count == request->pre_target_count + 1 &&
                source_count == request->pre_source_count - 1 &&
-               managed_space_sip_safe_find_sid(target_order, target_count, request->sid) >= 0 &&
-               managed_space_sip_safe_find_sid(source_order, source_count, request->sid) < 0 &&
-               managed_space_sip_safe_order_preserves_snapshot(target_order,
+               managed_space_sip_fallback_find_sid(target_order, target_count, request->sid) >= 0 &&
+               managed_space_sip_fallback_find_sid(source_order, source_count, request->sid) < 0 &&
+               managed_space_sip_fallback_order_preserves_snapshot(target_order,
                                                                target_count,
                                                                request->pre_target_order,
                                                                request->pre_target_count,
                                                                0) &&
-               managed_space_sip_safe_order_preserves_snapshot(source_order,
+               managed_space_sip_fallback_order_preserves_snapshot(source_order,
                                                                source_count,
                                                                request->pre_source_order,
                                                                request->pre_source_count,
@@ -867,8 +867,8 @@ static bool managed_space_sip_safe_persisted_orders_satisfy_request(
     return false;
 }
 
-static bool managed_space_sip_safe_persisted_orders_match_current_request(
-    struct managed_space_sip_safe_request *request,
+static bool managed_space_sip_fallback_persisted_orders_match_current_request(
+    struct managed_space_sip_fallback_request *request,
     uint64_t *target_order,
     int target_count,
     uint64_t *source_order,
@@ -877,18 +877,18 @@ static bool managed_space_sip_safe_persisted_orders_match_current_request(
     switch (request->operation) {
     case MANAGED_SPACE_TOPOLOGY_OPERATION_CREATE:
         return request->created_sid &&
-               managed_space_sip_safe_find_sid(target_order,
+               managed_space_sip_fallback_find_sid(target_order,
                                                target_count,
                                                request->created_sid) >= 0;
     case MANAGED_SPACE_TOPOLOGY_OPERATION_DESTROY:
-        return managed_space_sip_safe_find_sid(target_order,
+        return managed_space_sip_fallback_find_sid(target_order,
                                                target_count,
                                                request->sid) < 0;
     case MANAGED_SPACE_TOPOLOGY_OPERATION_REORDER:
     case MANAGED_SPACE_TOPOLOGY_OPERATION_SWAP: {
         int desired_index = 0;
         for (int i = 0; i < target_count; ++i) {
-            int index = managed_space_sip_safe_find_sid(request->desired_order,
+            int index = managed_space_sip_fallback_find_sid(request->desired_order,
                                                         request->desired_order_count,
                                                         target_order[i]);
             if (index < 0) continue;
@@ -898,11 +898,11 @@ static bool managed_space_sip_safe_persisted_orders_match_current_request(
         return desired_index == request->desired_order_count;
     }
     case MANAGED_SPACE_TOPOLOGY_OPERATION_MOVE_DISPLAY:
-        return managed_space_sip_safe_find_sid(target_order,
+        return managed_space_sip_fallback_find_sid(target_order,
                                                target_count,
                                                request->sid) >= 0 &&
                (request->source_did == request->target_did ||
-                managed_space_sip_safe_find_sid(source_order,
+                managed_space_sip_fallback_find_sid(source_order,
                                                 source_count,
                                                 request->sid) < 0);
     case MANAGED_SPACE_TOPOLOGY_OPERATION_NONE:
@@ -912,16 +912,16 @@ static bool managed_space_sip_safe_persisted_orders_match_current_request(
     return false;
 }
 
-static bool managed_space_sip_safe_observe_persisted_postcondition(
-    struct managed_space_sip_safe *topology)
+static bool managed_space_sip_fallback_observe_persisted_postcondition(
+    struct managed_space_sip_fallback *topology)
 {
-    struct managed_space_sip_safe_request *request = &topology->current;
+    struct managed_space_sip_fallback_request *request = &topology->current;
     if (request->operation == MANAGED_SPACE_TOPOLOGY_OPERATION_NONE) return false;
-    if (!managed_space_sip_safe_request_is_satisfied(request)) return false;
+    if (!managed_space_sip_fallback_request_is_satisfied(request)) return false;
 
     uint64_t *target_order = NULL;
     int target_count = 0;
-    if (!managed_space_sip_safe_copy_persisted_display_order(request->target_did,
+    if (!managed_space_sip_fallback_copy_persisted_display_order(request->target_did,
                                                              &target_order,
                                                              &target_count)) {
         return false;
@@ -933,7 +933,7 @@ static bool managed_space_sip_safe_observe_persisted_postcondition(
         request->source_did != request->target_did) {
         source_order = NULL;
         source_count = 0;
-        if (!managed_space_sip_safe_copy_persisted_display_order(request->source_did,
+        if (!managed_space_sip_fallback_copy_persisted_display_order(request->source_did,
                                                                  &source_order,
                                                                  &source_count)) {
             free(target_order);
@@ -942,12 +942,12 @@ static bool managed_space_sip_safe_observe_persisted_postcondition(
     }
 
     bool result = request->mutation_started
-        ? managed_space_sip_safe_persisted_orders_satisfy_request(request,
+        ? managed_space_sip_fallback_persisted_orders_satisfy_request(request,
                                                                   target_order,
                                                                   target_count,
                                                                   source_order,
                                                                   source_count)
-        : managed_space_sip_safe_persisted_orders_match_current_request(request,
+        : managed_space_sip_fallback_persisted_orders_match_current_request(request,
                                                                         target_order,
                                                                         target_count,
                                                                         source_order,
@@ -958,7 +958,7 @@ static bool managed_space_sip_safe_observe_persisted_postcondition(
     return result;
 }
 
-static int managed_space_sip_safe_copy_matching_spaces(uint64_t *source,
+static int managed_space_sip_fallback_copy_matching_spaces(uint64_t *source,
                                                        int source_count,
                                                        uint64_t *destination,
                                                        bool (*matches)(uint64_t))
@@ -971,15 +971,15 @@ static int managed_space_sip_safe_copy_matching_spaces(uint64_t *source,
     return destination_count;
 }
 
-static bool managed_space_sip_safe_move_order_in_place(uint64_t *order,
+static bool managed_space_sip_fallback_move_order_in_place(uint64_t *order,
                                                        int count,
                                                        uint64_t sid,
                                                        uint64_t target_sid,
                                                        bool *place_after,
                                                        int *final_index)
 {
-    int source_index = managed_space_sip_safe_find_sid(order, count, sid);
-    int target_index = managed_space_sip_safe_find_sid(order, count, target_sid);
+    int source_index = managed_space_sip_fallback_find_sid(order, count, sid);
+    int target_index = managed_space_sip_fallback_find_sid(order, count, target_sid);
     if (source_index < 0 || target_index < 0 || source_index == target_index) return false;
 
     *place_after = source_index < target_index;
@@ -990,7 +990,7 @@ static bool managed_space_sip_safe_move_order_in_place(uint64_t *order,
                 sizeof(uint64_t) * (count - source_index - 1));
     }
 
-    target_index = managed_space_sip_safe_find_sid(order, count - 1, target_sid);
+    target_index = managed_space_sip_fallback_find_sid(order, count - 1, target_sid);
     int insertion_index = target_index + (*place_after ? 1 : 0);
     if (insertion_index < count - 1) {
         memmove(order + insertion_index + 1,
@@ -1003,14 +1003,14 @@ static bool managed_space_sip_safe_move_order_in_place(uint64_t *order,
     return true;
 }
 
-static bool managed_space_sip_safe_swap_order_in_place(uint64_t *order,
+static bool managed_space_sip_fallback_swap_order_in_place(uint64_t *order,
                                                        int count,
                                                        uint64_t sid,
                                                        uint64_t target_sid,
                                                        int *target_index)
 {
-    int source_index = managed_space_sip_safe_find_sid(order, count, sid);
-    *target_index = managed_space_sip_safe_find_sid(order, count, target_sid);
+    int source_index = managed_space_sip_fallback_find_sid(order, count, sid);
+    *target_index = managed_space_sip_fallback_find_sid(order, count, target_sid);
     if (source_index < 0 || *target_index < 0 || source_index == *target_index) return false;
 
     uint64_t temp = order[source_index];
@@ -1019,17 +1019,17 @@ static bool managed_space_sip_safe_swap_order_in_place(uint64_t *order,
     return true;
 }
 
-static bool managed_space_sip_safe_build_move_order(struct managed_space_sip_safe_request *request)
+static bool managed_space_sip_fallback_build_move_order(struct managed_space_sip_fallback_request *request)
 {
     uint32_t did = space_display_id(request->sid);
     if (!did || did != space_display_id(request->target_sid)) return false;
 
     request->source_did = did;
     request->target_did = did;
-    request->desired_order = managed_space_sip_safe_copy_display_order(did, &request->desired_order_count);
+    request->desired_order = managed_space_sip_fallback_copy_display_order(did, &request->desired_order_count);
     if (!request->desired_order) return false;
 
-    return managed_space_sip_safe_move_order_in_place(request->desired_order,
+    return managed_space_sip_fallback_move_order_in_place(request->desired_order,
                                                       request->desired_order_count,
                                                       request->sid,
                                                       request->target_sid,
@@ -1037,48 +1037,48 @@ static bool managed_space_sip_safe_build_move_order(struct managed_space_sip_saf
                                                       &request->target_index);
 }
 
-static bool managed_space_sip_safe_build_swap_order(struct managed_space_sip_safe_request *request)
+static bool managed_space_sip_fallback_build_swap_order(struct managed_space_sip_fallback_request *request)
 {
     uint32_t did = space_display_id(request->sid);
     if (!did || did != space_display_id(request->target_sid)) return false;
 
     request->source_did = did;
     request->target_did = did;
-    request->desired_order = managed_space_sip_safe_copy_display_order(did, &request->desired_order_count);
+    request->desired_order = managed_space_sip_fallback_copy_display_order(did, &request->desired_order_count);
     if (!request->desired_order) return false;
 
-    return managed_space_sip_safe_swap_order_in_place(request->desired_order,
+    return managed_space_sip_fallback_swap_order_in_place(request->desired_order,
                                                       request->desired_order_count,
                                                       request->sid,
                                                       request->target_sid,
                                                       &request->target_index);
 }
 
-static bool managed_space_sip_safe_create_is_blocked(struct managed_space_sip_safe *topology, uint32_t did)
+static bool managed_space_sip_fallback_create_is_blocked(struct managed_space_sip_fallback *topology, uint32_t did)
 {
     return topology->space_limit_reached && topology->space_limit_did == did;
 }
 
-bool managed_space_sip_safe_space_limit_reached_for_display(struct managed_space_sip_safe *topology, uint32_t did)
+bool managed_space_sip_fallback_space_limit_reached_for_display(struct managed_space_sip_fallback *topology, uint32_t did)
 {
-    return managed_space_sip_safe_create_is_blocked(topology, did);
+    return managed_space_sip_fallback_create_is_blocked(topology, did);
 }
 
-void managed_space_sip_safe_prepare_request(struct managed_space_sip_safe *topology,
-                                            struct managed_space_sip_safe_request *request,
+void managed_space_sip_fallback_prepare_request(struct managed_space_sip_fallback *topology,
+                                            struct managed_space_sip_fallback_request *request,
                                             enum managed_space_topology_origin origin)
 {
     if (request->generation) return;
 
     request->origin = origin;
     request->generation = ++topology->next_generation;
-    request->precondition_hash = managed_space_sip_safe_snapshot_hash();
-    managed_space_sip_safe_copy_space_uuid(request->sid, request->sid_uuid);
-    managed_space_sip_safe_copy_space_uuid(request->target_sid, request->target_uuid);
+    request->precondition_hash = managed_space_sip_fallback_snapshot_hash();
+    managed_space_sip_fallback_copy_space_uuid(request->sid, request->sid_uuid);
+    managed_space_sip_fallback_copy_space_uuid(request->target_sid, request->target_uuid);
 }
 
-static void managed_space_sip_safe_record_immediate_failure(struct managed_space_sip_safe *topology,
-                                                            struct managed_space_sip_safe_request *request,
+static void managed_space_sip_fallback_record_immediate_failure(struct managed_space_sip_fallback *topology,
+                                                            struct managed_space_sip_fallback_request *request,
                                                             char *error)
 {
     topology->last_failed_operation = request->operation;
@@ -1094,47 +1094,47 @@ static void managed_space_sip_safe_record_immediate_failure(struct managed_space
 }
 
 struct managed_space_topology_result
-managed_space_sip_safe_submit_request(struct managed_space_sip_safe *topology,
-                                      struct managed_space_sip_safe_request request,
+managed_space_sip_fallback_submit_request(struct managed_space_sip_fallback *topology,
+                                      struct managed_space_sip_fallback_request request,
                                       enum managed_space_topology_origin origin)
 {
     if (!topology->enabled) {
-        managed_space_sip_safe_discard_request(&request);
+        managed_space_sip_fallback_discard_request(&request);
         return managed_space_topology_result_provider_error(
             MANAGED_SPACE_TOPOLOGY_PROVIDER_ERROR_BACKEND);
     }
 
-    managed_space_sip_safe_prepare_request(topology, &request, origin);
-    if (request.backend == MANAGED_SPACE_SIP_SAFE_BACKEND_NONE) {
-        request.backend = managed_space_sip_safe_select_fallback_backend(topology, request.operation);
+    managed_space_sip_fallback_prepare_request(topology, &request, origin);
+    if (request.backend == MANAGED_SPACE_SIP_FALLBACK_BACKEND_NONE) {
+        request.backend = managed_space_sip_fallback_select_backend(topology, request.operation);
     }
 
-    if (request.backend == MANAGED_SPACE_SIP_SAFE_BACKEND_NONE) {
+    if (request.backend == MANAGED_SPACE_SIP_FALLBACK_BACKEND_NONE) {
         bool should_restore_order = request.operation == MANAGED_SPACE_TOPOLOGY_OPERATION_REORDER ||
                                     request.operation == MANAGED_SPACE_TOPOLOGY_OPERATION_SWAP;
-        managed_space_sip_safe_record_immediate_failure(
+        managed_space_sip_fallback_record_immediate_failure(
             topology,
             &request,
             "bridge-operation-unavailable");
-        managed_space_sip_safe_discard_request(&request);
+        managed_space_sip_fallback_discard_request(&request);
         if (should_restore_order) managed_space_request_reconcile(&g_managed_space);
         return managed_space_topology_result_provider_error(
             MANAGED_SPACE_TOPOLOGY_PROVIDER_ERROR_BACKEND);
     }
 
-    if (request.backend == MANAGED_SPACE_SIP_SAFE_BACKEND_ACCESSIBILITY &&
+    if (request.backend == MANAGED_SPACE_SIP_FALLBACK_BACKEND_ACCESSIBILITY &&
         !AXIsProcessTrusted()) {
-        managed_space_sip_safe_record_immediate_failure(topology,
+        managed_space_sip_fallback_record_immediate_failure(topology,
                                                         &request,
                                                         "accessibility-permission-missing");
-        managed_space_sip_safe_discard_request(&request);
+        managed_space_sip_fallback_discard_request(&request);
         return managed_space_topology_result_provider_error(
             MANAGED_SPACE_TOPOLOGY_PROVIDER_ERROR_ACCESSIBILITY);
     }
 
     if (request.operation == MANAGED_SPACE_TOPOLOGY_OPERATION_CREATE &&
-        managed_space_sip_safe_create_is_blocked(topology, request.target_did)) {
-        managed_space_sip_safe_discard_request(&request);
+        managed_space_sip_fallback_create_is_blocked(topology, request.target_did)) {
+        managed_space_sip_fallback_discard_request(&request);
         return managed_space_topology_result_provider_error(
             MANAGED_SPACE_TOPOLOGY_PROVIDER_ERROR_LIMIT_REACHED);
     }
@@ -1142,14 +1142,14 @@ managed_space_sip_safe_submit_request(struct managed_space_sip_safe *topology,
     uint64_t request_generation = request.generation;
     buf_push(topology->queue, request);
     if (topology->current.operation == MANAGED_SPACE_TOPOLOGY_OPERATION_NONE &&
-        topology->state != MANAGED_SPACE_SIP_SAFE_STATE_WAITING_FOR_MISSION_CONTROL_EXIT) {
+        topology->state != MANAGED_SPACE_SIP_FALLBACK_STATE_WAITING_FOR_MISSION_CONTROL_EXIT) {
         topology->active_submission_generation = request_generation;
-        managed_space_sip_safe_start_next(topology);
+        managed_space_sip_fallback_start_next(topology);
         topology->active_submission_generation = 0;
     }
 
     if (topology->last_failed_generation == request_generation) {
-        if (topology->last_failed_backend == MANAGED_SPACE_SIP_SAFE_BACKEND_ACCESSIBILITY &&
+        if (topology->last_failed_backend == MANAGED_SPACE_SIP_FALLBACK_BACKEND_ACCESSIBILITY &&
             string_equals(topology->last_error, "accessibility-permission-missing")) {
             return managed_space_topology_result_provider_error(
                 MANAGED_SPACE_TOPOLOGY_PROVIDER_ERROR_ACCESSIBILITY);
@@ -1162,52 +1162,52 @@ managed_space_sip_safe_submit_request(struct managed_space_sip_safe *topology,
 }
 
 struct managed_space_topology_result
-managed_space_sip_safe_create(struct managed_space_sip_safe *topology,
+managed_space_sip_fallback_create(struct managed_space_sip_fallback *topology,
                               enum managed_space_topology_origin origin,
                               uint64_t acting_sid)
 {
     uint32_t did = space_display_id(acting_sid);
     if (!did) return managed_space_topology_result_space_error(SPACE_OP_ERROR_MISSING_SRC);
 
-    struct managed_space_sip_safe_request request = {
+    struct managed_space_sip_fallback_request request = {
         .operation = MANAGED_SPACE_TOPOLOGY_OPERATION_CREATE,
         .sid = acting_sid,
         .source_did = did,
         .target_did = did
     };
 
-    return managed_space_sip_safe_submit_request(topology, request, origin);
+    return managed_space_sip_fallback_submit_request(topology, request, origin);
 }
 
 struct managed_space_topology_result
-managed_space_sip_safe_destroy_space(struct managed_space_sip_safe *topology,
+managed_space_sip_fallback_destroy_space(struct managed_space_sip_fallback *topology,
                                      enum managed_space_topology_origin origin,
                                      uint64_t sid)
 {
-    struct managed_space_sip_safe_request request = {
+    struct managed_space_sip_fallback_request request = {
         .operation = MANAGED_SPACE_TOPOLOGY_OPERATION_DESTROY,
         .sid = sid,
         .source_did = space_display_id(sid),
         .target_did = space_display_id(sid)
     };
 
-    return managed_space_sip_safe_submit_request(topology, request, origin);
+    return managed_space_sip_fallback_submit_request(topology, request, origin);
 }
 
-bool managed_space_sip_safe_prepare_move_request(struct managed_space_sip_safe_request *request, uint64_t sid, uint64_t target_sid)
+bool managed_space_sip_fallback_prepare_move_request(struct managed_space_sip_fallback_request *request, uint64_t sid, uint64_t target_sid)
 {
-    *request = (struct managed_space_sip_safe_request) {
+    *request = (struct managed_space_sip_fallback_request) {
         .operation = MANAGED_SPACE_TOPOLOGY_OPERATION_REORDER,
         .sid = sid,
         .target_sid = target_sid
     };
 
     if (!space_is_user(sid) || !space_is_user(target_sid)) return false;
-    return managed_space_sip_safe_build_move_order(request);
+    return managed_space_sip_fallback_build_move_order(request);
 }
 
 struct managed_space_topology_result
-managed_space_sip_safe_move_space(struct managed_space_sip_safe *topology,
+managed_space_sip_fallback_move_space(struct managed_space_sip_fallback *topology,
                                   enum managed_space_topology_origin origin,
                                   uint64_t sid,
                                   uint64_t target_sid)
@@ -1216,29 +1216,29 @@ managed_space_sip_safe_move_space(struct managed_space_sip_safe *topology,
         return managed_space_topology_result_space_error(SPACE_OP_ERROR_INVALID_TYPE);
     }
 
-    struct managed_space_sip_safe_request request;
-    if (!managed_space_sip_safe_prepare_move_request(&request, sid, target_sid)) {
-        managed_space_sip_safe_discard_request(&request);
+    struct managed_space_sip_fallback_request request;
+    if (!managed_space_sip_fallback_prepare_move_request(&request, sid, target_sid)) {
+        managed_space_sip_fallback_discard_request(&request);
         return managed_space_topology_result_space_error(SPACE_OP_ERROR_INVALID_DST);
     }
 
-    return managed_space_sip_safe_submit_request(topology, request, origin);
+    return managed_space_sip_fallback_submit_request(topology, request, origin);
 }
 
-bool managed_space_sip_safe_prepare_swap_request(struct managed_space_sip_safe_request *request, uint64_t sid, uint64_t target_sid)
+bool managed_space_sip_fallback_prepare_swap_request(struct managed_space_sip_fallback_request *request, uint64_t sid, uint64_t target_sid)
 {
-    *request = (struct managed_space_sip_safe_request) {
+    *request = (struct managed_space_sip_fallback_request) {
         .operation = MANAGED_SPACE_TOPOLOGY_OPERATION_SWAP,
         .sid = sid,
         .target_sid = target_sid
     };
 
     if (!space_is_user(sid) || !space_is_user(target_sid)) return false;
-    return managed_space_sip_safe_build_swap_order(request);
+    return managed_space_sip_fallback_build_swap_order(request);
 }
 
 struct managed_space_topology_result
-managed_space_sip_safe_swap_spaces(struct managed_space_sip_safe *topology,
+managed_space_sip_fallback_swap_spaces(struct managed_space_sip_fallback *topology,
                                    enum managed_space_topology_origin origin,
                                    uint64_t sid,
                                    uint64_t target_sid)
@@ -1247,17 +1247,17 @@ managed_space_sip_safe_swap_spaces(struct managed_space_sip_safe *topology,
         return managed_space_topology_result_space_error(SPACE_OP_ERROR_INVALID_TYPE);
     }
 
-    struct managed_space_sip_safe_request request;
-    if (!managed_space_sip_safe_prepare_swap_request(&request, sid, target_sid)) {
-        managed_space_sip_safe_discard_request(&request);
+    struct managed_space_sip_fallback_request request;
+    if (!managed_space_sip_fallback_prepare_swap_request(&request, sid, target_sid)) {
+        managed_space_sip_fallback_discard_request(&request);
         return managed_space_topology_result_space_error(SPACE_OP_ERROR_INVALID_DST);
     }
 
-    return managed_space_sip_safe_submit_request(topology, request, origin);
+    return managed_space_sip_fallback_submit_request(topology, request, origin);
 }
 
 struct managed_space_topology_result
-managed_space_sip_safe_move_space_to_display(struct managed_space_sip_safe *topology,
+managed_space_sip_fallback_move_space_to_display(struct managed_space_sip_fallback *topology,
                                              enum managed_space_topology_origin origin,
                                              uint64_t sid,
                                              uint32_t did,
@@ -1267,7 +1267,7 @@ managed_space_sip_safe_move_space_to_display(struct managed_space_sip_safe *topo
         return managed_space_topology_result_space_error(SPACE_OP_ERROR_INVALID_TYPE);
     }
 
-    struct managed_space_sip_safe_request request = {
+    struct managed_space_sip_fallback_request request = {
         .operation = MANAGED_SPACE_TOPOLOGY_OPERATION_MOVE_DISPLAY,
         .sid = sid,
         .source_did = space_display_id(sid),
@@ -1276,17 +1276,17 @@ managed_space_sip_safe_move_space_to_display(struct managed_space_sip_safe *topo
         .placeholder_required = placeholder_required
     };
 
-    return managed_space_sip_safe_submit_request(topology, request, origin);
+    return managed_space_sip_fallback_submit_request(topology, request, origin);
 }
 
-static bool managed_space_sip_safe_execute_bridge(struct managed_space_sip_safe *topology)
+static bool managed_space_sip_fallback_execute_bridge(struct managed_space_sip_fallback *topology)
 {
-    struct managed_space_sip_safe_request *request = &topology->current;
+    struct managed_space_sip_fallback_request *request = &topology->current;
 
     switch (request->operation) {
     case MANAGED_SPACE_TOPOLOGY_OPERATION_CREATE: {
         Class create_class = objc_getClass("SLSBridgedSpaceCreateOperation");
-        if (!create_class || !managed_space_sip_safe_synchronous_bridge) return false;
+        if (!create_class || !managed_space_sip_fallback_synchronous_bridge) return false;
 
         NSString *uuid = [[NSUUID UUID] UUIDString];
         NSDictionary *values = @{ @"type": @0, @"uuid": uuid };
@@ -1297,7 +1297,7 @@ static bool managed_space_sip_safe_execute_bridge(struct managed_space_sip_safe 
                                                                       values);
         if (!operation) return false;
 
-        id result = managed_space_sip_safe_synchronous_bridge(operation);
+        id result = managed_space_sip_fallback_synchronous_bridge(operation);
         if (result && [result respondsToSelector:@selector(spaceID)]) {
             request->created_sid = ((uint64_t (*)(id, SEL)) objc_msgSend)(result, @selector(spaceID));
         }
@@ -1328,8 +1328,8 @@ static bool managed_space_sip_safe_execute_bridge(struct managed_space_sip_safe 
             [move_operation release];
         }
 
-        topology->state = MANAGED_SPACE_SIP_SAFE_STATE_WAITING_FOR_SETTLE;
-        managed_space_sip_safe_schedule_step(topology, MANAGED_SPACE_TOPOLOGY_SETTLE_DELAY_SECONDS);
+        topology->state = MANAGED_SPACE_SIP_FALLBACK_STATE_WAITING_FOR_SETTLE;
+        managed_space_sip_fallback_schedule_step(topology, MANAGED_SPACE_TOPOLOGY_SETTLE_DELAY_SECONDS);
     } break;
     case MANAGED_SPACE_TOPOLOGY_OPERATION_DESTROY: {
         Class operation_class = objc_getClass("SLSBridgedSpaceDestroyOperation");
@@ -1342,7 +1342,7 @@ static bool managed_space_sip_safe_execute_bridge(struct managed_space_sip_safe 
         SLSPerformAsynchronousBridgedWindowManagementOperation(operation);
         [operation release];
         request->mutation_started = true;
-        topology->state = MANAGED_SPACE_SIP_SAFE_STATE_WAITING_FOR_EVENT;
+        topology->state = MANAGED_SPACE_SIP_FALLBACK_STATE_WAITING_FOR_EVENT;
     } break;
     case MANAGED_SPACE_TOPOLOGY_OPERATION_REORDER:
     case MANAGED_SPACE_TOPOLOGY_OPERATION_SWAP: {
@@ -1365,8 +1365,8 @@ static bool managed_space_sip_safe_execute_bridge(struct managed_space_sip_safe 
         }
         if (user_index != request->desired_order_count) return false;
         request->mutation_started = true;
-        topology->state = MANAGED_SPACE_SIP_SAFE_STATE_WAITING_FOR_SETTLE;
-        managed_space_sip_safe_schedule_step(topology, MANAGED_SPACE_TOPOLOGY_SETTLE_DELAY_SECONDS);
+        topology->state = MANAGED_SPACE_SIP_FALLBACK_STATE_WAITING_FOR_SETTLE;
+        managed_space_sip_fallback_schedule_step(topology, MANAGED_SPACE_TOPOLOGY_SETTLE_DELAY_SECONDS);
     } break;
     case MANAGED_SPACE_TOPOLOGY_OPERATION_MOVE_DISPLAY: {
         Class operation_class = objc_getClass("SLSBridgedMoveManagedSpaceToDisplayIndexOperation");
@@ -1390,18 +1390,18 @@ static bool managed_space_sip_safe_execute_bridge(struct managed_space_sip_safe 
         SLSPerformAsynchronousBridgedWindowManagementOperation(operation);
         [operation release];
         request->mutation_started = true;
-        topology->state = MANAGED_SPACE_SIP_SAFE_STATE_WAITING_FOR_SETTLE;
-        managed_space_sip_safe_schedule_step(topology, MANAGED_SPACE_TOPOLOGY_SETTLE_DELAY_SECONDS);
+        topology->state = MANAGED_SPACE_SIP_FALLBACK_STATE_WAITING_FOR_SETTLE;
+        managed_space_sip_fallback_schedule_step(topology, MANAGED_SPACE_TOPOLOGY_SETTLE_DELAY_SECONDS);
     } break;
     case MANAGED_SPACE_TOPOLOGY_OPERATION_NONE:
         return false;
     }
 
-    managed_space_sip_safe_schedule_watchdog(topology);
+    managed_space_sip_fallback_schedule_watchdog(topology);
     return true;
 }
 
-static AXUIElementRef managed_space_sip_safe_copy_ax_child(AXUIElementRef parent, CFStringRef identifier)
+static AXUIElementRef managed_space_sip_fallback_copy_ax_child(AXUIElementRef parent, CFStringRef identifier)
 {
     CFTypeRef value = NULL;
     if (AXUIElementCopyAttributeValue(parent, kAXChildrenAttribute, &value) != kAXErrorSuccess || !value) {
@@ -1429,7 +1429,7 @@ static AXUIElementRef managed_space_sip_safe_copy_ax_child(AXUIElementRef parent
     return result;
 }
 
-static bool managed_space_sip_safe_ax_display_value_matches(CFTypeRef value, uint32_t did)
+static bool managed_space_sip_fallback_ax_display_value_matches(CFTypeRef value, uint32_t did)
 {
     if (!value || !did) return false;
 
@@ -1446,19 +1446,19 @@ static bool managed_space_sip_safe_ax_display_value_matches(CFTypeRef value, uin
            value_did == did;
 }
 
-static bool managed_space_sip_safe_ax_display_matches(AXUIElementRef element, uint32_t did)
+static bool managed_space_sip_fallback_ax_display_matches(AXUIElementRef element, uint32_t did)
 {
     CFTypeRef value = NULL;
     if (AXUIElementCopyAttributeValue(element, CFSTR("AXDisplayID"), &value) != kAXErrorSuccess || !value) {
         return false;
     }
 
-    bool result = managed_space_sip_safe_ax_display_value_matches(value, did);
+    bool result = managed_space_sip_fallback_ax_display_value_matches(value, did);
     CFRelease(value);
     return result;
 }
 
-static AXUIElementRef managed_space_sip_safe_copy_ax_display(AXUIElementRef mission_control, uint32_t did)
+static AXUIElementRef managed_space_sip_fallback_copy_ax_display(AXUIElementRef mission_control, uint32_t did)
 {
     CFTypeRef value = NULL;
     if (AXUIElementCopyAttributeValue(mission_control, kAXChildrenAttribute, &value) != kAXErrorSuccess || !value) {
@@ -1477,7 +1477,7 @@ static AXUIElementRef managed_space_sip_safe_copy_ax_display(AXUIElementRef miss
                           CFEqual(identifier, CFSTR("mc.display"));
         if (identifier) CFRelease(identifier);
 
-        if (is_display && managed_space_sip_safe_ax_display_matches(child, did)) {
+        if (is_display && managed_space_sip_fallback_ax_display_matches(child, did)) {
             result = CFRetain(child);
             break;
         }
@@ -1487,17 +1487,17 @@ static AXUIElementRef managed_space_sip_safe_copy_ax_display(AXUIElementRef miss
     return result;
 }
 
-static AXUIElementRef managed_space_sip_safe_copy_ax_spaces_group(AXUIElementRef mission_control, uint32_t did)
+static AXUIElementRef managed_space_sip_fallback_copy_ax_spaces_group(AXUIElementRef mission_control, uint32_t did)
 {
-    AXUIElementRef display = managed_space_sip_safe_copy_ax_display(mission_control, did);
+    AXUIElementRef display = managed_space_sip_fallback_copy_ax_display(mission_control, did);
     if (!display) return NULL;
 
-    AXUIElementRef spaces = managed_space_sip_safe_copy_ax_child(display, CFSTR("mc.spaces"));
+    AXUIElementRef spaces = managed_space_sip_fallback_copy_ax_child(display, CFSTR("mc.spaces"));
     CFRelease(display);
     return spaces;
 }
 
-static AXUIElementRef managed_space_sip_safe_copy_mission_control(pid_t *dock_pid)
+static AXUIElementRef managed_space_sip_fallback_copy_mission_control(pid_t *dock_pid)
 {
     NSArray *dock_applications = [NSRunningApplication runningApplicationsWithBundleIdentifier:@"com.apple.dock"];
     NSRunningApplication *dock = [dock_applications firstObject];
@@ -1507,31 +1507,31 @@ static AXUIElementRef managed_space_sip_safe_copy_mission_control(pid_t *dock_pi
     AXUIElementRef dock_element = AXUIElementCreateApplication(*dock_pid);
     if (!dock_element) return NULL;
 
-    AXUIElementRef mission_control = managed_space_sip_safe_copy_ax_child(dock_element, CFSTR("mc"));
+    AXUIElementRef mission_control = managed_space_sip_fallback_copy_ax_child(dock_element, CFSTR("mc"));
     CFRelease(dock_element);
     return mission_control;
 }
 
-static bool managed_space_sip_safe_mission_control_ui_exists(void)
+static bool managed_space_sip_fallback_mission_control_ui_exists(void)
 {
     pid_t dock_pid = 0;
-    AXUIElementRef mission_control = managed_space_sip_safe_copy_mission_control(&dock_pid);
+    AXUIElementRef mission_control = managed_space_sip_fallback_copy_mission_control(&dock_pid);
     if (!mission_control) return false;
 
     CFRelease(mission_control);
     return true;
 }
 
-static enum managed_space_sip_safe_state managed_space_sip_safe_accessibility_session_state(bool mission_control_active,
+static enum managed_space_sip_fallback_state managed_space_sip_fallback_accessibility_session_state(bool mission_control_active,
                                                                                              bool owns_mission_control)
 {
-    if (!mission_control_active) return MANAGED_SPACE_SIP_SAFE_STATE_WAITING_FOR_MISSION_CONTROL;
+    if (!mission_control_active) return MANAGED_SPACE_SIP_FALLBACK_STATE_WAITING_FOR_MISSION_CONTROL;
     return owns_mission_control
-        ? MANAGED_SPACE_SIP_SAFE_STATE_WAITING_FOR_ACCESSIBILITY
-        : MANAGED_SPACE_SIP_SAFE_STATE_WAITING_FOR_USER_MISSION_CONTROL;
+        ? MANAGED_SPACE_SIP_FALLBACK_STATE_WAITING_FOR_ACCESSIBILITY
+        : MANAGED_SPACE_SIP_FALLBACK_STATE_WAITING_FOR_USER_MISSION_CONTROL;
 }
 
-static void managed_space_sip_safe_ax_notification(AXObserverRef observer,
+static void managed_space_sip_fallback_ax_notification(AXObserverRef observer,
                                                    AXUIElementRef element,
                                                    CFStringRef notification,
                                                    void *context)
@@ -1540,27 +1540,27 @@ static void managed_space_sip_safe_ax_notification(AXObserverRef observer,
     (void) element;
     (void) notification;
 
-    struct managed_space_sip_safe *topology = context;
+    struct managed_space_sip_fallback *topology = context;
     if (!topology) return;
-    if (topology->current.backend != MANAGED_SPACE_SIP_SAFE_BACKEND_ACCESSIBILITY) return;
-    if (topology->state != MANAGED_SPACE_SIP_SAFE_STATE_WAITING_FOR_ACCESSIBILITY &&
-        topology->state != MANAGED_SPACE_SIP_SAFE_STATE_WAITING_FOR_EVENT &&
-        topology->state != MANAGED_SPACE_SIP_SAFE_STATE_WAITING_FOR_SETTLE) {
+    if (topology->current.backend != MANAGED_SPACE_SIP_FALLBACK_BACKEND_ACCESSIBILITY) return;
+    if (topology->state != MANAGED_SPACE_SIP_FALLBACK_STATE_WAITING_FOR_ACCESSIBILITY &&
+        topology->state != MANAGED_SPACE_SIP_FALLBACK_STATE_WAITING_FOR_EVENT &&
+        topology->state != MANAGED_SPACE_SIP_FALLBACK_STATE_WAITING_FOR_SETTLE) {
         return;
     }
 
-    managed_space_sip_safe_schedule_step(topology, 0.08);
+    managed_space_sip_fallback_schedule_step(topology, 0.08);
 }
 
-static void managed_space_sip_safe_observe_mission_control(struct managed_space_sip_safe *topology,
+static void managed_space_sip_fallback_observe_mission_control(struct managed_space_sip_fallback *topology,
                                                            pid_t dock_pid,
                                                            AXUIElementRef mission_control)
 {
     if (topology->ax_observer && topology->observed_dock_pid == dock_pid) return;
-    managed_space_sip_safe_stop_ax_observer(topology);
+    managed_space_sip_fallback_stop_ax_observer(topology);
 
     AXObserverRef observer = NULL;
-    if (AXObserverCreate(dock_pid, managed_space_sip_safe_ax_notification, &observer) != kAXErrorSuccess ||
+    if (AXObserverCreate(dock_pid, managed_space_sip_fallback_ax_notification, &observer) != kAXErrorSuccess ||
         !observer) {
         return;
     }
@@ -1580,7 +1580,7 @@ static void managed_space_sip_safe_observe_mission_control(struct managed_space_
     CFRunLoopAddSource(CFRunLoopGetMain(), AXObserverGetRunLoopSource(observer), kCFRunLoopCommonModes);
 }
 
-static AXUIElementRef managed_space_sip_safe_copy_ax_list_child(AXUIElementRef list, int index)
+static AXUIElementRef managed_space_sip_fallback_copy_ax_list_child(AXUIElementRef list, int index)
 {
     CFTypeRef value = NULL;
     if (AXUIElementCopyAttributeValue(list, kAXChildrenAttribute, &value) != kAXErrorSuccess || !value) {
@@ -1596,18 +1596,18 @@ static AXUIElementRef managed_space_sip_safe_copy_ax_list_child(AXUIElementRef l
     return result;
 }
 
-static AXUIElementRef managed_space_sip_safe_copy_ax_spaces_list(AXUIElementRef mission_control,
+static AXUIElementRef managed_space_sip_fallback_copy_ax_spaces_list(AXUIElementRef mission_control,
                                                                  uint32_t did)
 {
-    AXUIElementRef spaces = managed_space_sip_safe_copy_ax_spaces_group(mission_control, did);
+    AXUIElementRef spaces = managed_space_sip_fallback_copy_ax_spaces_group(mission_control, did);
     if (!spaces) return NULL;
 
-    AXUIElementRef list = managed_space_sip_safe_copy_ax_child(spaces, CFSTR("mc.spaces.list"));
+    AXUIElementRef list = managed_space_sip_fallback_copy_ax_child(spaces, CFSTR("mc.spaces.list"));
     CFRelease(spaces);
     return list;
 }
 
-static bool managed_space_sip_safe_ax_list_count(AXUIElementRef list, int *count)
+static bool managed_space_sip_fallback_ax_list_count(AXUIElementRef list, int *count)
 {
     *count = 0;
     if (!list) return false;
@@ -1625,19 +1625,19 @@ static bool managed_space_sip_safe_ax_list_count(AXUIElementRef list, int *count
     return true;
 }
 
-static bool managed_space_sip_safe_ax_space_count(AXUIElementRef mission_control,
+static bool managed_space_sip_fallback_ax_space_count(AXUIElementRef mission_control,
                                                    uint32_t did,
                                                    int *count)
 {
-    AXUIElementRef list = managed_space_sip_safe_copy_ax_spaces_list(mission_control, did);
+    AXUIElementRef list = managed_space_sip_fallback_copy_ax_spaces_list(mission_control, did);
     if (!list) return false;
 
-    bool result = managed_space_sip_safe_ax_list_count(list, count);
+    bool result = managed_space_sip_fallback_ax_list_count(list, count);
     CFRelease(list);
     return result;
 }
 
-static bool managed_space_sip_safe_ax_frame(AXUIElementRef element, CGRect *frame)
+static bool managed_space_sip_fallback_ax_frame(AXUIElementRef element, CGRect *frame)
 {
     CFTypeRef value = NULL;
     if (AXUIElementCopyAttributeValue(element, CFSTR("AXFrame"), &value) != kAXErrorSuccess || !value) {
@@ -1651,7 +1651,7 @@ static bool managed_space_sip_safe_ax_frame(AXUIElementRef element, CGRect *fram
     return result;
 }
 
-static void managed_space_sip_safe_post_mouse_event(CGEventType type, CGPoint point)
+static void managed_space_sip_fallback_post_mouse_event(CGEventType type, CGPoint point)
 {
     CGMouseButton button = kCGMouseButtonLeft;
     CGEventRef event = CGEventCreateMouseEvent(NULL, type, point, button);
@@ -1662,7 +1662,7 @@ static void managed_space_sip_safe_post_mouse_event(CGEventType type, CGPoint po
     CFRelease(event);
 }
 
-static bool managed_space_sip_safe_visible_intersection(CGRect frame,
+static bool managed_space_sip_fallback_visible_intersection(CGRect frame,
                                                         CGRect display_frame,
                                                         CGRect *visible_frame)
 {
@@ -1672,7 +1672,7 @@ static bool managed_space_sip_safe_visible_intersection(CGRect frame,
     return true;
 }
 
-static CGPoint managed_space_sip_safe_current_mouse_location(CGPoint fallback)
+static CGPoint managed_space_sip_fallback_current_mouse_location(CGPoint fallback)
 {
     CGEventRef current_event = CGEventCreate(NULL);
     CGPoint original = current_event ? CGEventGetLocation(current_event) : fallback;
@@ -1680,7 +1680,7 @@ static CGPoint managed_space_sip_safe_current_mouse_location(CGPoint fallback)
     return original;
 }
 
-static void managed_space_sip_safe_drag_segment(CGPoint source,
+static void managed_space_sip_fallback_drag_segment(CGPoint source,
                                                 CGPoint destination,
                                                 int step_count)
 {
@@ -1690,54 +1690,54 @@ static void managed_space_sip_safe_drag_segment(CGPoint source,
             .x = source.x + (destination.x - source.x) * progress,
             .y = source.y + (destination.y - source.y) * progress
         };
-        managed_space_sip_safe_post_mouse_event(kCGEventLeftMouseDragged, point);
+        managed_space_sip_fallback_post_mouse_event(kCGEventLeftMouseDragged, point);
         usleep(MANAGED_SPACE_TOPOLOGY_DRAG_STEP_DELAY_US);
     }
 }
 
-static void managed_space_sip_safe_begin_drag(CGPoint source)
+static void managed_space_sip_fallback_begin_drag(CGPoint source)
 {
-    managed_space_sip_safe_post_mouse_event(kCGEventMouseMoved, source);
+    managed_space_sip_fallback_post_mouse_event(kCGEventMouseMoved, source);
     usleep(MANAGED_SPACE_TOPOLOGY_DRAG_INITIAL_DELAY_US);
-    managed_space_sip_safe_post_mouse_event(kCGEventLeftMouseDown, source);
+    managed_space_sip_fallback_post_mouse_event(kCGEventLeftMouseDown, source);
     usleep(MANAGED_SPACE_TOPOLOGY_DRAG_HOLD_DELAY_US);
 }
 
-static void managed_space_sip_safe_end_drag(CGPoint destination, CGPoint original)
+static void managed_space_sip_fallback_end_drag(CGPoint destination, CGPoint original)
 {
     usleep(MANAGED_SPACE_TOPOLOGY_DRAG_DROP_DELAY_US);
-    managed_space_sip_safe_post_mouse_event(kCGEventLeftMouseUp, destination);
+    managed_space_sip_fallback_post_mouse_event(kCGEventLeftMouseUp, destination);
     usleep(MANAGED_SPACE_TOPOLOGY_DRAG_RELEASE_DELAY_US);
-    managed_space_sip_safe_post_mouse_event(kCGEventMouseMoved, original);
+    managed_space_sip_fallback_post_mouse_event(kCGEventMouseMoved, original);
 }
 
-static void managed_space_sip_safe_drag(CGPoint source, CGPoint destination)
+static void managed_space_sip_fallback_drag(CGPoint source, CGPoint destination)
 {
-    CGPoint original = managed_space_sip_safe_current_mouse_location(source);
-    managed_space_sip_safe_begin_drag(source);
-    managed_space_sip_safe_drag_segment(source, destination, 12);
-    managed_space_sip_safe_end_drag(destination, original);
+    CGPoint original = managed_space_sip_fallback_current_mouse_location(source);
+    managed_space_sip_fallback_begin_drag(source);
+    managed_space_sip_fallback_drag_segment(source, destination, 12);
+    managed_space_sip_fallback_end_drag(destination, original);
 }
 
-static bool managed_space_sip_safe_drag_to_ax_target(CGPoint source,
+static bool managed_space_sip_fallback_drag_to_ax_target(CGPoint source,
                                                      CGPoint target_hover,
                                                      AXUIElementRef target,
                                                      CGRect target_display_frame,
                                                      CGRect *destination_frame)
 {
-    CGPoint original = managed_space_sip_safe_current_mouse_location(source);
-    managed_space_sip_safe_begin_drag(source);
-    managed_space_sip_safe_drag_segment(source, target_hover, 12);
+    CGPoint original = managed_space_sip_fallback_current_mouse_location(source);
+    managed_space_sip_fallback_begin_drag(source);
+    managed_space_sip_fallback_drag_segment(source, target_hover, 12);
     usleep((useconds_t) (MANAGED_SPACE_TOPOLOGY_SPACES_BAR_DELAY_SECONDS * 1000000.0));
 
     CGRect refreshed_frame;
-    bool target_visible = managed_space_sip_safe_ax_frame(target, &refreshed_frame) &&
-                          managed_space_sip_safe_visible_intersection(refreshed_frame,
+    bool target_visible = managed_space_sip_fallback_ax_frame(target, &refreshed_frame) &&
+                          managed_space_sip_fallback_visible_intersection(refreshed_frame,
                                                                      target_display_frame,
                                                                      NULL);
     if (!target_visible) {
-        managed_space_sip_safe_drag_segment(target_hover, source, 12);
-        managed_space_sip_safe_end_drag(source, original);
+        managed_space_sip_fallback_drag_segment(target_hover, source, 12);
+        managed_space_sip_fallback_end_drag(source, original);
         return false;
     }
 
@@ -1745,21 +1745,21 @@ static bool managed_space_sip_safe_drag_to_ax_target(CGPoint source,
         CGRectGetMidX(refreshed_frame),
         CGRectGetMidY(refreshed_frame)
     };
-    managed_space_sip_safe_drag_segment(target_hover, destination, 6);
-    managed_space_sip_safe_end_drag(destination, original);
+    managed_space_sip_fallback_drag_segment(target_hover, destination, 6);
+    managed_space_sip_fallback_end_drag(destination, original);
     if (destination_frame) *destination_frame = refreshed_frame;
     return true;
 }
 
-static enum managed_space_sip_safe_ax_result
-managed_space_sip_safe_capture_ax_precondition(struct managed_space_sip_safe *topology,
+static enum managed_space_sip_fallback_ax_result
+managed_space_sip_fallback_capture_ax_precondition(struct managed_space_sip_fallback *topology,
                                                AXUIElementRef mission_control)
 {
-    struct managed_space_sip_safe_request *request = &topology->current;
+    struct managed_space_sip_fallback_request *request = &topology->current;
     if (request->ax_precondition_observed) return MANAGED_SPACE_TOPOLOGY_AX_STARTED;
 
     int target_ax_count = 0;
-    if (!managed_space_sip_safe_ax_space_count(mission_control,
+    if (!managed_space_sip_fallback_ax_space_count(mission_control,
                                                request->target_did,
                                                &target_ax_count)) {
         return MANAGED_SPACE_TOPOLOGY_AX_WAITING;
@@ -1774,7 +1774,7 @@ managed_space_sip_safe_capture_ax_precondition(struct managed_space_sip_safe *to
                                      target_ax_count == target_sls_count;
     if (target_sls_count != request->pre_target_count ||
         target_ax_count != target_sls_count) {
-        debug("managed_space_sip_safe_capture_ax_precondition: display %u "
+        debug("managed_space_sip_fallback_capture_ax_precondition: display %u "
               "snapshot=%d sls=%d ax=%d\n",
               request->target_did,
               request->pre_target_count,
@@ -1792,7 +1792,7 @@ managed_space_sip_safe_capture_ax_precondition(struct managed_space_sip_safe *to
     if (request->operation == MANAGED_SPACE_TOPOLOGY_OPERATION_MOVE_DISPLAY &&
         request->source_did != request->target_did) {
         int source_ax_count = 0;
-        if (!managed_space_sip_safe_ax_space_count(mission_control,
+        if (!managed_space_sip_fallback_ax_space_count(mission_control,
                                                    request->source_did,
                                                    &source_ax_count)) {
             return MANAGED_SPACE_TOPOLOGY_AX_WAITING;
@@ -1807,7 +1807,7 @@ managed_space_sip_safe_capture_ax_precondition(struct managed_space_sip_safe *to
                                          source_ax_count == source_sls_count;
         if (source_sls_count != request->pre_source_count ||
             source_ax_count != source_sls_count) {
-            debug("managed_space_sip_safe_capture_ax_precondition: display %u "
+            debug("managed_space_sip_fallback_capture_ax_precondition: display %u "
                   "snapshot=%d sls=%d ax=%d\n",
                   request->source_did,
                   request->pre_source_count,
@@ -1829,7 +1829,7 @@ managed_space_sip_safe_capture_ax_precondition(struct managed_space_sip_safe *to
     return MANAGED_SPACE_TOPOLOGY_AX_STARTED;
 }
 
-static void managed_space_sip_safe_resolve_created_sid(struct managed_space_sip_safe_request *request)
+static void managed_space_sip_fallback_resolve_created_sid(struct managed_space_sip_fallback_request *request)
 {
     if (request->created_sid || request->operation != MANAGED_SPACE_TOPOLOGY_OPERATION_CREATE) return;
 
@@ -1839,7 +1839,7 @@ static void managed_space_sip_safe_resolve_created_sid(struct managed_space_sip_
     for (int i = 0; current_order && i < current_count; ++i) {
         uint64_t sid = current_order[i];
         if (!space_is_user(sid)) continue;
-        if (managed_space_sip_safe_snapshot_contains(request->pre_target_order,
+        if (managed_space_sip_fallback_snapshot_contains(request->pre_target_order,
                                                      request->pre_target_count,
                                                      sid)) {
             continue;
@@ -1851,17 +1851,17 @@ static void managed_space_sip_safe_resolve_created_sid(struct managed_space_sip_
     request->created_sid = candidate_sid;
 }
 
-static bool managed_space_sip_safe_observe_ax_postcondition(struct managed_space_sip_safe *topology,
+static bool managed_space_sip_fallback_observe_ax_postcondition(struct managed_space_sip_fallback *topology,
                                                             AXUIElementRef mission_control)
 {
-    struct managed_space_sip_safe_request *request = &topology->current;
+    struct managed_space_sip_fallback_request *request = &topology->current;
     if (!request->ax_precondition_observed) return false;
 
-    managed_space_sip_safe_resolve_created_sid(request);
-    if (!managed_space_sip_safe_request_is_satisfied(request)) return false;
+    managed_space_sip_fallback_resolve_created_sid(request);
+    if (!managed_space_sip_fallback_request_is_satisfied(request)) return false;
 
     int target_ax_count = 0;
-    if (!managed_space_sip_safe_ax_space_count(mission_control,
+    if (!managed_space_sip_fallback_ax_space_count(mission_control,
                                                request->target_did,
                                                &target_ax_count)) {
         return false;
@@ -1894,7 +1894,7 @@ static bool managed_space_sip_safe_observe_ax_postcondition(struct managed_space
         request->source_did != request->target_did) {
         int source_ax_count = 0;
         int expected_source_count = request->ax_source_count_before - 1;
-        if (!managed_space_sip_safe_ax_space_count(mission_control,
+        if (!managed_space_sip_fallback_ax_space_count(mission_control,
                                                    request->source_did,
                                                    &source_ax_count) ||
             source_ax_count != expected_source_count ||
@@ -1912,30 +1912,30 @@ static bool managed_space_sip_safe_observe_ax_postcondition(struct managed_space
     return true;
 }
 
-static bool managed_space_sip_safe_request_postcondition_satisfied(struct managed_space_sip_safe *topology)
+static bool managed_space_sip_fallback_request_postcondition_satisfied(struct managed_space_sip_fallback *topology)
 {
-    if (!managed_space_sip_safe_request_is_satisfied(&topology->current)) return false;
-    if (topology->current.backend == MANAGED_SPACE_SIP_SAFE_BACKEND_ACCESSIBILITY) {
+    if (!managed_space_sip_fallback_request_is_satisfied(&topology->current)) return false;
+    if (topology->current.backend == MANAGED_SPACE_SIP_FALLBACK_BACKEND_ACCESSIBILITY) {
         return topology->current.ax_postcondition_observed ||
                topology->current.dock_postcondition_observed;
     }
-    if (topology->current.backend == MANAGED_SPACE_SIP_SAFE_BACKEND_BRIDGE) {
+    if (topology->current.backend == MANAGED_SPACE_SIP_FALLBACK_BACKEND_BRIDGE) {
         return topology->current.dock_postcondition_observed;
     }
     return true;
 }
 
-static bool managed_space_sip_safe_ax_create(struct managed_space_sip_safe *topology, AXUIElementRef mission_control)
+static bool managed_space_sip_fallback_ax_create(struct managed_space_sip_fallback *topology, AXUIElementRef mission_control)
 {
-    AXUIElementRef spaces = managed_space_sip_safe_copy_ax_spaces_group(mission_control, topology->current.target_did);
+    AXUIElementRef spaces = managed_space_sip_fallback_copy_ax_spaces_group(mission_control, topology->current.target_did);
     if (!spaces) return false;
 
-    AXUIElementRef add = managed_space_sip_safe_copy_ax_child(spaces, CFSTR("mc.spaces.add"));
+    AXUIElementRef add = managed_space_sip_fallback_copy_ax_child(spaces, CFSTR("mc.spaces.add"));
     CFRelease(spaces);
     int space_count = topology->current.ax_target_count_before;
     if (!add) {
         if (space_count >= MANAGED_SPACE_TOPOLOGY_UI_SPACE_LIMIT) {
-            managed_space_sip_safe_record_space_limit(topology,
+            managed_space_sip_fallback_record_space_limit(topology,
                                                       topology->current.target_did,
                                                       space_count);
             snprintf(topology->operation_error,
@@ -1957,7 +1957,7 @@ static bool managed_space_sip_safe_ax_create(struct managed_space_sip_safe *topo
     CFRelease(add);
     if (result != kAXErrorSuccess) {
         if (!enabled && space_count >= MANAGED_SPACE_TOPOLOGY_UI_SPACE_LIMIT) {
-            managed_space_sip_safe_record_space_limit(topology,
+            managed_space_sip_fallback_record_space_limit(topology,
                                                       topology->current.target_did,
                                                       space_count);
             snprintf(topology->operation_error,
@@ -1969,26 +1969,26 @@ static bool managed_space_sip_safe_ax_create(struct managed_space_sip_safe *topo
     }
 
     topology->current.mutation_started = true;
-    topology->state = MANAGED_SPACE_SIP_SAFE_STATE_WAITING_FOR_EVENT;
+    topology->state = MANAGED_SPACE_SIP_FALLBACK_STATE_WAITING_FOR_EVENT;
     return true;
 }
 
-static bool managed_space_sip_safe_ax_destroy(struct managed_space_sip_safe *topology, AXUIElementRef mission_control)
+static bool managed_space_sip_fallback_ax_destroy(struct managed_space_sip_fallback *topology, AXUIElementRef mission_control)
 {
     uint32_t did = space_display_id(topology->current.sid);
     int count = 0;
     uint64_t *space_list = display_space_list(did, &count);
-    int index = managed_space_sip_safe_find_sid(space_list, count, topology->current.sid);
+    int index = managed_space_sip_fallback_find_sid(space_list, count, topology->current.sid);
     if (index < 0) return false;
 
-    AXUIElementRef spaces = managed_space_sip_safe_copy_ax_spaces_group(mission_control, did);
+    AXUIElementRef spaces = managed_space_sip_fallback_copy_ax_spaces_group(mission_control, did);
     if (!spaces) return false;
 
-    AXUIElementRef list = managed_space_sip_safe_copy_ax_child(spaces, CFSTR("mc.spaces.list"));
+    AXUIElementRef list = managed_space_sip_fallback_copy_ax_child(spaces, CFSTR("mc.spaces.list"));
     CFRelease(spaces);
     if (!list) return false;
 
-    AXUIElementRef child = managed_space_sip_safe_copy_ax_list_child(list, index);
+    AXUIElementRef child = managed_space_sip_fallback_copy_ax_list_child(list, index);
     CFRelease(list);
     if (!child) return false;
 
@@ -1997,13 +1997,13 @@ static bool managed_space_sip_safe_ax_destroy(struct managed_space_sip_safe *top
     if (result != kAXErrorSuccess) return false;
 
     topology->current.mutation_started = true;
-    topology->state = MANAGED_SPACE_SIP_SAFE_STATE_WAITING_FOR_EVENT;
+    topology->state = MANAGED_SPACE_SIP_FALLBACK_STATE_WAITING_FOR_EVENT;
     return true;
 }
 
-static bool managed_space_sip_safe_ax_reorder(struct managed_space_sip_safe *topology, AXUIElementRef mission_control)
+static bool managed_space_sip_fallback_ax_reorder(struct managed_space_sip_fallback *topology, AXUIElementRef mission_control)
 {
-    struct managed_space_sip_safe_request *request = &topology->current;
+    struct managed_space_sip_fallback_request *request = &topology->current;
     uint32_t did = space_display_id(request->sid);
     int space_count = 0;
     uint64_t *space_list = display_space_list(did, &space_count);
@@ -2025,25 +2025,25 @@ static bool managed_space_sip_safe_ax_reorder(struct managed_space_sip_safe *top
 
     if (mismatch_index < 0) {
         if (user_index != request->desired_order_count) return false;
-        topology->state = MANAGED_SPACE_SIP_SAFE_STATE_WAITING_FOR_SETTLE;
-        managed_space_sip_safe_schedule_step(topology, 0);
+        topology->state = MANAGED_SPACE_SIP_FALLBACK_STATE_WAITING_FOR_SETTLE;
+        managed_space_sip_fallback_schedule_step(topology, 0);
         return true;
     }
 
-    int source_index = managed_space_sip_safe_find_sid(space_list, space_count, request->desired_order[mismatch_index]);
+    int source_index = managed_space_sip_fallback_find_sid(space_list, space_count, request->desired_order[mismatch_index]);
     if (source_index < 0 || source_index == target_index) return false;
     if (++request->phase > request->desired_order_count + 1) return false;
 
-    AXUIElementRef spaces = managed_space_sip_safe_copy_ax_spaces_group(mission_control, did);
+    AXUIElementRef spaces = managed_space_sip_fallback_copy_ax_spaces_group(mission_control, did);
     if (!spaces) return false;
     CGRect spaces_frame;
-    bool have_spaces_frame = managed_space_sip_safe_ax_frame(spaces, &spaces_frame);
-    AXUIElementRef list = managed_space_sip_safe_copy_ax_child(spaces, CFSTR("mc.spaces.list"));
+    bool have_spaces_frame = managed_space_sip_fallback_ax_frame(spaces, &spaces_frame);
+    AXUIElementRef list = managed_space_sip_fallback_copy_ax_child(spaces, CFSTR("mc.spaces.list"));
     CFRelease(spaces);
     if (!list) return false;
 
-    AXUIElementRef source = managed_space_sip_safe_copy_ax_list_child(list, source_index);
-    AXUIElementRef target = managed_space_sip_safe_copy_ax_list_child(list, target_index);
+    AXUIElementRef source = managed_space_sip_fallback_copy_ax_list_child(list, source_index);
+    AXUIElementRef target = managed_space_sip_fallback_copy_ax_list_child(list, target_index);
     CFRelease(list);
     if (!source || !target) {
         if (source) CFRelease(source);
@@ -2053,8 +2053,8 @@ static bool managed_space_sip_safe_ax_reorder(struct managed_space_sip_safe *top
 
     CGRect source_frame;
     CGRect target_frame;
-    bool have_frames = managed_space_sip_safe_ax_frame(source, &source_frame) &&
-                       managed_space_sip_safe_ax_frame(target, &target_frame);
+    bool have_frames = managed_space_sip_fallback_ax_frame(source, &source_frame) &&
+                       managed_space_sip_fallback_ax_frame(target, &target_frame);
     CFRelease(source);
     CFRelease(target);
     if (!have_frames) return false;
@@ -2073,7 +2073,7 @@ static bool managed_space_sip_safe_ax_reorder(struct managed_space_sip_safe *top
 
         CGRect visible_spaces;
         if (!have_spaces_frame ||
-            !managed_space_sip_safe_visible_intersection(spaces_frame,
+            !managed_space_sip_fallback_visible_intersection(spaces_frame,
                                                          display_frame,
                                                          &visible_spaces)) {
             snprintf(topology->operation_error,
@@ -2088,9 +2088,9 @@ static bool managed_space_sip_safe_ax_reorder(struct managed_space_sip_safe *top
             CGRectGetMinY(visible_spaces) + CGRectGetHeight(visible_spaces) * 0.05
         };
         request->ax_spaces_bar_hovered = true;
-        managed_space_sip_safe_post_mouse_event(kCGEventMouseMoved, hover_point);
-        topology->state = MANAGED_SPACE_SIP_SAFE_STATE_WAITING_FOR_SETTLE;
-        managed_space_sip_safe_schedule_step(topology,
+        managed_space_sip_fallback_post_mouse_event(kCGEventMouseMoved, hover_point);
+        topology->state = MANAGED_SPACE_SIP_FALLBACK_STATE_WAITING_FOR_SETTLE;
+        managed_space_sip_fallback_schedule_step(topology,
                                              MANAGED_SPACE_TOPOLOGY_SPACES_BAR_DELAY_SECONDS);
         return true;
     }
@@ -2106,7 +2106,7 @@ static bool managed_space_sip_safe_ax_reorder(struct managed_space_sip_safe *top
         CGRectGetMidY(target_frame)
     };
 
-    debug("managed_space_sip_safe_ax_reorder: dragging space %llu from child %d "
+    debug("managed_space_sip_fallback_ax_reorder: dragging space %llu from child %d "
           "(%.1f, %.1f, %.1f, %.1f) to child %d (%.1f, %.1f, %.1f, %.1f), "
           "points (%.1f, %.1f) -> (%.1f, %.1f)\n",
           request->desired_order[mismatch_index],
@@ -2125,31 +2125,31 @@ static bool managed_space_sip_safe_ax_reorder(struct managed_space_sip_safe *top
           target_point.x,
           target_point.y);
 
-    managed_space_sip_safe_drag(source_point, target_point);
+    managed_space_sip_fallback_drag(source_point, target_point);
     request->mutation_started = true;
-    topology->state = MANAGED_SPACE_SIP_SAFE_STATE_WAITING_FOR_SETTLE;
-    managed_space_sip_safe_schedule_step(topology, MANAGED_SPACE_TOPOLOGY_SETTLE_DELAY_SECONDS);
-    managed_space_sip_safe_schedule_watchdog(topology);
+    topology->state = MANAGED_SPACE_SIP_FALLBACK_STATE_WAITING_FOR_SETTLE;
+    managed_space_sip_fallback_schedule_step(topology, MANAGED_SPACE_TOPOLOGY_SETTLE_DELAY_SECONDS);
+    managed_space_sip_fallback_schedule_watchdog(topology);
     return true;
 }
 
-static bool managed_space_sip_safe_ax_move_display(struct managed_space_sip_safe *topology, AXUIElementRef mission_control)
+static bool managed_space_sip_fallback_ax_move_display(struct managed_space_sip_fallback *topology, AXUIElementRef mission_control)
 {
-    struct managed_space_sip_safe_request *request = &topology->current;
+    struct managed_space_sip_fallback_request *request = &topology->current;
     if (space_display_id(request->sid) == request->target_did) {
-        topology->state = MANAGED_SPACE_SIP_SAFE_STATE_WAITING_FOR_SETTLE;
-        managed_space_sip_safe_schedule_step(topology, 0);
+        topology->state = MANAGED_SPACE_SIP_FALLBACK_STATE_WAITING_FOR_SETTLE;
+        managed_space_sip_fallback_schedule_step(topology, 0);
         return true;
     }
 
     uint32_t source_did = space_display_id(request->sid);
     int source_count = 0;
     uint64_t *source_space_list = display_space_list(source_did, &source_count);
-    int source_index = managed_space_sip_safe_find_sid(source_space_list, source_count, request->sid);
+    int source_index = managed_space_sip_fallback_find_sid(source_space_list, source_count, request->sid);
     if (source_index < 0) return false;
 
-    AXUIElementRef source_spaces = managed_space_sip_safe_copy_ax_spaces_group(mission_control, source_did);
-    AXUIElementRef target_spaces = managed_space_sip_safe_copy_ax_spaces_group(mission_control, request->target_did);
+    AXUIElementRef source_spaces = managed_space_sip_fallback_copy_ax_spaces_group(mission_control, source_did);
+    AXUIElementRef target_spaces = managed_space_sip_fallback_copy_ax_spaces_group(mission_control, request->target_did);
     if (!source_spaces || !target_spaces) {
         if (source_spaces) CFRelease(source_spaces);
         if (target_spaces) CFRelease(target_spaces);
@@ -2159,10 +2159,10 @@ static bool managed_space_sip_safe_ax_move_display(struct managed_space_sip_safe
     CGRect source_spaces_frame;
     CGRect target_spaces_frame;
     bool have_spaces_frames =
-        managed_space_sip_safe_ax_frame(source_spaces, &source_spaces_frame) &&
-        managed_space_sip_safe_ax_frame(target_spaces, &target_spaces_frame);
-    AXUIElementRef source_list = managed_space_sip_safe_copy_ax_child(source_spaces, CFSTR("mc.spaces.list"));
-    AXUIElementRef target_list = managed_space_sip_safe_copy_ax_child(target_spaces, CFSTR("mc.spaces.list"));
+        managed_space_sip_fallback_ax_frame(source_spaces, &source_spaces_frame) &&
+        managed_space_sip_fallback_ax_frame(target_spaces, &target_spaces_frame);
+    AXUIElementRef source_list = managed_space_sip_fallback_copy_ax_child(source_spaces, CFSTR("mc.spaces.list"));
+    AXUIElementRef target_list = managed_space_sip_fallback_copy_ax_child(target_spaces, CFSTR("mc.spaces.list"));
     CFRelease(source_spaces);
     CFRelease(target_spaces);
     if (!source_list || !target_list) {
@@ -2171,7 +2171,7 @@ static bool managed_space_sip_safe_ax_move_display(struct managed_space_sip_safe
         return false;
     }
 
-    AXUIElementRef source = managed_space_sip_safe_copy_ax_list_child(source_list, source_index);
+    AXUIElementRef source = managed_space_sip_fallback_copy_ax_list_child(source_list, source_index);
     CFRelease(source_list);
     if (!source) {
         CFRelease(target_list);
@@ -2187,7 +2187,7 @@ static bool managed_space_sip_safe_ax_move_display(struct managed_space_sip_safe
         break;
     }
     AXUIElementRef target = target_index >= 0
-        ? managed_space_sip_safe_copy_ax_list_child(target_list, target_index)
+        ? managed_space_sip_fallback_copy_ax_list_child(target_list, target_index)
         : NULL;
     CFRelease(target_list);
     if (!target) {
@@ -2197,8 +2197,8 @@ static bool managed_space_sip_safe_ax_move_display(struct managed_space_sip_safe
 
     CGRect source_frame;
     CGRect target_frame;
-    bool have_frames = managed_space_sip_safe_ax_frame(source, &source_frame) &&
-                       managed_space_sip_safe_ax_frame(target, &target_frame);
+    bool have_frames = managed_space_sip_fallback_ax_frame(source, &source_frame) &&
+                       managed_space_sip_fallback_ax_frame(target, &target_frame);
     CFRelease(source);
     if (!have_frames) {
         CFRelease(target);
@@ -2206,11 +2206,11 @@ static bool managed_space_sip_safe_ax_move_display(struct managed_space_sip_safe
     }
 
     CGRect source_display_frame = CGDisplayBounds(source_did);
-    if (!managed_space_sip_safe_visible_intersection(source_frame,
+    if (!managed_space_sip_fallback_visible_intersection(source_frame,
                                                      source_display_frame,
                                                      NULL)) {
         if (request->ax_spaces_bar_hovered) {
-            debug("managed_space_sip_safe_ax_move_display: source space %llu frame "
+            debug("managed_space_sip_fallback_ax_move_display: source space %llu frame "
                   "(%.1f, %.1f, %.1f, %.1f) did not expand on display %u\n",
                   request->sid,
                   source_frame.origin.x,
@@ -2228,7 +2228,7 @@ static bool managed_space_sip_safe_ax_move_display(struct managed_space_sip_safe
 
         CGRect visible_source_spaces;
         if (!have_spaces_frames ||
-            !managed_space_sip_safe_visible_intersection(source_spaces_frame,
+            !managed_space_sip_fallback_visible_intersection(source_spaces_frame,
                                                          source_display_frame,
                                                          &visible_source_spaces)) {
             snprintf(topology->operation_error,
@@ -2244,9 +2244,9 @@ static bool managed_space_sip_safe_ax_move_display(struct managed_space_sip_safe
             CGRectGetMinY(visible_source_spaces) + CGRectGetHeight(visible_source_spaces) * 0.05
         };
         request->ax_spaces_bar_hovered = true;
-        managed_space_sip_safe_post_mouse_event(kCGEventMouseMoved, hover_point);
-        topology->state = MANAGED_SPACE_SIP_SAFE_STATE_WAITING_FOR_SETTLE;
-        managed_space_sip_safe_schedule_step(topology,
+        managed_space_sip_fallback_post_mouse_event(kCGEventMouseMoved, hover_point);
+        topology->state = MANAGED_SPACE_SIP_FALLBACK_STATE_WAITING_FOR_SETTLE;
+        managed_space_sip_fallback_schedule_step(topology,
                                              MANAGED_SPACE_TOPOLOGY_SPACES_BAR_DELAY_SECONDS);
         CFRelease(target);
         return true;
@@ -2258,12 +2258,12 @@ static bool managed_space_sip_safe_ax_move_display(struct managed_space_sip_safe
     }
 
     CGRect target_display_frame = CGDisplayBounds(request->target_did);
-    bool target_frame_visible = managed_space_sip_safe_visible_intersection(target_frame,
+    bool target_frame_visible = managed_space_sip_fallback_visible_intersection(target_frame,
                                                                             target_display_frame,
                                                                             NULL);
     CGPoint source_point = { CGRectGetMidX(source_frame), CGRectGetMidY(source_frame) };
     CGPoint target_point = { CGRectGetMidX(target_frame), CGRectGetMidY(target_frame) };
-    debug("managed_space_sip_safe_ax_move_display: dragging space %llu from display %u "
+    debug("managed_space_sip_fallback_ax_move_display: dragging space %llu from display %u "
           "(%.1f, %.1f, %.1f, %.1f) to display %u "
           "(%.1f, %.1f, %.1f, %.1f), points (%.1f, %.1f) -> (%.1f, %.1f)\n",
           request->sid,
@@ -2284,11 +2284,11 @@ static bool managed_space_sip_safe_ax_move_display(struct managed_space_sip_safe
 
     bool dragged = target_frame_visible;
     if (target_frame_visible) {
-        managed_space_sip_safe_drag(source_point, target_point);
+        managed_space_sip_fallback_drag(source_point, target_point);
     } else {
         CGRect visible_target_spaces;
         if (!have_spaces_frames ||
-            !managed_space_sip_safe_visible_intersection(target_spaces_frame,
+            !managed_space_sip_fallback_visible_intersection(target_spaces_frame,
                                                          target_display_frame,
                                                          &visible_target_spaces)) {
             snprintf(topology->operation_error,
@@ -2303,13 +2303,13 @@ static bool managed_space_sip_safe_ax_move_display(struct managed_space_sip_safe
                     CGRectGetHeight(visible_target_spaces) * 0.05
             };
             CGRect refreshed_target_frame;
-            dragged = managed_space_sip_safe_drag_to_ax_target(source_point,
+            dragged = managed_space_sip_fallback_drag_to_ax_target(source_point,
                                                                 target_hover,
                                                                 target,
                                                                 target_display_frame,
                                                                 &refreshed_target_frame);
             if (dragged) {
-                debug("managed_space_sip_safe_ax_move_display: destination expanded "
+                debug("managed_space_sip_fallback_ax_move_display: destination expanded "
                       "to (%.1f, %.1f, %.1f, %.1f)\n",
                       refreshed_target_frame.origin.x,
                       refreshed_target_frame.origin.y,
@@ -2327,30 +2327,30 @@ static bool managed_space_sip_safe_ax_move_display(struct managed_space_sip_safe
     if (!dragged) return false;
 
     request->mutation_started = true;
-    topology->state = MANAGED_SPACE_SIP_SAFE_STATE_WAITING_FOR_SETTLE;
-    managed_space_sip_safe_schedule_step(topology, MANAGED_SPACE_TOPOLOGY_SETTLE_DELAY_SECONDS);
-    managed_space_sip_safe_schedule_watchdog(topology);
+    topology->state = MANAGED_SPACE_SIP_FALLBACK_STATE_WAITING_FOR_SETTLE;
+    managed_space_sip_fallback_schedule_step(topology, MANAGED_SPACE_TOPOLOGY_SETTLE_DELAY_SECONDS);
+    managed_space_sip_fallback_schedule_watchdog(topology);
     return true;
 }
 
-static enum managed_space_sip_safe_ax_result
-managed_space_sip_safe_execute_accessibility(struct managed_space_sip_safe *topology)
+static enum managed_space_sip_fallback_ax_result
+managed_space_sip_fallback_execute_accessibility(struct managed_space_sip_fallback *topology)
 {
     if (!topology->current.mutation_started &&
-        managed_space_sip_safe_request_is_satisfied(&topology->current)) {
-        if (managed_space_sip_safe_observe_persisted_postcondition(topology)) {
+        managed_space_sip_fallback_request_is_satisfied(&topology->current)) {
+        if (managed_space_sip_fallback_observe_persisted_postcondition(topology)) {
             return MANAGED_SPACE_TOPOLOGY_AX_STARTED;
         }
         if (!topology->current.readiness_retry_scheduled) {
             topology->current.readiness_retry_scheduled = true;
-            managed_space_sip_safe_schedule_step(topology,
+            managed_space_sip_fallback_schedule_step(topology,
                                                  MANAGED_SPACE_TOPOLOGY_SETTLE_DELAY_SECONDS);
         }
         return MANAGED_SPACE_TOPOLOGY_AX_WAITING;
     }
 
     if (!topology->current.mutation_started &&
-        topology->current.precondition_hash != managed_space_sip_safe_snapshot_hash()) {
+        topology->current.precondition_hash != managed_space_sip_fallback_snapshot_hash()) {
         snprintf(topology->operation_error,
                  sizeof(topology->operation_error),
                  "%s",
@@ -2359,31 +2359,31 @@ managed_space_sip_safe_execute_accessibility(struct managed_space_sip_safe *topo
     }
 
     pid_t dock_pid = 0;
-    AXUIElementRef mission_control = managed_space_sip_safe_copy_mission_control(&dock_pid);
+    AXUIElementRef mission_control = managed_space_sip_fallback_copy_mission_control(&dock_pid);
     if (!mission_control) {
         if (!topology->current.readiness_retry_scheduled) {
             topology->current.readiness_retry_scheduled = true;
-            managed_space_sip_safe_schedule_step(topology,
+            managed_space_sip_fallback_schedule_step(topology,
                                                  MANAGED_SPACE_TOPOLOGY_SETTLE_DELAY_SECONDS);
         }
         return MANAGED_SPACE_TOPOLOGY_AX_WAITING;
     }
-    managed_space_sip_safe_observe_mission_control(topology, dock_pid, mission_control);
+    managed_space_sip_fallback_observe_mission_control(topology, dock_pid, mission_control);
 
-    enum managed_space_sip_safe_ax_result precondition_result =
-        managed_space_sip_safe_capture_ax_precondition(topology, mission_control);
+    enum managed_space_sip_fallback_ax_result precondition_result =
+        managed_space_sip_fallback_capture_ax_precondition(topology, mission_control);
     if (precondition_result != MANAGED_SPACE_TOPOLOGY_AX_STARTED) {
         CFRelease(mission_control);
         if (precondition_result == MANAGED_SPACE_TOPOLOGY_AX_WAITING &&
             !topology->current.readiness_retry_scheduled) {
             topology->current.readiness_retry_scheduled = true;
-            managed_space_sip_safe_schedule_step(topology,
+            managed_space_sip_fallback_schedule_step(topology,
                                                  MANAGED_SPACE_TOPOLOGY_SETTLE_DELAY_SECONDS);
         }
         return precondition_result;
     }
 
-    if (managed_space_sip_safe_observe_ax_postcondition(topology, mission_control)) {
+    if (managed_space_sip_fallback_observe_ax_postcondition(topology, mission_control)) {
         CFRelease(mission_control);
         return MANAGED_SPACE_TOPOLOGY_AX_STARTED;
     }
@@ -2398,17 +2398,17 @@ managed_space_sip_safe_execute_accessibility(struct managed_space_sip_safe *topo
     bool result = false;
     switch (topology->current.operation) {
     case MANAGED_SPACE_TOPOLOGY_OPERATION_CREATE:
-        result = managed_space_sip_safe_ax_create(topology, mission_control);
+        result = managed_space_sip_fallback_ax_create(topology, mission_control);
         break;
     case MANAGED_SPACE_TOPOLOGY_OPERATION_DESTROY:
-        result = managed_space_sip_safe_ax_destroy(topology, mission_control);
+        result = managed_space_sip_fallback_ax_destroy(topology, mission_control);
         break;
     case MANAGED_SPACE_TOPOLOGY_OPERATION_REORDER:
     case MANAGED_SPACE_TOPOLOGY_OPERATION_SWAP:
-        result = managed_space_sip_safe_ax_reorder(topology, mission_control);
+        result = managed_space_sip_fallback_ax_reorder(topology, mission_control);
         break;
     case MANAGED_SPACE_TOPOLOGY_OPERATION_MOVE_DISPLAY:
-        result = managed_space_sip_safe_ax_move_display(topology, mission_control);
+        result = managed_space_sip_fallback_ax_move_display(topology, mission_control);
         break;
     case MANAGED_SPACE_TOPOLOGY_OPERATION_NONE:
         break;
@@ -2420,13 +2420,13 @@ managed_space_sip_safe_execute_accessibility(struct managed_space_sip_safe *topo
 
     if (!topology->current.readiness_retry_scheduled) {
         topology->current.readiness_retry_scheduled = true;
-        managed_space_sip_safe_schedule_step(topology,
+        managed_space_sip_fallback_schedule_step(topology,
                                              MANAGED_SPACE_TOPOLOGY_SETTLE_DELAY_SECONDS);
     }
     return MANAGED_SPACE_TOPOLOGY_AX_WAITING;
 }
 
-static uint64_t managed_space_sip_safe_other_user_space(uint32_t did, uint64_t sid)
+static uint64_t managed_space_sip_fallback_other_user_space(uint32_t did, uint64_t sid)
 {
     int count = 0;
     uint64_t *space_list = display_space_list(did, &count);
@@ -2439,34 +2439,34 @@ static uint64_t managed_space_sip_safe_other_user_space(uint32_t did, uint64_t s
     return 0;
 }
 
-static bool managed_space_sip_safe_ax_activate_space(uint64_t sid)
+static bool managed_space_sip_fallback_ax_activate_space(uint64_t sid)
 {
     uint32_t did = space_display_id(sid);
     int space_count = 0;
     uint64_t *space_list = display_space_list(did, &space_count);
-    int index = managed_space_sip_safe_find_sid(space_list, space_count, sid);
+    int index = managed_space_sip_fallback_find_sid(space_list, space_count, sid);
     if (!did || index < 0) return false;
 
     pid_t dock_pid = 0;
-    AXUIElementRef mission_control = managed_space_sip_safe_copy_mission_control(&dock_pid);
+    AXUIElementRef mission_control = managed_space_sip_fallback_copy_mission_control(&dock_pid);
     if (!mission_control) return false;
 
-    AXUIElementRef list = managed_space_sip_safe_copy_ax_spaces_list(mission_control, did);
+    AXUIElementRef list = managed_space_sip_fallback_copy_ax_spaces_list(mission_control, did);
     CFRelease(mission_control);
     if (!list) return false;
 
     int ax_count = 0;
-    bool count_matches = managed_space_sip_safe_ax_list_count(list, &ax_count) &&
+    bool count_matches = managed_space_sip_fallback_ax_list_count(list, &ax_count) &&
                          ax_count == space_count;
     AXUIElementRef child = count_matches
-        ? managed_space_sip_safe_copy_ax_list_child(list, index)
+        ? managed_space_sip_fallback_copy_ax_list_child(list, index)
         : NULL;
     CFRelease(list);
     if (!child) return false;
 
     AXError result = AXUIElementPerformAction(child, kAXPressAction);
     CFRelease(child);
-    debug("managed_space_sip_safe_ax_activate_space: activating space %llu on "
+    debug("managed_space_sip_fallback_ax_activate_space: activating space %llu on "
           "display %u through AXPress returned %d\n",
           sid,
           did,
@@ -2474,13 +2474,13 @@ static bool managed_space_sip_safe_ax_activate_space(uint64_t sid)
     return result == kAXErrorSuccess;
 }
 
-static void managed_space_sip_safe_start_accessibility(struct managed_space_sip_safe *topology)
+static void managed_space_sip_fallback_start_accessibility(struct managed_space_sip_fallback *topology)
 {
     if (!topology->current.mutation_started &&
-        managed_space_sip_safe_request_is_satisfied(&topology->current)) {
-        topology->state = MANAGED_SPACE_SIP_SAFE_STATE_WAITING_FOR_SETTLE;
-        managed_space_sip_safe_schedule_step(topology, 0);
-        managed_space_sip_safe_schedule_watchdog(topology);
+        managed_space_sip_fallback_request_is_satisfied(&topology->current)) {
+        topology->state = MANAGED_SPACE_SIP_FALLBACK_STATE_WAITING_FOR_SETTLE;
+        managed_space_sip_fallback_schedule_step(topology, 0);
+        managed_space_sip_fallback_schedule_watchdog(topology);
         return;
     }
 
@@ -2493,17 +2493,17 @@ static void managed_space_sip_safe_start_accessibility(struct managed_space_sip_
         }
 
         if (topology->owns_mission_control &&
-            (mission_control_is_active() || managed_space_sip_safe_mission_control_ui_exists())) {
-            managed_space_sip_safe_schedule_owned_mission_control_deactivation(topology);
+            (mission_control_is_active() || managed_space_sip_fallback_mission_control_ui_exists())) {
+            managed_space_sip_fallback_schedule_owned_mission_control_deactivation(topology);
             return;
         }
 
-        uint64_t focus_sid = managed_space_sip_safe_other_user_space(topology->current.target_did,
+        uint64_t focus_sid = managed_space_sip_fallback_other_user_space(topology->current.target_did,
                                                                      topology->current.sid);
         enum space_op_error result = focus_sid
             ? space_manager_focus_space(focus_sid)
             : SPACE_OP_ERROR_MISSING_DST;
-        debug("managed_space_sip_safe_start_accessibility: focusing %llu before "
+        debug("managed_space_sip_fallback_start_accessibility: focusing %llu before "
               "destroying active space %llu returned %d\n",
               focus_sid,
               topology->current.sid,
@@ -2512,71 +2512,71 @@ static void managed_space_sip_safe_start_accessibility(struct managed_space_sip_
              result == SPACE_OP_ERROR_IN_MISSION_CONTROL) &&
             !topology->current.readiness_retry_scheduled) {
             topology->current.readiness_retry_scheduled = true;
-            topology->state = MANAGED_SPACE_SIP_SAFE_STATE_QUEUED;
-            managed_space_sip_safe_schedule_step(topology,
+            topology->state = MANAGED_SPACE_SIP_FALLBACK_STATE_QUEUED;
+            managed_space_sip_fallback_schedule_step(topology,
                                                  MANAGED_SPACE_TOPOLOGY_SETTLE_DELAY_SECONDS);
-            managed_space_sip_safe_schedule_watchdog(topology);
+            managed_space_sip_fallback_schedule_watchdog(topology);
             return;
         }
         if (result != SPACE_OP_ERROR_SUCCESS && result != SPACE_OP_ERROR_SAME_SPACE) {
-            if (managed_space_sip_safe_request_is_satisfied(&topology->current)) {
-                topology->state = MANAGED_SPACE_SIP_SAFE_STATE_WAITING_FOR_SETTLE;
-                managed_space_sip_safe_schedule_step(topology, 0);
-                managed_space_sip_safe_schedule_watchdog(topology);
+            if (managed_space_sip_fallback_request_is_satisfied(&topology->current)) {
+                topology->state = MANAGED_SPACE_SIP_FALLBACK_STATE_WAITING_FOR_SETTLE;
+                managed_space_sip_fallback_schedule_step(topology, 0);
+                managed_space_sip_fallback_schedule_watchdog(topology);
                 return;
             }
-            managed_space_sip_safe_fail_current(topology,
+            managed_space_sip_fallback_fail_current(topology,
                                                 "could-not-deactivate-destroy-target");
             return;
         }
 
         topology->current.phase = 1;
-        topology->state = MANAGED_SPACE_SIP_SAFE_STATE_WAITING_FOR_ACCESSIBILITY;
-        managed_space_sip_safe_schedule_step(topology, MANAGED_SPACE_TOPOLOGY_SETTLE_DELAY_SECONDS);
-        managed_space_sip_safe_schedule_watchdog(topology);
+        topology->state = MANAGED_SPACE_SIP_FALLBACK_STATE_WAITING_FOR_ACCESSIBILITY;
+        managed_space_sip_fallback_schedule_step(topology, MANAGED_SPACE_TOPOLOGY_SETTLE_DELAY_SECONDS);
+        managed_space_sip_fallback_schedule_watchdog(topology);
         return;
     }
 
     bool mission_control_active = mission_control_is_active() ||
-                                  managed_space_sip_safe_mission_control_ui_exists();
+                                  managed_space_sip_fallback_mission_control_ui_exists();
     if (mission_control_active) {
-        topology->state = managed_space_sip_safe_accessibility_session_state(true,
+        topology->state = managed_space_sip_fallback_accessibility_session_state(true,
                                                                               topology->owns_mission_control);
         if (!topology->owns_mission_control) {
             return;
         }
 
-        managed_space_sip_safe_schedule_step(topology, MANAGED_SPACE_TOPOLOGY_MISSION_CONTROL_DELAY_SECONDS);
-        managed_space_sip_safe_schedule_watchdog(topology);
+        managed_space_sip_fallback_schedule_step(topology, MANAGED_SPACE_TOPOLOGY_MISSION_CONTROL_DELAY_SECONDS);
+        managed_space_sip_fallback_schedule_watchdog(topology);
         return;
     }
 
-    if (!managed_space_sip_safe_start_input_event_tap(topology)) {
-        managed_space_sip_safe_fail_current(topology, "input-event-tap-unavailable");
+    if (!managed_space_sip_fallback_start_input_event_tap(topology)) {
+        managed_space_sip_fallback_fail_current(topology, "input-event-tap-unavailable");
         return;
     }
 
     topology->owns_mission_control = true;
-    topology->state = managed_space_sip_safe_accessibility_session_state(false, true);
+    topology->state = managed_space_sip_fallback_accessibility_session_state(false, true);
     CoreDockSendNotification(CFSTR("com.apple.expose.awake"), 0);
-    managed_space_sip_safe_schedule_step(topology, MANAGED_SPACE_TOPOLOGY_MISSION_CONTROL_DELAY_SECONDS);
-    managed_space_sip_safe_schedule_watchdog(topology);
+    managed_space_sip_fallback_schedule_step(topology, MANAGED_SPACE_TOPOLOGY_MISSION_CONTROL_DELAY_SECONDS);
+    managed_space_sip_fallback_schedule_watchdog(topology);
 }
 
-static void managed_space_sip_safe_begin_current(struct managed_space_sip_safe *topology)
+static void managed_space_sip_fallback_begin_current(struct managed_space_sip_fallback *topology)
 {
     if (topology->current.operation == MANAGED_SPACE_TOPOLOGY_OPERATION_MOVE_DISPLAY &&
         topology->current.placeholder_required &&
         space_manager_is_space_last_user_space(topology->current.sid)) {
-        managed_space_sip_safe_fail_current(topology, "placeholder-create-failed");
+        managed_space_sip_fallback_fail_current(topology, "placeholder-create-failed");
         return;
     }
 
     if (topology->current.operation == MANAGED_SPACE_TOPOLOGY_OPERATION_MOVE_DISPLAY &&
-        topology->current.backend == MANAGED_SPACE_SIP_SAFE_BACKEND_ACCESSIBILITY) {
+        topology->current.backend == MANAGED_SPACE_SIP_FALLBACK_BACKEND_ACCESSIBILITY) {
         uint32_t source_did = space_display_id(topology->current.sid);
         bool source_is_active = display_space_id(source_did) == topology->current.sid;
-        debug("managed_space_sip_safe_begin_current: move-display generation=%llu "
+        debug("managed_space_sip_fallback_begin_current: move-display generation=%llu "
               "phase=%d sid=%llu source=%u current=%llu global=%llu "
               "focus=%d placeholder=%d\n",
               topology->current.generation,
@@ -2590,42 +2590,42 @@ static void managed_space_sip_safe_begin_current(struct managed_space_sip_safe *
 
         if (topology->current.phase == 0 && source_is_active) {
             if (topology->owns_mission_control &&
-                (mission_control_is_active() || managed_space_sip_safe_mission_control_ui_exists())) {
+                (mission_control_is_active() || managed_space_sip_fallback_mission_control_ui_exists())) {
                 topology->current.restore_focus_sid = space_manager_active_space();
-                managed_space_sip_safe_schedule_owned_mission_control_deactivation(topology);
+                managed_space_sip_fallback_schedule_owned_mission_control_deactivation(topology);
                 return;
             }
 
-            uint64_t focus_sid = managed_space_sip_safe_other_user_space(source_did,
+            uint64_t focus_sid = managed_space_sip_fallback_other_user_space(source_did,
                                                                          topology->current.sid);
             if (!focus_sid) {
-                managed_space_sip_safe_fail_current(topology, "could-not-deactivate-move-source");
+                managed_space_sip_fallback_fail_current(topology, "could-not-deactivate-move-source");
                 return;
             }
 
             topology->current.restore_focus_sid = space_manager_active_space();
             enum space_op_error result = space_manager_focus_space(focus_sid);
-            debug("managed_space_sip_safe_begin_current: deactivating move source "
+            debug("managed_space_sip_fallback_begin_current: deactivating move source "
                   "%llu through %llu returned %d\n",
                   topology->current.sid,
                   focus_sid,
                   result);
             if (result != SPACE_OP_ERROR_SUCCESS && result != SPACE_OP_ERROR_SAME_SPACE) {
-                managed_space_sip_safe_fail_current(topology, "could-not-deactivate-move-source");
+                managed_space_sip_fallback_fail_current(topology, "could-not-deactivate-move-source");
                 return;
             }
 
             topology->current.phase = 1;
-            topology->state = MANAGED_SPACE_SIP_SAFE_STATE_QUEUED;
-            managed_space_sip_safe_schedule_step(topology,
+            topology->state = MANAGED_SPACE_SIP_FALLBACK_STATE_QUEUED;
+            managed_space_sip_fallback_schedule_step(topology,
                                                  MANAGED_SPACE_TOPOLOGY_SETTLE_DELAY_SECONDS);
-            managed_space_sip_safe_schedule_watchdog(topology);
+            managed_space_sip_fallback_schedule_watchdog(topology);
             return;
         }
 
         if (topology->current.phase == 1) {
             if (source_is_active) {
-                managed_space_sip_safe_fail_current(topology, "could-not-deactivate-move-source");
+                managed_space_sip_fallback_fail_current(topology, "could-not-deactivate-move-source");
                 return;
             }
 
@@ -2634,73 +2634,73 @@ static void managed_space_sip_safe_begin_current(struct managed_space_sip_safe *
                 restore_sid &&
                 restore_sid != space_manager_active_space()) {
                 enum space_op_error result = space_manager_focus_space(restore_sid);
-                debug("managed_space_sip_safe_begin_current: restoring focus to %llu "
+                debug("managed_space_sip_fallback_begin_current: restoring focus to %llu "
                       "before move returned %d\n",
                       restore_sid,
                       result);
                 if (result != SPACE_OP_ERROR_SUCCESS && result != SPACE_OP_ERROR_SAME_SPACE) {
-                    managed_space_sip_safe_fail_current(topology, "could-not-restore-focus-before-move");
+                    managed_space_sip_fallback_fail_current(topology, "could-not-restore-focus-before-move");
                     return;
                 }
                 topology->current.restore_focus_sid = 0;
             }
 
             topology->current.phase = 2;
-            topology->state = MANAGED_SPACE_SIP_SAFE_STATE_QUEUED;
-            managed_space_sip_safe_schedule_step(topology,
+            topology->state = MANAGED_SPACE_SIP_FALLBACK_STATE_QUEUED;
+            managed_space_sip_fallback_schedule_step(topology,
                                                  MANAGED_SPACE_TOPOLOGY_SETTLE_DELAY_SECONDS);
-            managed_space_sip_safe_schedule_watchdog(topology);
+            managed_space_sip_fallback_schedule_watchdog(topology);
             return;
         }
 
         if (topology->current.phase == 2 && source_is_active) {
-            managed_space_sip_safe_fail_current(topology, "move-source-reactivated");
+            managed_space_sip_fallback_fail_current(topology, "move-source-reactivated");
             return;
         }
     }
 
-    if (managed_space_sip_safe_request_is_satisfied(&topology->current)) {
-        topology->state = MANAGED_SPACE_SIP_SAFE_STATE_WAITING_FOR_SETTLE;
-        managed_space_sip_safe_schedule_step(topology, 0);
-        managed_space_sip_safe_schedule_watchdog(topology);
+    if (managed_space_sip_fallback_request_is_satisfied(&topology->current)) {
+        topology->state = MANAGED_SPACE_SIP_FALLBACK_STATE_WAITING_FOR_SETTLE;
+        managed_space_sip_fallback_schedule_step(topology, 0);
+        managed_space_sip_fallback_schedule_watchdog(topology);
         return;
     }
 
-    if (topology->current.precondition_hash != managed_space_sip_safe_snapshot_hash()) {
-        managed_space_sip_safe_fail_current(topology, "stale-topology");
+    if (topology->current.precondition_hash != managed_space_sip_fallback_snapshot_hash()) {
+        managed_space_sip_fallback_fail_current(topology, "stale-topology");
         return;
     }
 
-    if ((mission_control_is_active() || managed_space_sip_safe_mission_control_ui_exists()) &&
+    if ((mission_control_is_active() || managed_space_sip_fallback_mission_control_ui_exists()) &&
         !topology->owns_mission_control) {
-        topology->state = MANAGED_SPACE_SIP_SAFE_STATE_WAITING_FOR_USER_MISSION_CONTROL;
-        managed_space_sip_safe_cancel_watchdog(topology);
+        topology->state = MANAGED_SPACE_SIP_FALLBACK_STATE_WAITING_FOR_USER_MISSION_CONTROL;
+        managed_space_sip_fallback_cancel_watchdog(topology);
         return;
     }
 
-    if (topology->current.backend == MANAGED_SPACE_SIP_SAFE_BACKEND_BRIDGE) {
-        if (!managed_space_sip_safe_execute_bridge(topology)) {
-            if (topology->policy == MANAGED_SPACE_SIP_SAFE_POLICY_AUTO &&
+    if (topology->current.backend == MANAGED_SPACE_SIP_FALLBACK_BACKEND_BRIDGE) {
+        if (!managed_space_sip_fallback_execute_bridge(topology)) {
+            if (topology->policy == MANAGED_SPACE_SIP_FALLBACK_POLICY_AUTO &&
                 !topology->current.mutation_started) {
-                topology->current.backend = MANAGED_SPACE_SIP_SAFE_BACKEND_ACCESSIBILITY;
-                topology->state = MANAGED_SPACE_SIP_SAFE_STATE_QUEUED;
-                managed_space_sip_safe_begin_current(topology);
+                topology->current.backend = MANAGED_SPACE_SIP_FALLBACK_BACKEND_ACCESSIBILITY;
+                topology->state = MANAGED_SPACE_SIP_FALLBACK_STATE_QUEUED;
+                managed_space_sip_fallback_begin_current(topology);
             } else {
-                managed_space_sip_safe_fail_current(topology, "bridge-operation-failed");
+                managed_space_sip_fallback_fail_current(topology, "bridge-operation-failed");
             }
         }
-    } else if (topology->current.backend == MANAGED_SPACE_SIP_SAFE_BACKEND_ACCESSIBILITY) {
+    } else if (topology->current.backend == MANAGED_SPACE_SIP_FALLBACK_BACKEND_ACCESSIBILITY) {
         if (!AXIsProcessTrusted()) {
-            managed_space_sip_safe_fail_current(topology, "accessibility-permission-missing");
+            managed_space_sip_fallback_fail_current(topology, "accessibility-permission-missing");
         } else {
-            managed_space_sip_safe_start_accessibility(topology);
+            managed_space_sip_fallback_start_accessibility(topology);
         }
     } else {
-        managed_space_sip_safe_fail_current(topology, "backend-unavailable");
+        managed_space_sip_fallback_fail_current(topology, "backend-unavailable");
     }
 }
 
-static void managed_space_sip_safe_start_next(struct managed_space_sip_safe *topology)
+static void managed_space_sip_fallback_start_next(struct managed_space_sip_fallback *topology)
 {
     if (topology->current.operation != MANAGED_SPACE_TOPOLOGY_OPERATION_NONE) return;
     if (buf_len(topology->queue) == 0) return;
@@ -2709,30 +2709,30 @@ static void managed_space_sip_safe_start_next(struct managed_space_sip_safe *top
     if (buf_len(topology->queue) > 1) {
         memmove(topology->queue,
                 topology->queue + 1,
-                sizeof(struct managed_space_sip_safe_request) * (buf_len(topology->queue) - 1));
+                sizeof(struct managed_space_sip_fallback_request) * (buf_len(topology->queue) - 1));
     }
     --buf__hdr(topology->queue)->len;
 
-    topology->current.precondition_hash = managed_space_sip_safe_snapshot_hash();
-    managed_space_sip_safe_copy_space_uuid(topology->current.sid, topology->current.sid_uuid);
-    managed_space_sip_safe_copy_space_uuid(topology->current.target_sid, topology->current.target_uuid);
-    managed_space_sip_safe_capture_request_snapshot(&topology->current);
+    topology->current.precondition_hash = managed_space_sip_fallback_snapshot_hash();
+    managed_space_sip_fallback_copy_space_uuid(topology->current.sid, topology->current.sid_uuid);
+    managed_space_sip_fallback_copy_space_uuid(topology->current.target_sid, topology->current.target_uuid);
+    managed_space_sip_fallback_capture_request_snapshot(&topology->current);
     if (topology->current.operation == MANAGED_SPACE_TOPOLOGY_OPERATION_MOVE_DISPLAY) {
         topology->current.focus_space = topology->current.sid == space_manager_active_space();
     }
     topology->operation_error[0] = '\0';
-    topology->state = MANAGED_SPACE_SIP_SAFE_STATE_QUEUED;
-    managed_space_sip_safe_begin_current(topology);
+    topology->state = MANAGED_SPACE_SIP_FALLBACK_STATE_QUEUED;
+    managed_space_sip_fallback_begin_current(topology);
 }
 
-static bool managed_space_sip_safe_event_matches(struct managed_space_sip_safe_request *request,
+static bool managed_space_sip_fallback_event_matches(struct managed_space_sip_fallback_request *request,
                                                  enum managed_space_topology_operation operation,
                                                  uint64_t sid)
 {
     if (request->operation != operation) return false;
     if (!request->mutation_started) return false;
     if (operation == MANAGED_SPACE_TOPOLOGY_OPERATION_CREATE) {
-        if (managed_space_sip_safe_snapshot_contains(request->pre_target_order,
+        if (managed_space_sip_fallback_snapshot_contains(request->pre_target_order,
                                                      request->pre_target_count,
                                                      sid)) {
             return false;
@@ -2743,20 +2743,20 @@ static bool managed_space_sip_safe_event_matches(struct managed_space_sip_safe_r
     return request->sid == sid;
 }
 
-static bool managed_space_sip_safe_created_space_matches_request(
-    struct managed_space_sip_safe_request *request,
+static bool managed_space_sip_fallback_created_space_matches_request(
+    struct managed_space_sip_fallback_request *request,
     uint64_t sid,
     uint32_t did,
     bool is_user)
 {
     return is_user &&
            did == request->target_did &&
-           managed_space_sip_safe_event_matches(request,
+           managed_space_sip_fallback_event_matches(request,
                                                 MANAGED_SPACE_TOPOLOGY_OPERATION_CREATE,
                                                 sid);
 }
 
-void managed_space_sip_safe_handle_space_created(struct managed_space_sip_safe *topology, uint64_t sid)
+void managed_space_sip_fallback_handle_space_created(struct managed_space_sip_fallback *topology, uint64_t sid)
 {
     if (!topology->enabled) return;
     if (topology->space_limit_reached) {
@@ -2764,36 +2764,36 @@ void managed_space_sip_safe_handle_space_created(struct managed_space_sip_safe *
         if (space_count >= MANAGED_SPACE_TOPOLOGY_UI_SPACE_LIMIT) {
             topology->space_limit_count = space_count;
         } else {
-            managed_space_sip_safe_note_configuration_changed(topology);
+            managed_space_sip_fallback_note_configuration_changed(topology);
         }
     }
 
-    if (!managed_space_sip_safe_created_space_matches_request(&topology->current,
+    if (!managed_space_sip_fallback_created_space_matches_request(&topology->current,
                                                               sid,
                                                               space_display_id(sid),
                                                               space_is_user(sid))) {
         if (topology->current.operation == MANAGED_SPACE_TOPOLOGY_OPERATION_NONE &&
             !topology->space_limit_reached) {
-            managed_space_sip_safe_note_configuration_changed(topology);
+            managed_space_sip_fallback_note_configuration_changed(topology);
         }
         return;
     }
     topology->current.created_sid = sid;
     topology->current.topology_event_observed = true;
-    managed_space_sip_safe_copy_space_uuid(sid, topology->current.sid_uuid);
-    if (!managed_space_sip_safe_request_is_satisfied(&topology->current)) return;
+    managed_space_sip_fallback_copy_space_uuid(sid, topology->current.sid_uuid);
+    if (!managed_space_sip_fallback_request_is_satisfied(&topology->current)) return;
 
-    if (topology->current.backend == MANAGED_SPACE_SIP_SAFE_BACKEND_ACCESSIBILITY ||
-        topology->current.backend == MANAGED_SPACE_SIP_SAFE_BACKEND_BRIDGE) {
-        topology->state = MANAGED_SPACE_SIP_SAFE_STATE_WAITING_FOR_SETTLE;
-        managed_space_sip_safe_schedule_step(topology,
+    if (topology->current.backend == MANAGED_SPACE_SIP_FALLBACK_BACKEND_ACCESSIBILITY ||
+        topology->current.backend == MANAGED_SPACE_SIP_FALLBACK_BACKEND_BRIDGE) {
+        topology->state = MANAGED_SPACE_SIP_FALLBACK_STATE_WAITING_FOR_SETTLE;
+        managed_space_sip_fallback_schedule_step(topology,
                                              MANAGED_SPACE_TOPOLOGY_SETTLE_DELAY_SECONDS);
     } else {
-        managed_space_sip_safe_complete_current(topology);
+        managed_space_sip_fallback_complete_current(topology);
     }
 }
 
-void managed_space_sip_safe_handle_space_destroyed(struct managed_space_sip_safe *topology, uint64_t sid)
+void managed_space_sip_fallback_handle_space_destroyed(struct managed_space_sip_fallback *topology, uint64_t sid)
 {
     if (!topology->enabled) return;
     if (topology->space_limit_reached) {
@@ -2801,48 +2801,48 @@ void managed_space_sip_safe_handle_space_destroyed(struct managed_space_sip_safe
         if (space_count >= MANAGED_SPACE_TOPOLOGY_UI_SPACE_LIMIT) {
             topology->space_limit_count = space_count;
         } else {
-            managed_space_sip_safe_note_configuration_changed(topology);
+            managed_space_sip_fallback_note_configuration_changed(topology);
         }
     }
 
-    if (!managed_space_sip_safe_event_matches(&topology->current,
+    if (!managed_space_sip_fallback_event_matches(&topology->current,
                                               MANAGED_SPACE_TOPOLOGY_OPERATION_DESTROY,
                                               sid)) {
         if (topology->current.operation == MANAGED_SPACE_TOPOLOGY_OPERATION_NONE &&
             !topology->space_limit_reached) {
-            managed_space_sip_safe_note_configuration_changed(topology);
+            managed_space_sip_fallback_note_configuration_changed(topology);
         }
         return;
     }
 
     topology->current.topology_event_observed = true;
-    if (topology->current.backend == MANAGED_SPACE_SIP_SAFE_BACKEND_ACCESSIBILITY ||
-        topology->current.backend == MANAGED_SPACE_SIP_SAFE_BACKEND_BRIDGE) {
-        topology->state = MANAGED_SPACE_SIP_SAFE_STATE_WAITING_FOR_SETTLE;
-        managed_space_sip_safe_schedule_step(topology,
+    if (topology->current.backend == MANAGED_SPACE_SIP_FALLBACK_BACKEND_ACCESSIBILITY ||
+        topology->current.backend == MANAGED_SPACE_SIP_FALLBACK_BACKEND_BRIDGE) {
+        topology->state = MANAGED_SPACE_SIP_FALLBACK_STATE_WAITING_FOR_SETTLE;
+        managed_space_sip_fallback_schedule_step(topology,
                                              MANAGED_SPACE_TOPOLOGY_SETTLE_DELAY_SECONDS);
     } else {
-        managed_space_sip_safe_complete_current(topology);
+        managed_space_sip_fallback_complete_current(topology);
     }
 }
 
-void managed_space_sip_safe_handle_mission_control_enter(struct managed_space_sip_safe *topology)
+void managed_space_sip_fallback_handle_mission_control_enter(struct managed_space_sip_fallback *topology)
 {
     if (!topology->enabled) return;
-    if (topology->state != MANAGED_SPACE_SIP_SAFE_STATE_WAITING_FOR_MISSION_CONTROL) return;
+    if (topology->state != MANAGED_SPACE_SIP_FALLBACK_STATE_WAITING_FOR_MISSION_CONTROL) return;
     if (!topology->owns_mission_control) return;
 
-    topology->state = MANAGED_SPACE_SIP_SAFE_STATE_WAITING_FOR_ACCESSIBILITY;
-    managed_space_sip_safe_schedule_step(topology, MANAGED_SPACE_TOPOLOGY_MISSION_CONTROL_DELAY_SECONDS);
+    topology->state = MANAGED_SPACE_SIP_FALLBACK_STATE_WAITING_FOR_ACCESSIBILITY;
+    managed_space_sip_fallback_schedule_step(topology, MANAGED_SPACE_TOPOLOGY_MISSION_CONTROL_DELAY_SECONDS);
 }
 
-void managed_space_sip_safe_handle_mission_control_exit(struct managed_space_sip_safe *topology)
+void managed_space_sip_fallback_handle_mission_control_exit(struct managed_space_sip_fallback *topology)
 {
     if (!topology->enabled) return;
     if (topology->current.operation != MANAGED_SPACE_TOPOLOGY_OPERATION_NONE &&
-        topology->current.backend == MANAGED_SPACE_SIP_SAFE_BACKEND_ACCESSIBILITY &&
+        topology->current.backend == MANAGED_SPACE_SIP_FALLBACK_BACKEND_ACCESSIBILITY &&
         !topology->current.ax_postcondition_observed) {
-        managed_space_sip_safe_observe_persisted_postcondition(topology);
+        managed_space_sip_fallback_observe_persisted_postcondition(topology);
     }
 
     bool space_limit_failure =
@@ -2851,81 +2851,81 @@ void managed_space_sip_safe_handle_mission_control_exit(struct managed_space_sip
     uint32_t space_limit_did = topology->current.target_did;
     int space_limit_count = topology->space_limit_count;
 
-    managed_space_sip_safe_stop_ax_observer(topology);
+    managed_space_sip_fallback_stop_ax_observer(topology);
     bool finish_batch = topology->finish_batch_requested;
     topology->finish_batch_requested = false;
-    managed_space_sip_safe_release_mission_control_ownership(topology);
-    managed_space_sip_safe_restore_pending_focus(topology);
+    managed_space_sip_fallback_release_mission_control_ownership(topology);
+    managed_space_sip_fallback_restore_pending_focus(topology);
 
     if ((topology->current.operation == MANAGED_SPACE_TOPOLOGY_OPERATION_MOVE_DISPLAY ||
          topology->current.operation == MANAGED_SPACE_TOPOLOGY_OPERATION_DESTROY) &&
-        topology->state == MANAGED_SPACE_SIP_SAFE_STATE_WAITING_FOR_MISSION_CONTROL_EXIT &&
+        topology->state == MANAGED_SPACE_SIP_FALLBACK_STATE_WAITING_FOR_MISSION_CONTROL_EXIT &&
         (topology->current.phase == MANAGED_SPACE_TOPOLOGY_PHASE_CLOSE_MISSION_CONTROL ||
          topology->current.phase == MANAGED_SPACE_TOPOLOGY_PHASE_DEACTIVATE_IN_MISSION_CONTROL ||
          topology->current.phase == 1)) {
         if (topology->current.phase != 1) {
             topology->current.phase = 0;
         }
-        topology->state = MANAGED_SPACE_SIP_SAFE_STATE_QUEUED;
-        managed_space_sip_safe_schedule_step(topology,
+        topology->state = MANAGED_SPACE_SIP_FALLBACK_STATE_QUEUED;
+        managed_space_sip_fallback_schedule_step(topology,
                                              MANAGED_SPACE_TOPOLOGY_MISSION_CONTROL_DELAY_SECONDS);
         return;
     }
 
-    if (topology->state == MANAGED_SPACE_SIP_SAFE_STATE_WAITING_FOR_USER_MISSION_CONTROL) {
-        topology->state = MANAGED_SPACE_SIP_SAFE_STATE_QUEUED;
-        managed_space_sip_safe_schedule_step(topology, MANAGED_SPACE_TOPOLOGY_MISSION_CONTROL_DELAY_SECONDS);
+    if (topology->state == MANAGED_SPACE_SIP_FALLBACK_STATE_WAITING_FOR_USER_MISSION_CONTROL) {
+        topology->state = MANAGED_SPACE_SIP_FALLBACK_STATE_QUEUED;
+        managed_space_sip_fallback_schedule_step(topology, MANAGED_SPACE_TOPOLOGY_MISSION_CONTROL_DELAY_SECONDS);
         return;
     }
 
     if (topology->current.operation != MANAGED_SPACE_TOPOLOGY_OPERATION_NONE &&
-        topology->current.backend == MANAGED_SPACE_SIP_SAFE_BACKEND_ACCESSIBILITY &&
-        managed_space_sip_safe_request_postcondition_satisfied(topology)) {
-        managed_space_sip_safe_complete_current(topology);
+        topology->current.backend == MANAGED_SPACE_SIP_FALLBACK_BACKEND_ACCESSIBILITY &&
+        managed_space_sip_fallback_request_postcondition_satisfied(topology)) {
+        managed_space_sip_fallback_complete_current(topology);
         return;
     }
 
     if (topology->current.operation != MANAGED_SPACE_TOPOLOGY_OPERATION_NONE &&
-        topology->state == MANAGED_SPACE_SIP_SAFE_STATE_WAITING_FOR_MISSION_CONTROL_EXIT) {
-        managed_space_sip_safe_fail_current(topology, "topology-postcondition-failed");
+        topology->state == MANAGED_SPACE_SIP_FALLBACK_STATE_WAITING_FOR_MISSION_CONTROL_EXIT) {
+        managed_space_sip_fallback_fail_current(topology, "topology-postcondition-failed");
         return;
     }
 
-    if (topology->state == MANAGED_SPACE_SIP_SAFE_STATE_FAILED || finish_batch) {
-        managed_space_sip_safe_discard_request(&topology->current);
-        topology->state = MANAGED_SPACE_SIP_SAFE_STATE_IDLE;
+    if (topology->state == MANAGED_SPACE_SIP_FALLBACK_STATE_FAILED || finish_batch) {
+        managed_space_sip_fallback_discard_request(&topology->current);
+        topology->state = MANAGED_SPACE_SIP_FALLBACK_STATE_IDLE;
         if (space_limit_failure) {
-            managed_space_sip_safe_record_space_limit(topology,
+            managed_space_sip_fallback_record_space_limit(topology,
                                                       space_limit_did,
                                                       space_limit_count);
         }
-        managed_space_sip_safe_start_next(topology);
+        managed_space_sip_fallback_start_next(topology);
         managed_space_request_reconcile(&g_managed_space);
         return;
     }
 
     if (topology->current.operation != MANAGED_SPACE_TOPOLOGY_OPERATION_NONE &&
-        topology->current.backend == MANAGED_SPACE_SIP_SAFE_BACKEND_ACCESSIBILITY) {
-        managed_space_sip_safe_fail_current(topology, "mission-control-exited");
+        topology->current.backend == MANAGED_SPACE_SIP_FALLBACK_BACKEND_ACCESSIBILITY) {
+        managed_space_sip_fallback_fail_current(topology, "mission-control-exited");
     }
 }
 
-void managed_space_sip_safe_handle_dock_restart(struct managed_space_sip_safe *topology)
+void managed_space_sip_fallback_handle_dock_restart(struct managed_space_sip_fallback *topology)
 {
     if (!topology->enabled) return;
-    managed_space_sip_safe_stop_ax_observer(topology);
-    managed_space_sip_safe_note_configuration_changed(topology);
+    managed_space_sip_fallback_stop_ax_observer(topology);
+    managed_space_sip_fallback_note_configuration_changed(topology);
     if (topology->current.operation == MANAGED_SPACE_TOPOLOGY_OPERATION_NONE) {
-        managed_space_sip_safe_release_mission_control_ownership(topology);
+        managed_space_sip_fallback_release_mission_control_ownership(topology);
         topology->finish_batch_requested = false;
-        topology->state = MANAGED_SPACE_SIP_SAFE_STATE_IDLE;
+        topology->state = MANAGED_SPACE_SIP_FALLBACK_STATE_IDLE;
         managed_space_request_reconcile(&g_managed_space);
         return;
     }
-    managed_space_sip_safe_fail_current(topology, "dock-restarted");
+    managed_space_sip_fallback_fail_current(topology, "dock-restarted");
 }
 
-void managed_space_sip_safe_note_input_event(struct managed_space_sip_safe *topology, CGEventRef event)
+void managed_space_sip_fallback_note_input_event(struct managed_space_sip_fallback *topology, CGEventRef event)
 {
     if (!topology->enabled) return;
     if (!topology->owns_mission_control) return;
@@ -2938,102 +2938,102 @@ void managed_space_sip_safe_note_input_event(struct managed_space_sip_safe *topo
                     0);
 }
 
-void managed_space_sip_safe_handle_user_interruption(struct managed_space_sip_safe *topology, uint64_t generation)
+void managed_space_sip_fallback_handle_user_interruption(struct managed_space_sip_fallback *topology, uint64_t generation)
 {
     if (!topology->enabled) return;
     if (!topology->owns_mission_control) return;
     if (topology->current.generation != generation) return;
 
-    managed_space_sip_safe_release_mission_control_ownership(topology);
+    managed_space_sip_fallback_release_mission_control_ownership(topology);
     topology->finish_batch_requested = false;
-    managed_space_sip_safe_stop_ax_observer(topology);
-    managed_space_sip_safe_fail_current(topology, "user-interrupted");
+    managed_space_sip_fallback_stop_ax_observer(topology);
+    managed_space_sip_fallback_fail_current(topology, "user-interrupted");
 }
 
-void managed_space_sip_safe_step(struct managed_space_sip_safe *topology, uint64_t token)
+void managed_space_sip_fallback_step(struct managed_space_sip_fallback *topology, uint64_t token)
 {
     if (!topology->enabled) return;
     if (topology->current.operation == MANAGED_SPACE_TOPOLOGY_OPERATION_NONE) return;
     if (token != topology->step_token) return;
     if (topology->current.generation != topology->step_generation) return;
 
-    if (topology->state == MANAGED_SPACE_SIP_SAFE_STATE_WAITING_FOR_MISSION_CONTROL_EXIT &&
+    if (topology->state == MANAGED_SPACE_SIP_FALLBACK_STATE_WAITING_FOR_MISSION_CONTROL_EXIT &&
         topology->current.phase == MANAGED_SPACE_TOPOLOGY_PHASE_DEACTIVATE_IN_MISSION_CONTROL) {
         uint32_t source_did = space_display_id(topology->current.sid);
-        uint64_t focus_sid = managed_space_sip_safe_other_user_space(source_did,
+        uint64_t focus_sid = managed_space_sip_fallback_other_user_space(source_did,
                                                                      topology->current.sid);
         if (!focus_sid) {
-            managed_space_sip_safe_fail_current(topology,
+            managed_space_sip_fallback_fail_current(topology,
                                                 "could-not-deactivate-topology-target");
             return;
         }
 
-        if (managed_space_sip_safe_ax_activate_space(focus_sid)) {
+        if (managed_space_sip_fallback_ax_activate_space(focus_sid)) {
             topology->current.phase = 1;
-            managed_space_sip_safe_schedule_step(
+            managed_space_sip_fallback_schedule_step(
                 topology,
                 MANAGED_SPACE_TOPOLOGY_SETTLE_DELAY_SECONDS);
-            managed_space_sip_safe_schedule_watchdog(topology);
+            managed_space_sip_fallback_schedule_watchdog(topology);
             return;
         }
 
-        managed_space_sip_safe_schedule_owned_mission_control_exit(topology);
+        managed_space_sip_fallback_schedule_owned_mission_control_exit(topology);
         return;
     }
 
-    if (topology->state == MANAGED_SPACE_SIP_SAFE_STATE_WAITING_FOR_MISSION_CONTROL_EXIT &&
+    if (topology->state == MANAGED_SPACE_SIP_FALLBACK_STATE_WAITING_FOR_MISSION_CONTROL_EXIT &&
         topology->current.phase == 1) {
         uint32_t source_did = space_display_id(topology->current.sid);
         if (display_space_id(source_did) == topology->current.sid) {
-            managed_space_sip_safe_schedule_owned_mission_control_exit(topology);
+            managed_space_sip_fallback_schedule_owned_mission_control_exit(topology);
             return;
         }
 
-        topology->state = MANAGED_SPACE_SIP_SAFE_STATE_QUEUED;
-        managed_space_sip_safe_begin_current(topology);
+        topology->state = MANAGED_SPACE_SIP_FALLBACK_STATE_QUEUED;
+        managed_space_sip_fallback_begin_current(topology);
         return;
     }
 
-    if (topology->state == MANAGED_SPACE_SIP_SAFE_STATE_WAITING_FOR_MISSION_CONTROL_EXIT &&
+    if (topology->state == MANAGED_SPACE_SIP_FALLBACK_STATE_WAITING_FOR_MISSION_CONTROL_EXIT &&
         topology->current.phase == MANAGED_SPACE_TOPOLOGY_PHASE_CLOSE_MISSION_CONTROL) {
         if (!mission_control_is_active() &&
-            !managed_space_sip_safe_mission_control_ui_exists()) {
-            managed_space_sip_safe_release_mission_control_ownership(topology);
+            !managed_space_sip_fallback_mission_control_ui_exists()) {
+            managed_space_sip_fallback_release_mission_control_ownership(topology);
             topology->current.phase = 0;
-            topology->state = MANAGED_SPACE_SIP_SAFE_STATE_QUEUED;
-            managed_space_sip_safe_schedule_step(
+            topology->state = MANAGED_SPACE_SIP_FALLBACK_STATE_QUEUED;
+            managed_space_sip_fallback_schedule_step(
                 topology,
                 MANAGED_SPACE_TOPOLOGY_MISSION_CONTROL_DELAY_SECONDS);
             return;
         }
 
-        managed_space_sip_safe_close_owned_mission_control(topology);
+        managed_space_sip_fallback_close_owned_mission_control(topology);
         return;
     }
 
-    if (topology->state == MANAGED_SPACE_SIP_SAFE_STATE_QUEUED) {
-        managed_space_sip_safe_begin_current(topology);
+    if (topology->state == MANAGED_SPACE_SIP_FALLBACK_STATE_QUEUED) {
+        managed_space_sip_fallback_begin_current(topology);
         return;
     }
 
-    if (topology->state == MANAGED_SPACE_SIP_SAFE_STATE_WAITING_FOR_MISSION_CONTROL) {
+    if (topology->state == MANAGED_SPACE_SIP_FALLBACK_STATE_WAITING_FOR_MISSION_CONTROL) {
         if (!topology->owns_mission_control) return;
-        if (!mission_control_is_active() && !managed_space_sip_safe_mission_control_ui_exists()) return;
-        topology->state = MANAGED_SPACE_SIP_SAFE_STATE_WAITING_FOR_ACCESSIBILITY;
+        if (!mission_control_is_active() && !managed_space_sip_fallback_mission_control_ui_exists()) return;
+        topology->state = MANAGED_SPACE_SIP_FALLBACK_STATE_WAITING_FOR_ACCESSIBILITY;
     }
 
-    if (topology->current.backend == MANAGED_SPACE_SIP_SAFE_BACKEND_BRIDGE) {
-        if (topology->state != MANAGED_SPACE_SIP_SAFE_STATE_WAITING_FOR_SETTLE) return;
-        if (topology->current.backend == MANAGED_SPACE_SIP_SAFE_BACKEND_BRIDGE &&
-            managed_space_sip_safe_request_is_satisfied(&topology->current)) {
-            managed_space_sip_safe_observe_persisted_postcondition(topology);
+    if (topology->current.backend == MANAGED_SPACE_SIP_FALLBACK_BACKEND_BRIDGE) {
+        if (topology->state != MANAGED_SPACE_SIP_FALLBACK_STATE_WAITING_FOR_SETTLE) return;
+        if (topology->current.backend == MANAGED_SPACE_SIP_FALLBACK_BACKEND_BRIDGE &&
+            managed_space_sip_fallback_request_is_satisfied(&topology->current)) {
+            managed_space_sip_fallback_observe_persisted_postcondition(topology);
         }
-        if (managed_space_sip_safe_request_is_satisfied(&topology->current)) {
-            if (managed_space_sip_safe_request_postcondition_satisfied(topology)) {
-                managed_space_sip_safe_complete_current(topology);
+        if (managed_space_sip_fallback_request_is_satisfied(&topology->current)) {
+            if (managed_space_sip_fallback_request_postcondition_satisfied(topology)) {
+                managed_space_sip_fallback_complete_current(topology);
             } else if (!topology->current.readiness_retry_scheduled) {
                 topology->current.readiness_retry_scheduled = true;
-                managed_space_sip_safe_schedule_step(
+                managed_space_sip_fallback_schedule_step(
                     topology,
                     MANAGED_SPACE_TOPOLOGY_SETTLE_DELAY_SECONDS);
             }
@@ -3041,111 +3041,111 @@ void managed_space_sip_safe_step(struct managed_space_sip_safe *topology, uint64
         return;
     }
 
-    if (topology->current.backend != MANAGED_SPACE_SIP_SAFE_BACKEND_ACCESSIBILITY) return;
+    if (topology->current.backend != MANAGED_SPACE_SIP_FALLBACK_BACKEND_ACCESSIBILITY) return;
 
-    if (topology->state != MANAGED_SPACE_SIP_SAFE_STATE_WAITING_FOR_ACCESSIBILITY &&
-        topology->state != MANAGED_SPACE_SIP_SAFE_STATE_WAITING_FOR_EVENT &&
-        topology->state != MANAGED_SPACE_SIP_SAFE_STATE_WAITING_FOR_SETTLE) return;
+    if (topology->state != MANAGED_SPACE_SIP_FALLBACK_STATE_WAITING_FOR_ACCESSIBILITY &&
+        topology->state != MANAGED_SPACE_SIP_FALLBACK_STATE_WAITING_FOR_EVENT &&
+        topology->state != MANAGED_SPACE_SIP_FALLBACK_STATE_WAITING_FOR_SETTLE) return;
 
     if (topology->current.operation == MANAGED_SPACE_TOPOLOGY_OPERATION_DESTROY &&
         topology->current.phase == 1 &&
         !mission_control_is_active()) {
         if (display_space_id(topology->current.target_did) == topology->current.sid) {
-            managed_space_sip_safe_fail_current(topology,
+            managed_space_sip_fallback_fail_current(topology,
                                                 "could-not-deactivate-destroy-target");
             return;
         }
-        managed_space_sip_safe_start_accessibility(topology);
+        managed_space_sip_fallback_start_accessibility(topology);
         return;
     }
 
     if (!topology->current.mutation_started) {
-        topology->state = MANAGED_SPACE_SIP_SAFE_STATE_WAITING_FOR_ACCESSIBILITY;
+        topology->state = MANAGED_SPACE_SIP_FALLBACK_STATE_WAITING_FOR_ACCESSIBILITY;
     }
-    enum managed_space_sip_safe_ax_result result =
-        managed_space_sip_safe_execute_accessibility(topology);
-    if (managed_space_sip_safe_request_postcondition_satisfied(topology)) {
-        managed_space_sip_safe_complete_current(topology);
+    enum managed_space_sip_fallback_ax_result result =
+        managed_space_sip_fallback_execute_accessibility(topology);
+    if (managed_space_sip_fallback_request_postcondition_satisfied(topology)) {
+        managed_space_sip_fallback_complete_current(topology);
     } else if (result == MANAGED_SPACE_TOPOLOGY_AX_FAILED) {
         char *error = topology->operation_error[0]
             ? topology->operation_error
             : "accessibility-operation-failed";
-        managed_space_sip_safe_fail_current(topology, error);
+        managed_space_sip_fallback_fail_current(topology, error);
     }
 }
 
-void managed_space_sip_safe_watchdog(struct managed_space_sip_safe *topology, uint64_t token)
+void managed_space_sip_fallback_watchdog(struct managed_space_sip_fallback *topology, uint64_t token)
 {
     if (!topology->enabled) return;
     if (token != topology->watchdog_token) return;
     if (topology->current.operation == MANAGED_SPACE_TOPOLOGY_OPERATION_NONE) {
-        if (topology->state != MANAGED_SPACE_SIP_SAFE_STATE_WAITING_FOR_MISSION_CONTROL_EXIT) return;
+        if (topology->state != MANAGED_SPACE_SIP_FALLBACK_STATE_WAITING_FOR_MISSION_CONTROL_EXIT) return;
 
         snprintf(topology->last_error, sizeof(topology->last_error), "%s", "mission-control-exit-timed-out");
         topology->last_failed_operation = MANAGED_SPACE_TOPOLOGY_OPERATION_NONE;
-        topology->last_failed_backend = MANAGED_SPACE_SIP_SAFE_BACKEND_ACCESSIBILITY;
+        topology->last_failed_backend = MANAGED_SPACE_SIP_FALLBACK_BACKEND_ACCESSIBILITY;
         event_signal_push(SIGNAL_MANAGED_SPACE_TOPOLOGY_FAILED, topology);
-        managed_space_sip_safe_close_owned_mission_control(topology);
-        managed_space_sip_safe_release_mission_control_ownership(topology);
+        managed_space_sip_fallback_close_owned_mission_control(topology);
+        managed_space_sip_fallback_release_mission_control_ownership(topology);
         topology->finish_batch_requested = false;
-        topology->state = MANAGED_SPACE_SIP_SAFE_STATE_IDLE;
-        managed_space_sip_safe_start_next(topology);
+        topology->state = MANAGED_SPACE_SIP_FALLBACK_STATE_IDLE;
+        managed_space_sip_fallback_start_next(topology);
         managed_space_request_reconcile(&g_managed_space);
         return;
     }
     if (topology->current.generation != topology->watchdog_generation) return;
 
-    if (topology->current.backend == MANAGED_SPACE_SIP_SAFE_BACKEND_BRIDGE &&
-        managed_space_sip_safe_request_is_satisfied(&topology->current)) {
-        managed_space_sip_safe_observe_persisted_postcondition(topology);
+    if (topology->current.backend == MANAGED_SPACE_SIP_FALLBACK_BACKEND_BRIDGE &&
+        managed_space_sip_fallback_request_is_satisfied(&topology->current)) {
+        managed_space_sip_fallback_observe_persisted_postcondition(topology);
     }
 
-    if (managed_space_sip_safe_request_postcondition_satisfied(topology)) {
-        managed_space_sip_safe_complete_current(topology);
+    if (managed_space_sip_fallback_request_postcondition_satisfied(topology)) {
+        managed_space_sip_fallback_complete_current(topology);
     } else {
-        managed_space_sip_safe_fail_current(topology, "operation-timed-out");
+        managed_space_sip_fallback_fail_current(topology, "operation-timed-out");
     }
 }
 
-bool managed_space_sip_safe_operation_pending(struct managed_space_sip_safe *topology)
+bool managed_space_sip_fallback_operation_pending(struct managed_space_sip_fallback *topology)
 {
     return topology->current.operation != MANAGED_SPACE_TOPOLOGY_OPERATION_NONE ||
            buf_len(topology->queue) > 0;
 }
 
-bool managed_space_sip_safe_reconciliation_blocked(struct managed_space_sip_safe *topology)
+bool managed_space_sip_fallback_reconciliation_blocked(struct managed_space_sip_fallback *topology)
 {
     return topology->reconciliation_blocked;
 }
 
-bool managed_space_sip_safe_owns_mission_control(struct managed_space_sip_safe *topology)
+bool managed_space_sip_fallback_owns_mission_control(struct managed_space_sip_fallback *topology)
 {
     return topology->owns_mission_control;
 }
 
-bool managed_space_sip_safe_defers_destroy_membership(struct managed_space_sip_safe *topology, uint64_t sid)
+bool managed_space_sip_fallback_defers_destroy_membership(struct managed_space_sip_fallback *topology, uint64_t sid)
 {
-    struct managed_space_sip_safe_request *request = &topology->current;
+    struct managed_space_sip_fallback_request *request = &topology->current;
     return request->operation == MANAGED_SPACE_TOPOLOGY_OPERATION_DESTROY &&
            request->origin == MANAGED_SPACE_TOPOLOGY_ORIGIN_COMMAND &&
            request->mutation_started &&
            request->sid == sid;
 }
 
-void managed_space_sip_safe_finish_batch(struct managed_space_sip_safe *topology)
+void managed_space_sip_fallback_finish_batch(struct managed_space_sip_fallback *topology)
 {
     if (!topology->owns_mission_control) return;
     if (topology->current.operation != MANAGED_SPACE_TOPOLOGY_OPERATION_NONE) return;
 
     topology->finish_batch_requested = true;
-    topology->state = MANAGED_SPACE_SIP_SAFE_STATE_WAITING_FOR_MISSION_CONTROL_EXIT;
-    managed_space_sip_safe_close_owned_mission_control(topology);
-    managed_space_sip_safe_schedule_watchdog(topology);
+    topology->state = MANAGED_SPACE_SIP_FALLBACK_STATE_WAITING_FOR_MISSION_CONTROL_EXIT;
+    managed_space_sip_fallback_close_owned_mission_control(topology);
+    managed_space_sip_fallback_schedule_watchdog(topology);
 }
 
-void managed_space_sip_safe_write_query(FILE *rsp, struct managed_space_sip_safe *topology)
+void managed_space_sip_fallback_write_query(FILE *rsp, struct managed_space_sip_fallback *topology)
 {
-    struct managed_space_sip_safe_request *request = &topology->current;
+    struct managed_space_sip_fallback_request *request = &topology->current;
     char source_display_uuid[64] = {0};
     char target_display_uuid[64] = {0};
     if (request->source_did) {
@@ -3168,7 +3168,7 @@ void managed_space_sip_safe_write_query(FILE *rsp, struct managed_space_sip_safe
             CFRelease(uuid);
         }
     }
-    uint32_t known_bridge_operations = managed_space_sip_safe_known_bridge_operations(topology->os_build);
+    uint32_t known_bridge_operations = managed_space_sip_fallback_known_bridge_operations(topology->os_build);
     enum managed_space_topology_operation operations[] = {
         MANAGED_SPACE_TOPOLOGY_OPERATION_CREATE,
         MANAGED_SPACE_TOPOLOGY_OPERATION_DESTROY,
@@ -3198,27 +3198,28 @@ void managed_space_sip_safe_write_query(FILE *rsp, struct managed_space_sip_safe
 
     for (int i = 0; i < array_count(operations); ++i) {
         enum managed_space_topology_operation operation = operations[i];
-        enum managed_space_sip_safe_backend primary_backend = topology->enabled
-            ? managed_space_sip_safe_select_fallback_backend(topology, operation)
-            : MANAGED_SPACE_SIP_SAFE_BACKEND_NONE;
+        enum managed_space_sip_fallback_backend preferred_backend = topology->enabled
+            ? managed_space_sip_fallback_select_backend(topology, operation)
+            : MANAGED_SPACE_SIP_FALLBACK_BACKEND_NONE;
         bool bridge_available = topology->enabled &&
-                                managed_space_sip_safe_bridge_symbol_available(operation);
-        bool bridge_validated = (known_bridge_operations & managed_space_sip_safe_operation_bridge_bit(operation)) != 0;
-        const char *primary = managed_space_sip_safe_backend_name(primary_backend);
-        const char *fallback_name = "none";
+                                managed_space_sip_fallback_bridge_symbol_available(operation);
+        bool bridge_validated = (known_bridge_operations & managed_space_sip_fallback_operation_bridge_bit(operation)) != 0;
+        const char *preferred_backend_name =
+            managed_space_sip_fallback_backend_name(preferred_backend);
+        const char *fallback_backend_name = "none";
 
         if (topology->enabled &&
-            topology->policy == MANAGED_SPACE_SIP_SAFE_POLICY_AUTO &&
-            primary_backend == MANAGED_SPACE_SIP_SAFE_BACKEND_BRIDGE) {
-            fallback_name = "accessibility";
+            topology->policy == MANAGED_SPACE_SIP_FALLBACK_POLICY_AUTO &&
+            preferred_backend == MANAGED_SPACE_SIP_FALLBACK_BACKEND_BRIDGE) {
+            fallback_backend_name = "accessibility";
         }
 
         fprintf(rsp,
-                "%s\"%s\":{\"primary\":\"%s\",\"fallback\":\"%s\",\"bridge-available\":%s,\"bridge-validated\":%s,\"accessibility\":%s}",
+                "%s\"%s\":{\"preferred-backend\":\"%s\",\"fallback-backend\":\"%s\",\"bridge-available\":%s,\"bridge-validated\":%s,\"accessibility\":%s}",
                 i ? "," : "",
                 managed_space_topology_operation_name(operation),
-                primary,
-                fallback_name,
+                preferred_backend_name,
+                fallback_backend_name,
                 json_bool(bridge_available),
                 json_bool(bridge_validated),
                 json_bool(accessibility_trusted));
@@ -3261,12 +3262,12 @@ void managed_space_sip_safe_write_query(FILE *rsp, struct managed_space_sip_safe
             "\t\"topology-last-failed-operation\":\"%s\",\n"
             "\t\"topology-last-failed-backend\":\"%s\",\n"
             "\t\"topology-last-error\":\"%s\",\n",
-            managed_space_sip_safe_state_name(topology->state),
+            managed_space_sip_fallback_state_name(topology->state),
             managed_space_topology_operation_name(request->operation),
             request->operation == MANAGED_SPACE_TOPOLOGY_OPERATION_NONE
                 ? "none"
                 : managed_space_topology_origin_name(request->origin),
-            managed_space_sip_safe_backend_name(request->backend),
+            managed_space_sip_fallback_backend_name(request->backend),
             request->generation,
             request->precondition_hash,
             request->sid,
@@ -3296,6 +3297,6 @@ void managed_space_sip_safe_write_query(FILE *rsp, struct managed_space_sip_safe
             topology->space_limit_count,
             topology->last_failed_generation,
             managed_space_topology_operation_name(topology->last_failed_operation),
-            managed_space_sip_safe_backend_name(topology->last_failed_backend),
+            managed_space_sip_fallback_backend_name(topology->last_failed_backend),
             topology->last_error);
 }

@@ -365,7 +365,7 @@ static struct managed_space_entry *managed_space_add_entry(struct managed_space 
     return &ms->spaces[buf_len(ms->spaces) - 1];
 }
 
-static void managed_space_remove_entry_legacy_at_index(struct managed_space *ms, int index)
+static void managed_space_remove_entry_scripting_addition_at_index(struct managed_space *ms, int index)
 {
     managed_space_entry_destroy(&ms->spaces[index]);
     buf_del(ms->spaces, index);
@@ -390,11 +390,11 @@ static void managed_space_remove_entry_ordered_at_index(struct managed_space *ms
     ms->last_managed_count = buf_len(ms->spaces);
 }
 
-static bool managed_space_remove_entry_legacy(struct managed_space *ms, uint64_t sid)
+static bool managed_space_remove_entry_scripting_addition(struct managed_space *ms, uint64_t sid)
 {
     for (int i = 0; i < buf_len(ms->spaces); ++i) {
         if (ms->spaces[i].sid != sid) continue;
-        managed_space_remove_entry_legacy_at_index(ms, i);
+        managed_space_remove_entry_scripting_addition_at_index(ms, i);
         return true;
     }
 
@@ -1517,7 +1517,7 @@ void managed_space_set_names(struct managed_space *ms, char *names)
     }
 
     if (ms->enabled) {
-        if (managed_space_topology_uses_sip_safe(&g_managed_space_topology)) {
+        if (managed_space_topology_uses_sip_fallback(&g_managed_space_topology)) {
             int desired_count = buf_len(ms->names);
             while (desired_count > 0 && buf_len(ms->spaces) > desired_count) {
                 int last_index = buf_len(ms->spaces) - 1;
@@ -1800,7 +1800,7 @@ void managed_space_note_user_space_destroyed(struct managed_space *ms, uint64_t 
 {
     if (!ms->enabled) return;
 
-    if (managed_space_remove_entry_legacy(ms, sid)) {
+    if (managed_space_remove_entry_scripting_addition(ms, sid)) {
         managed_space_publish_presentation_if_needed(ms);
     }
 
@@ -1914,8 +1914,8 @@ static void managed_space_sort_entries_by_mission_control_order(struct managed_s
     managed_space_apply_names(ms);
 }
 
-void managed_space_handle_sip_safe_operation_completed(struct managed_space *ms,
-                                                       struct managed_space_sip_safe_request *request)
+void managed_space_handle_sip_fallback_operation_completed(struct managed_space *ms,
+                                                           struct managed_space_sip_fallback_request *request)
 {
     if (!ms->enabled) return;
     if (request->origin != MANAGED_SPACE_TOPOLOGY_ORIGIN_COMMAND) return;
@@ -1942,8 +1942,8 @@ void managed_space_handle_sip_safe_operation_completed(struct managed_space *ms,
     }
 }
 
-void managed_space_handle_sip_safe_operation_failed(struct managed_space *ms,
-                                                    struct managed_space_sip_safe_request *request)
+void managed_space_handle_sip_fallback_operation_failed(struct managed_space *ms,
+                                                        struct managed_space_sip_fallback_request *request)
 {
     if (!ms->enabled) return;
 
@@ -2032,7 +2032,7 @@ void managed_space_reconcile(struct managed_space *ms)
             break;
         }
 
-        if (managed_space_topology_uses_sip_safe(&g_managed_space_topology)) {
+        if (managed_space_topology_uses_sip_fallback(&g_managed_space_topology)) {
             managed_space_create_missing_named_spaces(ms);
             if (managed_space_topology_operation_pending(&g_managed_space_topology)) {
                 ms->pending_reconcile = true;

@@ -1,5 +1,5 @@
 extern struct managed_space g_managed_space;
-extern struct managed_space_sip_safe g_managed_space_sip_safe;
+extern struct managed_space_sip_fallback g_managed_space_sip_fallback;
 
 #ifdef TESTS
 static bool managed_space_topology_test_probe_override_enabled;
@@ -37,9 +37,10 @@ static void managed_space_topology_resolve_provider(struct managed_space_topolog
         return;
     }
 
-    if (topology->policy == MANAGED_SPACE_TOPOLOGY_BACKEND_BRIDGE ||
+    if (topology->policy == MANAGED_SPACE_TOPOLOGY_BACKEND_SIP_FALLBACK ||
+        topology->policy == MANAGED_SPACE_TOPOLOGY_BACKEND_BRIDGE ||
         topology->policy == MANAGED_SPACE_TOPOLOGY_BACKEND_ACCESSIBILITY) {
-        topology->provider = MANAGED_SPACE_TOPOLOGY_PROVIDER_SIP_SAFE;
+        topology->provider = MANAGED_SPACE_TOPOLOGY_PROVIDER_SIP_FALLBACK;
         topology->selection_reason = MANAGED_SPACE_TOPOLOGY_SELECTION_FORCED_POLICY;
         return;
     }
@@ -50,7 +51,7 @@ static void managed_space_topology_resolve_provider(struct managed_space_topolog
         return;
     }
 
-    topology->provider = MANAGED_SPACE_TOPOLOGY_PROVIDER_SIP_SAFE;
+    topology->provider = MANAGED_SPACE_TOPOLOGY_PROVIDER_SIP_FALLBACK;
     switch (topology->scripting_addition_status) {
     case SCRIPTING_ADDITION_PROBE_UNAVAILABLE:
         topology->selection_reason = MANAGED_SPACE_TOPOLOGY_SELECTION_HANDSHAKE_UNAVAILABLE;
@@ -69,17 +70,17 @@ static void managed_space_topology_resolve_provider(struct managed_space_topolog
 
 static void managed_space_topology_activate_resolved_provider(struct managed_space_topology *topology)
 {
-    managed_space_sip_safe_set_enabled(&g_managed_space_sip_safe, false);
-    if (topology->provider != MANAGED_SPACE_TOPOLOGY_PROVIDER_SIP_SAFE) return;
+    managed_space_sip_fallback_set_enabled(&g_managed_space_sip_fallback, false);
+    if (topology->provider != MANAGED_SPACE_TOPOLOGY_PROVIDER_SIP_FALLBACK) return;
 
-    enum managed_space_sip_safe_policy safe_policy = MANAGED_SPACE_SIP_SAFE_POLICY_AUTO;
+    enum managed_space_sip_fallback_policy fallback_policy = MANAGED_SPACE_SIP_FALLBACK_POLICY_AUTO;
     if (topology->policy == MANAGED_SPACE_TOPOLOGY_BACKEND_BRIDGE) {
-        safe_policy = MANAGED_SPACE_SIP_SAFE_POLICY_BRIDGE;
+        fallback_policy = MANAGED_SPACE_SIP_FALLBACK_POLICY_BRIDGE;
     } else if (topology->policy == MANAGED_SPACE_TOPOLOGY_BACKEND_ACCESSIBILITY) {
-        safe_policy = MANAGED_SPACE_SIP_SAFE_POLICY_ACCESSIBILITY;
+        fallback_policy = MANAGED_SPACE_SIP_FALLBACK_POLICY_ACCESSIBILITY;
     }
-    managed_space_sip_safe_set_backend_policy(&g_managed_space_sip_safe, safe_policy);
-    managed_space_sip_safe_set_enabled(&g_managed_space_sip_safe, true);
+    managed_space_sip_fallback_set_backend_policy(&g_managed_space_sip_fallback, fallback_policy);
+    managed_space_sip_fallback_set_enabled(&g_managed_space_sip_fallback, true);
 }
 
 void managed_space_topology_init(struct managed_space_topology *topology)
@@ -88,19 +89,19 @@ void managed_space_topology_init(struct managed_space_topology *topology)
     topology->policy = MANAGED_SPACE_TOPOLOGY_BACKEND_AUTO;
     topology->provider = MANAGED_SPACE_TOPOLOGY_PROVIDER_DISABLED;
     topology->selection_reason = MANAGED_SPACE_TOPOLOGY_SELECTION_DISABLED;
-    managed_space_sip_safe_init(&g_managed_space_sip_safe);
+    managed_space_sip_fallback_init(&g_managed_space_sip_fallback);
 }
 
 void managed_space_topology_destroy(struct managed_space_topology *topology)
 {
-    managed_space_sip_safe_destroy(&g_managed_space_sip_safe);
+    managed_space_sip_fallback_destroy(&g_managed_space_sip_fallback);
     memset(topology, 0, sizeof(struct managed_space_topology));
 }
 
 void managed_space_topology_set_enabled(struct managed_space_topology *topology, bool enabled)
 {
     if (!enabled) {
-        managed_space_sip_safe_set_enabled(&g_managed_space_sip_safe, false);
+        managed_space_sip_fallback_set_enabled(&g_managed_space_sip_fallback, false);
         topology->enabled = false;
         topology->provider = MANAGED_SPACE_TOPOLOGY_PROVIDER_DISABLED;
         topology->selection_reason = MANAGED_SPACE_TOPOLOGY_SELECTION_DISABLED;
@@ -123,16 +124,16 @@ bool managed_space_topology_uses_scripting_addition(struct managed_space_topolog
            topology->provider == MANAGED_SPACE_TOPOLOGY_PROVIDER_SCRIPTING_ADDITION;
 }
 
-bool managed_space_topology_uses_sip_safe(struct managed_space_topology *topology)
+bool managed_space_topology_uses_sip_fallback(struct managed_space_topology *topology)
 {
     return topology->enabled &&
-           topology->provider == MANAGED_SPACE_TOPOLOGY_PROVIDER_SIP_SAFE;
+           topology->provider == MANAGED_SPACE_TOPOLOGY_PROVIDER_SIP_FALLBACK;
 }
 
 void managed_space_topology_note_configuration_changed(struct managed_space_topology *topology)
 {
-    if (!managed_space_topology_uses_sip_safe(topology)) return;
-    managed_space_sip_safe_note_configuration_changed(&g_managed_space_sip_safe);
+    if (!managed_space_topology_uses_sip_fallback(topology)) return;
+    managed_space_sip_fallback_note_configuration_changed(&g_managed_space_sip_fallback);
 }
 
 const char *managed_space_topology_backend_policy_name(enum managed_space_topology_backend_policy policy)
@@ -140,6 +141,7 @@ const char *managed_space_topology_backend_policy_name(enum managed_space_topolo
     switch (policy) {
     case MANAGED_SPACE_TOPOLOGY_BACKEND_AUTO:               return "auto";
     case MANAGED_SPACE_TOPOLOGY_BACKEND_SCRIPTING_ADDITION: return "scripting-addition";
+    case MANAGED_SPACE_TOPOLOGY_BACKEND_SIP_FALLBACK:       return "sip-fallback";
     case MANAGED_SPACE_TOPOLOGY_BACKEND_BRIDGE:             return "bridge";
     case MANAGED_SPACE_TOPOLOGY_BACKEND_ACCESSIBILITY:      return "accessibility";
     }
@@ -154,6 +156,8 @@ bool managed_space_topology_backend_policy_from_string(char *value,
         *policy = MANAGED_SPACE_TOPOLOGY_BACKEND_AUTO;
     } else if (string_equals(value, "scripting-addition")) {
         *policy = MANAGED_SPACE_TOPOLOGY_BACKEND_SCRIPTING_ADDITION;
+    } else if (string_equals(value, "sip-fallback")) {
+        *policy = MANAGED_SPACE_TOPOLOGY_BACKEND_SIP_FALLBACK;
     } else if (string_equals(value, "bridge")) {
         *policy = MANAGED_SPACE_TOPOLOGY_BACKEND_BRIDGE;
     } else if (string_equals(value, "accessibility")) {
@@ -168,8 +172,8 @@ bool managed_space_topology_backend_policy_from_string(char *value,
 bool managed_space_topology_set_backend_policy(struct managed_space_topology *topology,
                                                enum managed_space_topology_backend_policy policy)
 {
-    if (managed_space_topology_uses_sip_safe(topology) &&
-        managed_space_sip_safe_operation_pending(&g_managed_space_sip_safe)) {
+    if (managed_space_topology_uses_sip_fallback(topology) &&
+        managed_space_sip_fallback_operation_pending(&g_managed_space_sip_fallback)) {
         return false;
     }
 
@@ -193,7 +197,7 @@ const char *managed_space_topology_provider_name(enum managed_space_topology_pro
     switch (provider) {
     case MANAGED_SPACE_TOPOLOGY_PROVIDER_DISABLED:           return "disabled";
     case MANAGED_SPACE_TOPOLOGY_PROVIDER_SCRIPTING_ADDITION: return "scripting-addition";
-    case MANAGED_SPACE_TOPOLOGY_PROVIDER_SIP_SAFE:           return "sip-safe";
+    case MANAGED_SPACE_TOPOLOGY_PROVIDER_SIP_FALLBACK:       return "sip-fallback";
     }
 
     return "unknown";
@@ -238,7 +242,7 @@ const char *managed_space_topology_origin_name(enum managed_space_topology_origi
 }
 
 static struct managed_space_topology_result
-managed_space_topology_wrap_legacy_result(enum space_op_error result)
+managed_space_topology_wrap_scripting_addition_result(enum space_op_error result)
 {
     return managed_space_topology_result_space_error(result);
 }
@@ -249,10 +253,10 @@ managed_space_topology_create(struct managed_space_topology *topology,
                               uint64_t acting_sid)
 {
     if (managed_space_topology_uses_scripting_addition(topology)) {
-        return managed_space_topology_wrap_legacy_result(
-            managed_space_legacy_create(acting_sid));
+        return managed_space_topology_wrap_scripting_addition_result(
+            managed_space_scripting_addition_create(acting_sid));
     }
-    if (!managed_space_topology_uses_sip_safe(topology)) {
+    if (!managed_space_topology_uses_sip_fallback(topology)) {
         return managed_space_topology_result_provider_error(
             MANAGED_SPACE_TOPOLOGY_PROVIDER_ERROR_BACKEND);
     }
@@ -265,7 +269,7 @@ managed_space_topology_create(struct managed_space_topology *topology,
         return managed_space_topology_result_space_error(
             SPACE_OP_ERROR_DISPLAY_IS_ANIMATING);
     }
-    return managed_space_sip_safe_create(&g_managed_space_sip_safe, origin, acting_sid);
+    return managed_space_sip_fallback_create(&g_managed_space_sip_fallback, origin, acting_sid);
 }
 
 struct managed_space_topology_result
@@ -274,10 +278,10 @@ managed_space_topology_destroy_space(struct managed_space_topology *topology,
                                      uint64_t sid)
 {
     if (managed_space_topology_uses_scripting_addition(topology)) {
-        return managed_space_topology_wrap_legacy_result(
-            managed_space_legacy_destroy(sid));
+        return managed_space_topology_wrap_scripting_addition_result(
+            managed_space_scripting_addition_destroy(sid));
     }
-    if (!managed_space_topology_uses_sip_safe(topology)) {
+    if (!managed_space_topology_uses_sip_fallback(topology)) {
         return managed_space_topology_result_provider_error(
             MANAGED_SPACE_TOPOLOGY_PROVIDER_ERROR_BACKEND);
     }
@@ -293,7 +297,7 @@ managed_space_topology_destroy_space(struct managed_space_topology *topology,
         return managed_space_topology_result_space_error(
             SPACE_OP_ERROR_DISPLAY_IS_ANIMATING);
     }
-    return managed_space_sip_safe_destroy_space(&g_managed_space_sip_safe, origin, sid);
+    return managed_space_sip_fallback_destroy_space(&g_managed_space_sip_fallback, origin, sid);
 }
 
 struct managed_space_topology_result
@@ -303,10 +307,10 @@ managed_space_topology_move_space(struct managed_space_topology *topology,
                                   uint64_t target_sid)
 {
     if (managed_space_topology_uses_scripting_addition(topology)) {
-        return managed_space_topology_wrap_legacy_result(
-            managed_space_legacy_move(sid, target_sid));
+        return managed_space_topology_wrap_scripting_addition_result(
+            managed_space_scripting_addition_move(sid, target_sid));
     }
-    if (!managed_space_topology_uses_sip_safe(topology)) {
+    if (!managed_space_topology_uses_sip_fallback(topology)) {
         return managed_space_topology_result_provider_error(
             MANAGED_SPACE_TOPOLOGY_PROVIDER_ERROR_BACKEND);
     }
@@ -325,10 +329,10 @@ managed_space_topology_move_space(struct managed_space_topology *topology,
         return managed_space_topology_result_space_error(
             SPACE_OP_ERROR_DISPLAY_IS_ANIMATING);
     }
-    return managed_space_sip_safe_move_space(&g_managed_space_sip_safe,
-                                             origin,
-                                             sid,
-                                             target_sid);
+    return managed_space_sip_fallback_move_space(&g_managed_space_sip_fallback,
+                                                 origin,
+                                                 sid,
+                                                 target_sid);
 }
 
 struct managed_space_topology_result
@@ -338,10 +342,10 @@ managed_space_topology_swap_spaces(struct managed_space_topology *topology,
                                    uint64_t target_sid)
 {
     if (managed_space_topology_uses_scripting_addition(topology)) {
-        return managed_space_topology_wrap_legacy_result(
-            managed_space_legacy_swap(sid, target_sid));
+        return managed_space_topology_wrap_scripting_addition_result(
+            managed_space_scripting_addition_swap(sid, target_sid));
     }
-    if (!managed_space_topology_uses_sip_safe(topology)) {
+    if (!managed_space_topology_uses_sip_fallback(topology)) {
         return managed_space_topology_result_provider_error(
             MANAGED_SPACE_TOPOLOGY_PROVIDER_ERROR_BACKEND);
     }
@@ -354,17 +358,21 @@ managed_space_topology_swap_spaces(struct managed_space_topology *topology,
     }
     uint32_t did = space_display_id(sid);
     if (did != space_display_id(target_sid)) {
-        return managed_space_topology_wrap_legacy_result(
-            managed_space_legacy_swap(sid, target_sid));
+        uint32_t target_did = space_display_id(target_sid);
+        return managed_space_topology_result_space_error(
+            space_manager_swap_space_with_space_on_display(did,
+                                                           sid,
+                                                           target_did,
+                                                           target_sid));
     }
     if (display_manager_display_is_animating(did)) {
         return managed_space_topology_result_space_error(
             SPACE_OP_ERROR_DISPLAY_IS_ANIMATING);
     }
-    return managed_space_sip_safe_swap_spaces(&g_managed_space_sip_safe,
-                                              origin,
-                                              sid,
-                                              target_sid);
+    return managed_space_sip_fallback_swap_spaces(&g_managed_space_sip_fallback,
+                                                  origin,
+                                                  sid,
+                                                  target_sid);
 }
 
 struct managed_space_topology_result
@@ -375,10 +383,10 @@ managed_space_topology_move_space_to_display(struct managed_space_topology *topo
                                              bool placeholder_required)
 {
     if (managed_space_topology_uses_scripting_addition(topology)) {
-        return managed_space_topology_wrap_legacy_result(
-            managed_space_legacy_move_to_display(sid, did));
+        return managed_space_topology_wrap_scripting_addition_result(
+            managed_space_scripting_addition_move_to_display(sid, did));
     }
-    if (!managed_space_topology_uses_sip_safe(topology)) {
+    if (!managed_space_topology_uses_sip_fallback(topology)) {
         return managed_space_topology_result_provider_error(
             MANAGED_SPACE_TOPOLOGY_PROVIDER_ERROR_BACKEND);
     }
@@ -402,106 +410,106 @@ managed_space_topology_move_space_to_display(struct managed_space_topology *topo
     if (space_manager_is_space_last_user_space(sid) && !placeholder_required) {
         return managed_space_topology_result_space_error(SPACE_OP_ERROR_INVALID_SRC);
     }
-    return managed_space_sip_safe_move_space_to_display(&g_managed_space_sip_safe,
-                                                        origin,
-                                                        sid,
-                                                        did,
-                                                        placeholder_required);
+    return managed_space_sip_fallback_move_space_to_display(&g_managed_space_sip_fallback,
+                                                            origin,
+                                                            sid,
+                                                            did,
+                                                            placeholder_required);
 }
 
 bool managed_space_topology_space_limit_reached_for_display(struct managed_space_topology *topology,
                                                             uint32_t did)
 {
-    return managed_space_topology_uses_sip_safe(topology) &&
-           managed_space_sip_safe_space_limit_reached_for_display(
-               &g_managed_space_sip_safe,
+    return managed_space_topology_uses_sip_fallback(topology) &&
+           managed_space_sip_fallback_space_limit_reached_for_display(
+               &g_managed_space_sip_fallback,
                did);
 }
 
 void managed_space_topology_handle_space_created(struct managed_space_topology *topology, uint64_t sid)
 {
-    if (!managed_space_topology_uses_sip_safe(topology)) return;
-    managed_space_sip_safe_handle_space_created(&g_managed_space_sip_safe, sid);
+    if (!managed_space_topology_uses_sip_fallback(topology)) return;
+    managed_space_sip_fallback_handle_space_created(&g_managed_space_sip_fallback, sid);
 }
 
 void managed_space_topology_handle_space_destroyed(struct managed_space_topology *topology, uint64_t sid)
 {
-    if (!managed_space_topology_uses_sip_safe(topology)) return;
-    managed_space_sip_safe_handle_space_destroyed(&g_managed_space_sip_safe, sid);
+    if (!managed_space_topology_uses_sip_fallback(topology)) return;
+    managed_space_sip_fallback_handle_space_destroyed(&g_managed_space_sip_fallback, sid);
 }
 
 void managed_space_topology_handle_focus_changed(struct managed_space_topology *topology)
 {
-    if (!managed_space_topology_uses_sip_safe(topology)) return;
-    managed_space_sip_safe_handle_focus_changed(&g_managed_space_sip_safe);
+    if (!managed_space_topology_uses_sip_fallback(topology)) return;
+    managed_space_sip_fallback_handle_focus_changed(&g_managed_space_sip_fallback);
 }
 
 void managed_space_topology_handle_mission_control_enter(struct managed_space_topology *topology)
 {
-    if (!managed_space_topology_uses_sip_safe(topology)) return;
-    managed_space_sip_safe_handle_mission_control_enter(&g_managed_space_sip_safe);
+    if (!managed_space_topology_uses_sip_fallback(topology)) return;
+    managed_space_sip_fallback_handle_mission_control_enter(&g_managed_space_sip_fallback);
 }
 
 void managed_space_topology_handle_mission_control_exit(struct managed_space_topology *topology)
 {
-    if (!managed_space_topology_uses_sip_safe(topology)) return;
-    managed_space_sip_safe_handle_mission_control_exit(&g_managed_space_sip_safe);
+    if (!managed_space_topology_uses_sip_fallback(topology)) return;
+    managed_space_sip_fallback_handle_mission_control_exit(&g_managed_space_sip_fallback);
 }
 
 void managed_space_topology_handle_dock_restart(struct managed_space_topology *topology)
 {
-    if (!managed_space_topology_uses_sip_safe(topology)) return;
-    managed_space_sip_safe_handle_dock_restart(&g_managed_space_sip_safe);
+    if (!managed_space_topology_uses_sip_fallback(topology)) return;
+    managed_space_sip_fallback_handle_dock_restart(&g_managed_space_sip_fallback);
 }
 
 void managed_space_topology_handle_user_interruption(struct managed_space_topology *topology,
                                                      uint64_t generation)
 {
-    if (!managed_space_topology_uses_sip_safe(topology)) return;
-    managed_space_sip_safe_handle_user_interruption(&g_managed_space_sip_safe, generation);
+    if (!managed_space_topology_uses_sip_fallback(topology)) return;
+    managed_space_sip_fallback_handle_user_interruption(&g_managed_space_sip_fallback, generation);
 }
 
 void managed_space_topology_step(struct managed_space_topology *topology, uint64_t token)
 {
-    if (!managed_space_topology_uses_sip_safe(topology)) return;
-    managed_space_sip_safe_step(&g_managed_space_sip_safe, token);
+    if (!managed_space_topology_uses_sip_fallback(topology)) return;
+    managed_space_sip_fallback_step(&g_managed_space_sip_fallback, token);
 }
 
 void managed_space_topology_watchdog(struct managed_space_topology *topology, uint64_t token)
 {
-    if (!managed_space_topology_uses_sip_safe(topology)) return;
-    managed_space_sip_safe_watchdog(&g_managed_space_sip_safe, token);
+    if (!managed_space_topology_uses_sip_fallback(topology)) return;
+    managed_space_sip_fallback_watchdog(&g_managed_space_sip_fallback, token);
 }
 
 bool managed_space_topology_operation_pending(struct managed_space_topology *topology)
 {
-    return managed_space_topology_uses_sip_safe(topology) &&
-           managed_space_sip_safe_operation_pending(&g_managed_space_sip_safe);
+    return managed_space_topology_uses_sip_fallback(topology) &&
+           managed_space_sip_fallback_operation_pending(&g_managed_space_sip_fallback);
 }
 
 bool managed_space_topology_reconciliation_blocked(struct managed_space_topology *topology)
 {
-    return managed_space_topology_uses_sip_safe(topology) &&
-           managed_space_sip_safe_reconciliation_blocked(&g_managed_space_sip_safe);
+    return managed_space_topology_uses_sip_fallback(topology) &&
+           managed_space_sip_fallback_reconciliation_blocked(&g_managed_space_sip_fallback);
 }
 
 bool managed_space_topology_owns_mission_control(struct managed_space_topology *topology)
 {
-    return managed_space_topology_uses_sip_safe(topology) &&
-           managed_space_sip_safe_owns_mission_control(&g_managed_space_sip_safe);
+    return managed_space_topology_uses_sip_fallback(topology) &&
+           managed_space_sip_fallback_owns_mission_control(&g_managed_space_sip_fallback);
 }
 
 bool managed_space_topology_defers_destroy_membership(struct managed_space_topology *topology,
                                                       uint64_t sid)
 {
-    return managed_space_topology_uses_sip_safe(topology) &&
-           managed_space_sip_safe_defers_destroy_membership(&g_managed_space_sip_safe, sid);
+    return managed_space_topology_uses_sip_fallback(topology) &&
+           managed_space_sip_fallback_defers_destroy_membership(&g_managed_space_sip_fallback, sid);
 }
 
 void managed_space_topology_finish_batch(struct managed_space_topology *topology)
 {
-    if (!managed_space_topology_uses_sip_safe(topology)) return;
-    managed_space_sip_safe_finish_batch(&g_managed_space_sip_safe);
+    if (!managed_space_topology_uses_sip_fallback(topology)) return;
+    managed_space_sip_fallback_finish_batch(&g_managed_space_sip_fallback);
 }
 
 void managed_space_topology_write_query(FILE *rsp, struct managed_space_topology *topology)
@@ -520,5 +528,5 @@ void managed_space_topology_write_query(FILE *rsp, struct managed_space_topology
             topology->scripting_addition_version,
             topology->scripting_addition_capabilities);
 
-    managed_space_sip_safe_write_query(rsp, &g_managed_space_sip_safe);
+    managed_space_sip_fallback_write_query(rsp, &g_managed_space_sip_fallback);
 }

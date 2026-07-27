@@ -7,21 +7,26 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## [Unreleased]
 
 ### Added
-- Added a SIP-safe managed-space topology provider with serialized scripting-addition,
+- Added a contained full-SIP managed-space fallback with serialized requests,
   exact-build SkyLight bridge, and Mission Control Accessibility backends.
 - Added `managed_space_topology_backend`, managed topology query diagnostics, and
   the `managed_space_topology_failed` signal.
+- Added the explicit `sip-fallback` provider policy; `bridge` and
+  `accessibility` continue to force its diagnostic sub-backends.
 
 ### Changed
-- Split managed topology into a compatibility-preserving synchronous
-  scripting-addition provider and a separately contained asynchronous SIP-safe
-  provider. `auto` now selects once from an exact scripting-addition handshake
-  and keeps that provider for the managed-mode session.
-- Restored the scripting-addition provider's topology functions, errors, call
-  order, and command timing to the pre-SIP-safe managed-mode implementation.
+- Made the synchronous scripting-addition provider the explicit primary
+  managed-topology implementation and renamed the exceptional full-SIP
+  implementation to `sip-fallback`.
+- Kept the primary provider on the authoritative `space_manager` operations so
+  it can continue to receive shared fixes and improvements without importing
+  fallback policy or resources.
+- `auto` now selects the primary provider from an exact scripting-addition
+  handshake and uses `sip-fallback` only when that handshake is unavailable,
+  stale, or incomplete. Selection remains fixed for the managed-mode session.
 - Managed `space --create`, `--destroy`, `--display`, `--move`, and same-display
-  `--swap` operations on the SIP-safe provider now commit managed metadata only
-  after their topology postconditions are confirmed.
+  `--swap` operations on `sip-fallback` now commit managed metadata only after
+  their topology postconditions are confirmed.
 - Accessibility topology operations now verify that the pre-operation SLS and
   Mission Control views agree, then require either an AX postcondition or the
   persisted Dock topology before committing.

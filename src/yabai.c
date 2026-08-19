@@ -333,6 +333,11 @@ int main(int argc, char **argv)
             SLSRegisterConnectionNotifyProc(g_connection, connection_handler, 1327, NULL);
             SLSRegisterConnectionNotifyProc(g_connection, connection_handler, 1328, NULL);
         }
+    } else if (workspace_is_macos_27()) {
+        SLSRegisterConnectionNotifyProc(g_connection, connection_handler, 1325, NULL);
+        SLSRegisterConnectionNotifyProc(g_connection, connection_handler, 1326, NULL);
+        SLSRegisterConnectionNotifyProc(g_connection, connection_handler, 1327, NULL);
+        SLSRegisterConnectionNotifyProc(g_connection, connection_handler, 1328, NULL);
     } else {
         SLSRegisterConnectionNotifyProc(g_connection, connection_handler, 1204, NULL);
     }
@@ -340,7 +345,7 @@ int main(int argc, char **argv)
     SLSRegisterConnectionNotifyProc(g_connection, connection_handler, 808, NULL);
     SLSRegisterConnectionNotifyProc(g_connection, connection_handler, 1202, NULL);
 
-    if (workspace_is_macos_sequoia() || workspace_is_macos_tahoe()) {
+    if (workspace_is_macos_sequoia() || workspace_is_macos_tahoe() || workspace_is_macos_27()) {
         SLSRegisterConnectionNotifyProc(g_connection, connection_handler, 804, NULL);
     }
 
@@ -350,7 +355,7 @@ int main(int argc, char **argv)
     managed_space_topology_init(&g_managed_space_topology);
     managed_space_init(&g_managed_space);
 
-    if (workspace_is_macos_sequoia() || workspace_is_macos_tahoe()) {
+    if (workspace_is_macos_sequoia() || workspace_is_macos_tahoe() || workspace_is_macos_27()) {
         update_window_notifications();
     }
 

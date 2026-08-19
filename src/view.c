@@ -41,7 +41,7 @@ void insert_feedback_show(struct window_node *node)
         SLSReenableUpdate(g_connection);
         SLSOrderWindow(g_connection, node->feedback_window.id, 1, node->window_order[0]);
         table_add(&g_window_manager.insert_feedback, &node->window_order[0], node);
-        if (!workspace_is_macos_sequoia() && !workspace_is_macos_tahoe()) {
+        if (!workspace_is_macos_sequoia() && !workspace_is_macos_tahoe() && !workspace_is_macos_27()) {
             update_window_notifications();
         }
     }
@@ -107,7 +107,7 @@ void insert_feedback_destroy(struct window_node *node)
     if (node->feedback_window.id) {
         table_remove(&g_window_manager.insert_feedback, &node->window_order[0]);
 
-        if (!workspace_is_macos_sequoia() && !workspace_is_macos_tahoe()) {
+        if (!workspace_is_macos_sequoia() && !workspace_is_macos_tahoe() && !workspace_is_macos_27()) {
             update_window_notifications();
         }
 
@@ -425,7 +425,7 @@ void window_node_rebuild_window_order(struct window_node *node, uint32_t active_
         SLSSetWindowLevel(g_connection, node->feedback_window.id, window_level(active_window_id));
         SLSSetWindowSubLevel(g_connection, node->feedback_window.id, window_sub_level(active_window_id));
         table_add(&g_window_manager.insert_feedback, &active_window_id, node);
-        if (!workspace_is_macos_sequoia() && !workspace_is_macos_tahoe()) {
+        if (!workspace_is_macos_sequoia() && !workspace_is_macos_tahoe() && !workspace_is_macos_27()) {
             update_window_notifications();
         }
     }
@@ -1236,7 +1236,6 @@ void view_serialize(FILE *rsp, struct view *view, uint64_t flags)
 
         fprintf(rsp, "\t\"stacks\":");
         view_serialize_stacks(rsp, view);
-        did_output = true;
     }
 
     fprintf(rsp, "\n}");

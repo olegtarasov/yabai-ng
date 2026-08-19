@@ -149,6 +149,21 @@ pid_t workspace_get_dock_pid(void)
     return 0;
 }
 
+pid_t workspace_get_mission_control_pid(void)
+{
+    NSString *bundle_identifier = workspace_is_macos_27()
+        ? @"com.apple.WindowManager"
+        : @"com.apple.dock";
+    NSArray *list = [NSRunningApplication runningApplicationsWithBundleIdentifier:bundle_identifier];
+
+    if (list.count == 1) {
+        NSRunningApplication *application = list[0];
+        return [application processIdentifier];
+    }
+
+    return 0;
+}
+
 extern struct event_loop g_event_loop;
 @implementation workspace_context
 - (id)init

@@ -1497,18 +1497,27 @@ static AXUIElementRef managed_space_sip_fallback_copy_ax_spaces_group(AXUIElemen
     return spaces;
 }
 
-static AXUIElementRef managed_space_sip_fallback_copy_mission_control(pid_t *dock_pid)
+static AXUIElementRef managed_space_sip_fallback_copy_mission_control(pid_t *mission_control_pid)
 {
-    NSArray *dock_applications = [NSRunningApplication runningApplicationsWithBundleIdentifier:@"com.apple.dock"];
-    NSRunningApplication *dock = [dock_applications firstObject];
-    if (!dock) return NULL;
+    *mission_control_pid = workspace_get_mission_control_pid();
+    if (!*mission_control_pid) return NULL;
 
-    *dock_pid = dock.processIdentifier;
-    AXUIElementRef dock_element = AXUIElementCreateApplication(*dock_pid);
-    if (!dock_element) return NULL;
+    AXUIElementRef application = AXUIElementCreateApplication(*mission_control_pid);
+    if (!application) return NULL;
 
-    AXUIElementRef mission_control = managed_space_sip_fallback_copy_ax_child(dock_element, CFSTR("mc"));
-    CFRelease(dock_element);
+    if (workspace_is_macos_27()) {
+        AXUIElementRef display = managed_space_sip_fallback_copy_ax_child(application, CFSTR("mc.display"));
+        if (!display) {
+            CFRelease(application);
+            return NULL;
+        }
+
+        CFRelease(display);
+        return application;
+    }
+
+    AXUIElementRef mission_control = managed_space_sip_fallback_copy_ax_child(application, CFSTR("mc"));
+    CFRelease(application);
     return mission_control;
 }
 
@@ -1565,17 +1574,28 @@ static void managed_space_sip_fallback_observe_mission_control(struct managed_sp
         return;
     }
 
+    AXUIElementRef observed_element = mission_control;
+    if (workspace_is_macos_27()) {
+        observed_element = managed_space_sip_fallback_copy_ax_display(mission_control, topology->current.target_did);
+        if (!observed_element) {
+            CFRelease(observer);
+            return;
+        }
+    }
+
     bool observing = false;
-    observing |= AXObserverAddNotification(observer, mission_control, kAXLayoutChangedNotification, topology) == kAXErrorSuccess;
-    observing |= AXObserverAddNotification(observer, mission_control, kAXCreatedNotification, topology) == kAXErrorSuccess;
-    observing |= AXObserverAddNotification(observer, mission_control, kAXUIElementDestroyedNotification, topology) == kAXErrorSuccess;
+    observing |= AXObserverAddNotification(observer, observed_element, kAXLayoutChangedNotification, topology) == kAXErrorSuccess;
+    observing |= AXObserverAddNotification(observer, observed_element, kAXCreatedNotification, topology) == kAXErrorSuccess;
+    observing |= AXObserverAddNotification(observer, observed_element, kAXUIElementDestroyedNotification, topology) == kAXErrorSuccess;
     if (!observing) {
+        if (observed_element != mission_control) CFRelease(observed_element);
         CFRelease(observer);
         return;
     }
 
     topology->ax_observer = observer;
-    topology->ax_observed_element = CFRetain(mission_control);
+    topology->ax_observed_element = CFRetain(observed_element);
+    if (observed_element != mission_control) CFRelease(observed_element);
     topology->observed_dock_pid = dock_pid;
     CFRunLoopAddSource(CFRunLoopGetMain(), AXObserverGetRunLoopSource(observer), kCFRunLoopCommonModes);
 }
@@ -2953,9 +2973,17 @@ void managed_space_sip_fallback_handle_user_interruption(struct managed_space_si
 void managed_space_sip_fallback_step(struct managed_space_sip_fallback *topology, uint64_t token)
 {
     if (!topology->enabled) return;
-    if (topology->current.operation == MANAGED_SPACE_TOPOLOGY_OPERATION_NONE) return;
     if (token != topology->step_token) return;
     if (topology->current.generation != topology->step_generation) return;
+
+    if (topology->current.operation == MANAGED_SPACE_TOPOLOGY_OPERATION_NONE) {
+        if (workspace_is_macos_27() &&
+            topology->state == MANAGED_SPACE_SIP_FALLBACK_STATE_WAITING_FOR_MISSION_CONTROL_EXIT &&
+            !managed_space_sip_fallback_mission_control_ui_exists()) {
+            managed_space_sip_fallback_handle_mission_control_exit(topology);
+        }
+        return;
+    }
 
     if (topology->state == MANAGED_SPACE_SIP_FALLBACK_STATE_WAITING_FOR_MISSION_CONTROL_EXIT &&
         topology->current.phase == MANAGED_SPACE_TOPOLOGY_PHASE_DEACTIVATE_IN_MISSION_CONTROL) {
@@ -3140,6 +3168,10 @@ void managed_space_sip_fallback_finish_batch(struct managed_space_sip_fallback *
     topology->finish_batch_requested = true;
     topology->state = MANAGED_SPACE_SIP_FALLBACK_STATE_WAITING_FOR_MISSION_CONTROL_EXIT;
     managed_space_sip_fallback_close_owned_mission_control(topology);
+    if (workspace_is_macos_27()) {
+        managed_space_sip_fallback_schedule_step(topology,
+                                             MANAGED_SPACE_TOPOLOGY_MISSION_CONTROL_DELAY_SECONDS);
+    }
     managed_space_sip_fallback_schedule_watchdog(topology);
 }
 

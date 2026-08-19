@@ -1,6 +1,7 @@
 extern struct event_loop g_event_loop;
 extern enum mission_control_mode g_mission_control_mode;
 extern volatile uint64_t __last_cmd_tab_time;
+static bool g_macos27_mission_control_ui_active;
 
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wunused-parameter"
@@ -8,6 +9,39 @@ static CONNECTION_CALLBACK(connection_handler)
 {
     if (type == 1204) {
         event_loop_post(&g_event_loop, MISSION_CONTROL_ENTER, NULL, 0);
+    } else if (workspace_is_macos_27() && (type == 1325 || type == 1326)) {
+        pid_t pid = workspace_get_mission_control_pid();
+        AXUIElementRef application = pid ? AXUIElementCreateApplication(pid) : NULL;
+        CFTypeRef value = NULL;
+        bool mission_control_active = false;
+
+        if (application &&
+            AXUIElementCopyAttributeValue(application, kAXChildrenAttribute, &value) == kAXErrorSuccess &&
+            value) {
+            CFArrayRef children = value;
+            for (CFIndex i = 0; i < CFArrayGetCount(children); ++i) {
+                AXUIElementRef child = (AXUIElementRef) CFArrayGetValueAtIndex(children, i);
+                CFTypeRef identifier = NULL;
+                if (AXUIElementCopyAttributeValue(child, CFSTR("AXIdentifier"), &identifier) == kAXErrorSuccess &&
+                    identifier && CFGetTypeID(identifier) == CFStringGetTypeID() &&
+                    CFEqual(identifier, CFSTR("mc.display"))) {
+                    mission_control_active = true;
+                }
+                if (identifier) CFRelease(identifier);
+                if (mission_control_active) break;
+            }
+        }
+
+        if (value) CFRelease(value);
+        if (application) CFRelease(application);
+
+        if (mission_control_active && !g_macos27_mission_control_ui_active) {
+            g_macos27_mission_control_ui_active = true;
+            event_loop_post(&g_event_loop, MISSION_CONTROL_ENTER, NULL, 0);
+        } else if (!mission_control_active && g_macos27_mission_control_ui_active) {
+            g_macos27_mission_control_ui_active = false;
+            event_loop_post(&g_event_loop, MISSION_CONTROL_EXIT, NULL, 0);
+        }
     } else if (type == 1327) {
         uint64_t sid; memcpy(&sid, data, sizeof(uint64_t));
         event_loop_post(&g_event_loop, SLS_SPACE_CREATED, (void *) (intptr_t) sid , 0);
@@ -73,7 +107,7 @@ static OBSERVER_CALLBACK(mission_control_notification_handler)
 void mission_control_observe(void)
 {
     if (!g_mission_control_observer.is_observing) {
-        uint32_t pid = workspace_get_dock_pid();
+        uint32_t pid = workspace_get_mission_control_pid();
         g_mission_control_observer.ref = AXUIElementCreateApplication(pid);
 
         if (pid && g_mission_control_observer.ref) {

@@ -6,6 +6,28 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+### Added
+- Added preliminary Apple Silicon support for macOS 27 Golden Gate, including
+  scripting-addition signatures validated on build 26A5416b.
+
+### Changed
+- Mission Control lifecycle tracking on macOS 27 now follows WindowManager
+  surface events instead of the removed Dock Accessibility notifications.
+- The managed-space Accessibility fallback now reads the macOS 27 Mission
+  Control hierarchy from WindowManager while retaining the Dock hierarchy on
+  earlier releases.
+
+### Fixed
+- Fixed full-SIP managed-space create and destroy operations timing out on
+  macOS 27 after Mission Control moved out of Dock's Accessibility tree.
+- Fixed fallback-owned Mission Control sessions reporting a false exit timeout
+  after a successful macOS 27 topology operation.
+
+### Known limitations
+- On macOS 27 beta build 26A5416b, the full-SIP Accessibility fallback cannot
+  reorder or move spaces between displays because Mission Control rejects
+  synthetic thumbnail drags. The scripting-addition provider is unaffected.
+
 ## [26.1.4] - 2026-07-27
 
 ### Added

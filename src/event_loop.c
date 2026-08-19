@@ -18,7 +18,7 @@ static void update_window_notifications(void)
     int window_count = 0;
     uint32_t window_list[1024] = {0};
 
-    if (workspace_is_macos_sequoia() || workspace_is_macos_tahoe()) {
+    if (workspace_is_macos_sequoia() || workspace_is_macos_tahoe() || workspace_is_macos_27()) {
         // NOTE(asmvik): Subscribe to all windows because of window_destroyed (and ordered) notifications
         table_for (struct window *window, g_window_manager.window, {
             window_list[window_count++] = window->id;
@@ -124,7 +124,7 @@ static struct window *resolve_missing_focused_window(struct application *applica
 
     managed_space_request_reconcile(&g_managed_space);
 
-    if (workspace_is_macos_sequoia() || workspace_is_macos_tahoe()) {
+    if (workspace_is_macos_sequoia() || workspace_is_macos_tahoe() || workspace_is_macos_27()) {
         update_window_notifications();
     }
 
@@ -330,7 +330,7 @@ static EVENT_HANDLER(APPLICATION_LAUNCHED)
         view_clear_flag(view, VIEW_IS_DIRTY);
     }
 
-    if (workspace_is_macos_sequoia() || workspace_is_macos_tahoe()) {
+    if (workspace_is_macos_sequoia() || workspace_is_macos_tahoe() || workspace_is_macos_27()) {
         update_window_notifications();
     }
 }
@@ -424,7 +424,7 @@ static EVENT_HANDLER(APPLICATION_TERMINATED)
         view_clear_flag(view, VIEW_IS_DIRTY);
     }
 
-    if (workspace_is_macos_sequoia() || workspace_is_macos_tahoe()) {
+    if (workspace_is_macos_sequoia() || workspace_is_macos_tahoe() || workspace_is_macos_27()) {
         update_window_notifications();
     }
 
@@ -699,7 +699,7 @@ static EVENT_HANDLER(WINDOW_CREATED)
 
     managed_space_request_reconcile(&g_managed_space);
 
-    if (workspace_is_macos_sequoia() || workspace_is_macos_tahoe()) {
+    if (workspace_is_macos_sequoia() || workspace_is_macos_tahoe() || workspace_is_macos_27()) {
         update_window_notifications();
     }
 }
@@ -737,7 +737,7 @@ static EVENT_HANDLER(WINDOW_DESTROYED)
 
     managed_space_request_reconcile(&g_managed_space);
 
-    if (workspace_is_macos_sequoia() || workspace_is_macos_tahoe()) {
+    if (workspace_is_macos_sequoia() || workspace_is_macos_tahoe() || workspace_is_macos_27()) {
         update_window_notifications();
     }
 }
@@ -1653,9 +1653,11 @@ static EVENT_HANDLER(MISSION_CONTROL_ENTER)
     g_mission_control_mode = MISSION_CONTROL_MODE_SHOW;
     managed_space_topology_handle_mission_control_enter(&g_managed_space_topology);
 
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 0.1f * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
-        event_loop_post(&g_event_loop, MISSION_CONTROL_CHECK_FOR_EXIT, NULL, 0);
-    });
+    if (!workspace_is_macos_27()) {
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 0.1f * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
+            event_loop_post(&g_event_loop, MISSION_CONTROL_CHECK_FOR_EXIT, NULL, 0);
+        });
+    }
 
     event_signal_push(SIGNAL_MISSION_CONTROL_ENTER, (void*)(uintptr_t)g_mission_control_mode);
 }

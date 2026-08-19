@@ -34,6 +34,12 @@ TEST_FUNC(managed_space_sip_fallback_backend_selection_is_operation_scoped,
     TEST_CHECK(managed_space_sip_fallback_select_backend(&topology, MANAGED_SPACE_TOPOLOGY_OPERATION_MOVE_DISPLAY),
                MANAGED_SPACE_SIP_FALLBACK_BACKEND_BRIDGE);
 
+    snprintf(topology.os_build, sizeof(topology.os_build), "%s", "26B1234");
+    TEST_CHECK(managed_space_sip_fallback_select_backend(&topology, MANAGED_SPACE_TOPOLOGY_OPERATION_REORDER),
+               MANAGED_SPACE_SIP_FALLBACK_BACKEND_BRIDGE);
+    TEST_CHECK(managed_space_sip_fallback_select_backend(&topology, MANAGED_SPACE_TOPOLOGY_OPERATION_MOVE_DISPLAY),
+               MANAGED_SPACE_SIP_FALLBACK_BACKEND_BRIDGE);
+
     topology.policy = MANAGED_SPACE_SIP_FALLBACK_POLICY_BRIDGE;
     TEST_CHECK(managed_space_sip_fallback_select_backend(&topology, MANAGED_SPACE_TOPOLOGY_OPERATION_DESTROY),
                MANAGED_SPACE_SIP_FALLBACK_BACKEND_BRIDGE);
@@ -49,7 +55,7 @@ TEST_FUNC(managed_space_sip_fallback_backend_selection_is_operation_scoped,
     SLSPerformAsynchronousBridgedWindowManagementOperation = previous_bridge;
 });
 
-TEST_FUNC(managed_space_sip_fallback_validated_bridge_matrix_is_build_scoped,
+TEST_FUNC(managed_space_sip_fallback_validated_bridge_matrix_is_os_scoped,
 {
     uint32_t operations = managed_space_sip_fallback_known_bridge_operations("25E253");
     TEST_CHECK((int) operations, 0);
@@ -58,7 +64,11 @@ TEST_FUNC(managed_space_sip_fallback_validated_bridge_matrix_is_build_scoped,
     TEST_CHECK((operations & MANAGED_SPACE_TOPOLOGY_BRIDGE_MOVE_DISPLAY) != 0, true);
     TEST_CHECK((operations & MANAGED_SPACE_TOPOLOGY_BRIDGE_CREATE) != 0, false);
     TEST_CHECK((operations & MANAGED_SPACE_TOPOLOGY_BRIDGE_DESTROY) != 0, false);
+    operations = managed_space_sip_fallback_known_bridge_operations("26Z9999");
+    TEST_CHECK((operations & MANAGED_SPACE_TOPOLOGY_BRIDGE_REORDER) != 0, true);
+    TEST_CHECK((operations & MANAGED_SPACE_TOPOLOGY_BRIDGE_MOVE_DISPLAY) != 0, true);
     TEST_CHECK((int) managed_space_sip_fallback_known_bridge_operations("unknown"), 0);
+    TEST_CHECK((int) managed_space_sip_fallback_known_bridge_operations(NULL), 0);
 });
 
 TEST_FUNC(managed_space_sip_fallback_backend_change_preserves_last_failure,

@@ -75,7 +75,7 @@ Please also take note of the following caveats.
 |System&nbsp;Settings&nbsp;(macOS 13.x, 14.x, 15.x, 26.x, 27.x)|In the Desktop & Dock tab, inside the Mission Control pane, the setting "Automatically rearrange Spaces based on most recent use" should be disabled for commands that rely on the ordering of spaces to work reliably.|
 |System&nbsp;Settings&nbsp;(macOS 14.x, 15.x, 26.x, 27.x)|In the Desktop & Dock tab, inside the Desktop & Stage Manager pane, the setting "Show Items On Desktop" should be enabled for display and space focus commands to work reliably in multi-display configurations.|
 |System&nbsp;Settings&nbsp;(macOS 14.x, 15.x, 26.x, 27.x)|In the Desktop & Dock tab, inside the Desktop & Stage Manager pane, the setting "Click wallpaper to reveal Desktop" should be set to "Only in Stage Manager" for display and space focus commands to work reliably.|
-|Full-SIP managed spaces (macOS 27 beta)|Build 26A5416b uses validated indexed bridge operations for reorder, swap, and cross-display moves, with Accessibility retained for create and destroy. Later beta builds fall back to Accessibility until their bridge behavior is validated.|
+|Full-SIP managed spaces (macOS 27)|Indexed bridge operations handle reorder, swap, and cross-display moves on all macOS 27 builds, with Accessibility retained for create and destroy.|
 
 ## License and Attribution
 

@@ -16,21 +16,19 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - The managed-space Accessibility fallback now reads the macOS 27 Mission
   Control hierarchy from WindowManager while retaining the Dock hierarchy on
   earlier releases.
+- Indexed managed-space bridge operations validated on macOS 27 are enabled
+  across the OS release instead of being gated to individual beta builds.
 
 ### Fixed
 - Fixed full-SIP managed-space create and destroy operations timing out on
   macOS 27 after Mission Control moved out of Dock's Accessibility tree.
 - Restored full-SIP managed-space reorder, swap, and cross-display moves on
-  macOS 27 beta build 26A5416b by using indexed managed-space bridge operations
-  accepted and persisted by WindowManager.
+  macOS 27 by using indexed managed-space bridge operations accepted and
+  persisted by WindowManager.
 - Fixed fallback-owned Mission Control sessions reporting a false exit timeout
   after a successful macOS 27 topology operation.
 - The macOS 27 scripting-addition loader no longer incorrectly requires the
   `-arm64e_preview_abi` boot argument used by earlier macOS releases.
-
-### Known limitations
-- Exact-build validation is required before the indexed managed-space bridge is
-  enabled automatically on later macOS 27 beta builds.
 
 ## [26.1.4] - 2026-07-27
 

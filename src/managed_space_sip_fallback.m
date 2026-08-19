@@ -260,8 +260,8 @@ const char *managed_space_sip_fallback_state_name(enum managed_space_sip_fallbac
 static uint32_t managed_space_sip_fallback_known_bridge_operations(char *os_build)
 {
     //
-    // Populated only after a reversible runtime validation on the exact OS build.
-    // Forced "bridge" mode remains available for running that validation matrix.
+    // Populated only after reversible runtime validation. Forced "bridge" mode
+    // remains available for running that validation matrix.
     //
     // 25E253 was previously listed here after its bridge objects appeared in
     // SLSCopyManagedDisplaySpaces. A Dock AX snapshot and the persisted
@@ -271,10 +271,12 @@ static uint32_t managed_space_sip_fallback_known_bridge_operations(char *os_buil
     //
     // On macOS 27 beta build 26A5416b, indexed managed-space moves passed the
     // full SLS + Dock + restart matrix for same-display reorder, swap, and
-    // cross-display moves. Weight-only ordering operations are ignored by
-    // WindowManager on this build.
+    // cross-display moves. Enable those operations for the full macOS 27 build
+    // family so beta build updates do not unnecessarily revert to Accessibility.
+    // Weight-only ordering operations remain unused because WindowManager ignored
+    // them on the validated build.
     //
-    if (string_equals(os_build, "26A5416b")) {
+    if (os_build && os_build[0] == '2' && os_build[1] == '6') {
         return MANAGED_SPACE_TOPOLOGY_BRIDGE_REORDER |
                MANAGED_SPACE_TOPOLOGY_BRIDGE_MOVE_DISPLAY;
     }

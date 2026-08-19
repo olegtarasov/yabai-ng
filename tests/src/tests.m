@@ -49,7 +49,7 @@ typedef TEST_SIG(function);
     TEST_ENTRY(managed_space_topology_selection_is_sticky_until_explicit_refresh) \
     TEST_ENTRY(managed_space_topology_result_keeps_provider_errors_out_of_space_manager) \
     TEST_ENTRY(managed_space_sip_fallback_backend_selection_is_operation_scoped) \
-    TEST_ENTRY(managed_space_sip_fallback_validated_bridge_matrix_is_build_scoped) \
+    TEST_ENTRY(managed_space_sip_fallback_validated_bridge_matrix_is_os_scoped) \
     TEST_ENTRY(managed_space_sip_fallback_backend_change_preserves_last_failure) \
     TEST_ENTRY(managed_space_sip_fallback_failed_reconcile_waits_for_new_state) \
     TEST_ENTRY(managed_space_sip_fallback_queue_serializes_and_records_origin) \

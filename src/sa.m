@@ -335,6 +335,12 @@ static bool scripting_addition_is_sip_friendly(void)
 #ifdef __arm64__
 static bool scripting_addition_is_arm64e_enabled(void)
 {
+    NSOperatingSystemVersion os_version = [[NSProcessInfo processInfo] operatingSystemVersion];
+    if (os_version.majorVersion == 27) {
+        // macOS 27 executes the arm64e loader without the preview ABI boot-arg.
+        return true;
+    }
+
     char bootargs[2048];
     size_t len = sizeof(bootargs) - 1;
 

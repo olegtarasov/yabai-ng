@@ -22,6 +22,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   macOS 27 after Mission Control moved out of Dock's Accessibility tree.
 - Fixed fallback-owned Mission Control sessions reporting a false exit timeout
   after a successful macOS 27 topology operation.
+- The macOS 27 scripting-addition loader no longer incorrectly requires the
+  `-arm64e_preview_abi` boot argument used by earlier macOS releases.
 
 ### Known limitations
 - On macOS 27 beta build 26A5416b, the full-SIP Accessibility fallback cannot

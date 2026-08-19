@@ -259,8 +259,6 @@ const char *managed_space_sip_fallback_state_name(enum managed_space_sip_fallbac
 
 static uint32_t managed_space_sip_fallback_known_bridge_operations(char *os_build)
 {
-    (void) os_build;
-
     //
     // Populated only after a reversible runtime validation on the exact OS build.
     // Forced "bridge" mode remains available for running that validation matrix.
@@ -271,6 +269,16 @@ static uint32_t managed_space_sip_fallback_known_bridge_operations(char *os_buil
     // WindowServer-only spaces. No mutation on this build has passed the full
     // SLS + Dock + restart validation matrix, so none are enabled for auto.
     //
+    // On macOS 27 beta build 26A5416b, indexed managed-space moves passed the
+    // full SLS + Dock + restart matrix for same-display reorder, swap, and
+    // cross-display moves. Weight-only ordering operations are ignored by
+    // WindowManager on this build.
+    //
+    if (string_equals(os_build, "26A5416b")) {
+        return MANAGED_SPACE_TOPOLOGY_BRIDGE_REORDER |
+               MANAGED_SPACE_TOPOLOGY_BRIDGE_MOVE_DISPLAY;
+    }
+
     return 0;
 }
 
@@ -318,7 +326,7 @@ static bool managed_space_sip_fallback_bridge_symbol_available(enum managed_spac
         return objc_getClass("SLSBridgedSpaceDestroyOperation") != Nil;
     case MANAGED_SPACE_TOPOLOGY_OPERATION_REORDER:
     case MANAGED_SPACE_TOPOLOGY_OPERATION_SWAP:
-        return objc_getClass("SLSBridgedSpaceSetOrderingWeightOperation") != Nil;
+        return objc_getClass("SLSBridgedMoveManagedSpaceToDisplayIndexOperation") != Nil;
     case MANAGED_SPACE_TOPOLOGY_OPERATION_MOVE_DISPLAY:
         return objc_getClass("SLSBridgedMoveManagedSpaceToDisplayIndexOperation") != Nil;
     case MANAGED_SPACE_TOPOLOGY_OPERATION_NONE:         return false;
@@ -1346,23 +1354,33 @@ static bool managed_space_sip_fallback_execute_bridge(struct managed_space_sip_f
     } break;
     case MANAGED_SPACE_TOPOLOGY_OPERATION_REORDER:
     case MANAGED_SPACE_TOPOLOGY_OPERATION_SWAP: {
-        Class operation_class = objc_getClass("SLSBridgedSpaceSetOrderingWeightOperation");
+        Class operation_class = objc_getClass("SLSBridgedMoveManagedSpaceToDisplayIndexOperation");
         if (!operation_class || !SLSPerformAsynchronousBridgedWindowManagementOperation) return false;
         int space_count = 0;
         uint64_t *space_list = display_space_list(space_display_id(request->sid), &space_count);
+        CFStringRef display_identifier = display_uuid(space_display_id(request->sid));
+        if (!space_list || !display_identifier) {
+            if (display_identifier) CFRelease(display_identifier);
+            return false;
+        }
+        SEL selector = sel_registerName("initWithSpaceID:displayIdentifier:index:");
         int user_index = 0;
-        for (int i = 0; space_list && i < space_count && user_index < request->desired_order_count; ++i) {
+        for (int i = 0; i < space_count && user_index < request->desired_order_count; ++i) {
             if (!space_is_user(space_list[i])) continue;
-            SEL selector = sel_registerName("initWithSpaceID:weight:");
-            id operation = ((id (*)(id, SEL, uint64_t, int32_t)) objc_msgSend)(
+            id operation = ((id (*)(id, SEL, uint64_t, id, uint32_t)) objc_msgSend)(
                 [operation_class alloc],
                 selector,
                 request->desired_order[user_index++],
-                i + 1);
-            if (!operation) return false;
+                (__bridge id) display_identifier,
+                (uint32_t) i);
+            if (!operation) {
+                CFRelease(display_identifier);
+                return false;
+            }
             SLSPerformAsynchronousBridgedWindowManagementOperation(operation);
             [operation release];
         }
+        CFRelease(display_identifier);
         if (user_index != request->desired_order_count) return false;
         request->mutation_started = true;
         topology->state = MANAGED_SPACE_SIP_FALLBACK_STATE_WAITING_FOR_SETTLE;

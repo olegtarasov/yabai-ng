@@ -21,15 +21,15 @@
 #define HELP_OPT_SHRT           "-h"
 
 #ifndef MAJOR
-#define MAJOR  26
+#define MAJOR  27
 #endif
 
 #ifndef MINOR
-#define MINOR  1
+#define MINOR  0
 #endif
 
 #ifndef PATCH
-#define PATCH 4
+#define PATCH 0
 #endif
 
 struct signal *g_signal_event[SIGNAL_TYPE_COUNT];

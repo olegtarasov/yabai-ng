@@ -6,6 +6,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [27.0.0] - 2026-08-22
+
 ### Added
 - Added preliminary Apple Silicon support for macOS 27 Golden Gate, including
   scripting-addition signatures validated on build 26A5416b.

@@ -499,8 +499,9 @@ static inline bool ax_privilege(void)
 static inline uint32_t ax_window_id(AXUIElementRef ref)
 {
     uint32_t wid = 0;
-    _AXUIElementGetWindow(ref, &wid);
-    return wid;
+    AXUIElementSetMessagingTimeout(ref, 1.0f);
+    AXError result = _AXUIElementGetWindow(ref, &wid);
+    return result == kAXErrorSuccess ? wid : 0;
 }
 
 static inline pid_t ax_window_pid(AXUIElementRef ref)

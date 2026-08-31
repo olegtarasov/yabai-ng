@@ -105,6 +105,14 @@ bool workspace_application_is_observable(struct process *process)
     NSRunningApplication *application = __atomic_load_n(&process->ns_application, __ATOMIC_RELAXED);
     if (application) {
         process->policy = [application activationPolicy];
+
+        // NOTE(asmvik): CursorUIViewService can be reported as a regular application on macOS 27,
+        // despite being a background-only XPC service. Its AX server does not answer window-id
+        // requests, which blocks the event loop indefinitely when a window-created event arrives.
+        if ([[application bundleIdentifier] isEqualToString:@"com.apple.TextInputUI.xpc.CursorUIViewService"]) {
+            return false;
+        }
+
         return process->policy == NSApplicationActivationPolicyRegular;
     } else {
         process->policy = NSApplicationActivationPolicyProhibited;

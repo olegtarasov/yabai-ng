@@ -6,6 +6,17 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [27.0.1] - 2026-09-16
+
+### Fixed
+- Prevented Accessibility window lookups from hanging yabai when an app stops
+  responding to the AX API.
+- Excluded ordered-out windows, such as Bitwarden windows closed to the menu
+  bar, from managed-space app icons and occupancy while retaining their
+  managed-space association.
+- Updated managed-space presentation when WindowServer reports a window order
+  change, so bars refresh after a window is closed to the menu bar.
+
 ## [27.0.0] - 2026-08-22
 
 ### Added

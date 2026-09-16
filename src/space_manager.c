@@ -1022,6 +1022,10 @@ bool space_manager_focus_space_using_gesture(uint32_t new_did, uint64_t new_sid)
     bool focus_display = cur_did != new_did;
     if (focus_display) CGWarpMouseCursorPosition(point);
 
+    if (workspace_is_macos_27()) {
+        return space_gesture_macos27_switch(new_index - cur_index, count);
+    }
+
     //
     // NOTE(asmvik): MacOS does not have an API that allows for space activation.
     // However, we can synthesize a sequence of high velocity gestures to skip the

@@ -75,6 +75,7 @@
 #include "application.h"
 #include "display_manager.h"
 #include "space_manager.h"
+#include "space_gesture_macos27.c"
 #include "managed_space_topology.h"
 #include "managed_space_sip_fallback.h"
 #include "managed_space_scripting_addition.h"

@@ -517,7 +517,7 @@ static uint64_t managed_space_find_unmanaged_user_space(void)
     return 0;
 }
 
-bool managed_space_window_is_displayable(struct window *window)
+static bool managed_space_window_is_actionable(struct window *window)
 {
     if (!window) return false;
     if (!window->id) return false;
@@ -532,6 +532,18 @@ bool managed_space_window_is_displayable(struct window *window)
     return true;
 }
 
+static bool managed_space_window_is_ordered_in(struct window *window)
+{
+    uint8_t ordered_in = 0;
+    SLSWindowIsOrderedIn(g_connection, window->id, &ordered_in);
+    return ordered_in;
+}
+
+bool managed_space_window_is_displayable(struct window *window)
+{
+    return managed_space_window_is_actionable(window) && managed_space_window_is_ordered_in(window);
+}
+
 static bool managed_space_fullscreen_window_is_displayable(struct window *window)
 {
     if (!window) return false;
@@ -543,7 +555,7 @@ static bool managed_space_fullscreen_window_is_displayable(struct window *window
     if (window_check_flag(window, WINDOW_STICKY) || window_is_sticky(window->id)) return false;
     if (window_check_flag(window, WINDOW_MINIMIZE)) return false;
     if (window_check_flag(window, WINDOW_TAB)) return false;
-    return true;
+    return managed_space_window_is_ordered_in(window);
 }
 
 static bool managed_space_window_is_displayable_for_space(uint64_t sid, struct window *window)
@@ -551,11 +563,6 @@ static bool managed_space_window_is_displayable_for_space(uint64_t sid, struct w
     return space_is_fullscreen(sid)
         ? managed_space_fullscreen_window_is_displayable(window)
         : managed_space_window_is_displayable(window);
-}
-
-static bool managed_space_window_is_actionable(struct window *window)
-{
-    return managed_space_window_is_displayable(window);
 }
 
 static bool managed_space_window_id_in_list(uint32_t wid, uint32_t *window_list, int window_count)
@@ -1460,6 +1467,14 @@ static void managed_space_publish_presentation_if_needed(struct managed_space *m
 
     ms->last_presentation_hash = hash;
     event_signal_push(SIGNAL_MANAGED_SPACES_CHANGED, ms);
+}
+
+void managed_space_handle_window_ordered(struct managed_space *ms, uint32_t wid)
+{
+    if (!ms->enabled || !wid) return;
+    if (!window_manager_find_window(&g_window_manager, wid)) return;
+
+    managed_space_publish_presentation_if_needed(ms);
 }
 
 static void managed_space_refresh_topology_grace(struct managed_space *ms)

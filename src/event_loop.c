@@ -1090,6 +1090,7 @@ static EVENT_HANDLER(SLS_WINDOW_ORDERED)
 {
     uint32_t wid = (uint64_t)(intptr_t) context;
     debug("%s: %d\n", __FUNCTION__, wid);
+    managed_space_handle_window_ordered(&g_managed_space, wid);
     struct window_node *node = table_find(&g_window_manager.insert_feedback, &wid);
     if (node) SLSOrderWindow(g_connection, node->feedback_window.id, 1, node->window_order[0]);
 }

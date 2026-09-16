@@ -86,6 +86,7 @@ void managed_space_note_focus_changed(struct managed_space *ms);
 
 void managed_space_handle_space_created(struct managed_space *ms, uint64_t sid);
 void managed_space_handle_space_destroyed(struct managed_space *ms, uint64_t sid);
+void managed_space_handle_window_ordered(struct managed_space *ms, uint32_t wid);
 void managed_space_handle_sip_fallback_operation_completed(struct managed_space *ms,
                                                            struct managed_space_sip_fallback_request *request);
 void managed_space_handle_sip_fallback_operation_failed(struct managed_space *ms,

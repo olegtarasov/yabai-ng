@@ -6,6 +6,12 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [27.0.2] - 2026-09-16
+
+### Fixed
+- Restored managed-space focus with SIP enabled on macOS 27 by attaching the required
+  IOHID payload to synthetic Dock swipe gestures.
+
 ## [27.0.1] - 2026-09-16
 
 ### Fixed

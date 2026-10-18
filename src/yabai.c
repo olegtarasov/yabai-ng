@@ -29,7 +29,7 @@
 #endif
 
 #ifndef PATCH
-#define PATCH 2
+#define PATCH 3
 #endif
 
 struct signal *g_signal_event[SIGNAL_TYPE_COUNT];

@@ -1099,7 +1099,8 @@ static EVENT_HANDLER(SLS_WINDOW_VISIBILITY_CHANGED)
 {
     uint32_t wid = (uint32_t)(uintptr_t) context;
     struct window *window = window_manager_find_window(&g_window_manager, wid);
-    if (!window || !window->id_ptr || mission_control_is_active()) return;
+    if (!window || mission_control_is_active()) return;
+    if (!__sync_bool_compare_and_swap(&window->id_ptr, &window->id, &window->id)) return;
 
     window_manager_handle_window_visibility_changed(&g_space_manager, &g_window_manager, window);
     managed_space_handle_window_ordered(&g_managed_space, wid);

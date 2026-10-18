@@ -6,6 +6,16 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [27.0.3] - 2026-10-18
+
+### Fixed
+- Retile retained windows when applications show or hide them without creating or
+  destroying their WindowServer IDs. Safari Settings now tiles on reopening and
+  the main window immediately reclaims its space on closing.
+- Refresh retained windows' Accessibility references before tiling them again,
+  so frame changes reach the current Accessibility element.
+- Update managed-space presentation on actual window visibility transitions.
+
 ## [27.0.2] - 2026-09-16
 
 ### Fixed

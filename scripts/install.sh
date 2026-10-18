@@ -58,8 +58,8 @@ fi
 AUTHOR="olegtarasov"
 REPO="yabai-ng"
 BINARY="yabai"
-VERSION="27.0.2"
-EXPECTED_HASH="f57eefedb7caea97e6664dfa3fc3efb9f570ef01092026aed3c97a60ba6d6d46"
+VERSION="27.0.3"
+EXPECTED_HASH="a0130f69fedbb7942cb9ce4bbba327b05cfe13f1646614084b3be89211cec891"
 TMP_DIR="./${AUTHOR}-${REPO}-v${VERSION}-installer"
 
 mkdir $TMP_DIR

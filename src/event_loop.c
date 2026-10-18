@@ -1095,6 +1095,16 @@ static EVENT_HANDLER(SLS_WINDOW_ORDERED)
     if (node) SLSOrderWindow(g_connection, node->feedback_window.id, 1, node->window_order[0]);
 }
 
+static EVENT_HANDLER(SLS_WINDOW_VISIBILITY_CHANGED)
+{
+    uint32_t wid = (uint32_t)(uintptr_t) context;
+    struct window *window = window_manager_find_window(&g_window_manager, wid);
+    if (!window || !window->id_ptr || mission_control_is_active()) return;
+
+    window_manager_handle_window_visibility_changed(&g_space_manager, &g_window_manager, window);
+    managed_space_handle_window_ordered(&g_managed_space, wid);
+}
+
 static EVENT_HANDLER(SLS_WINDOW_DESTROYED)
 {
     uint32_t wid = (uint64_t)(intptr_t) context;

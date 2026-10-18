@@ -292,6 +292,52 @@ struct view *window_manager_find_managed_window(struct window_manager *wm, struc
     return table_find(&wm->managed_window, &window->id);
 }
 
+void window_manager_handle_window_visibility_changed(struct space_manager *sm, struct window_manager *wm, struct window *window)
+{
+    // Applications can order a retained window out and back in without AX destroy/create
+    // notifications. Re-read current state: queued order notifications may already be stale.
+    uint8_t ordered_in = 0;
+    if (SLSWindowIsOrderedIn(g_connection, window->id, &ordered_in) != kCGErrorSuccess) return;
+    if (window->application->is_hidden || window_check_flag(window, WINDOW_MINIMIZE) ||
+        window_check_flag(window, WINDOW_FULLSCREEN) || window_check_flag(window, WINDOW_TAB)) return;
+    if (native_tab_should_preserve_parent(wm, window)) return;
+
+    struct view *view = window_manager_find_managed_window(wm, window);
+    uint64_t sid = view ? view->sid : window_space(window->id);
+    if (!sid || !space_is_user(sid)) return;
+
+    debug("%s: %s %u ordered %s, managed %d\n", __FUNCTION__, window->application->name, window->id, ordered_in ? "in" : "out", view != NULL);
+
+    if (!ordered_in && view) {
+        space_manager_untile_window(view, window);
+        window_manager_remove_managed_window(wm, window->id);
+        window_manager_purify_window(wm, window);
+    } else if (ordered_in && !view && window_manager_should_manage_window(window)) {
+        // A retained WindowServer ID can be backed by a new AX element on reopen.
+        // The old element can still answer identity queries while rejecting frame writes.
+        CFArrayRef windows = application_window_list(window->application);
+        if (windows) {
+            for (CFIndex i = 0; i < CFArrayGetCount(windows); ++i) {
+                AXUIElementRef ref = (AXUIElementRef) CFArrayGetValueAtIndex(windows, i);
+                if (ax_window_id(ref) != window->id) continue;
+                if (!CFEqual(ref, window->ref)) {
+                    debug("%s: refreshing AX element for %s %u\n", __FUNCTION__, window->application->name, window->id);
+                    window_unobserve(window);
+                    CFRelease(window->ref);
+                    window->ref = (AXUIElementRef) CFRetain(ref);
+                    window_observe(window);
+                }
+                window->frame = window_ax_frame(window);
+                break;
+            }
+            CFRelease(windows);
+        }
+        if (native_tab_repair_window(wm, window)) return;
+        view = space_manager_tile_window_on_space(sm, window, sid);
+        window_manager_add_managed_window(wm, window, view);
+    }
+}
+
 void window_manager_remove_managed_window(struct window_manager *wm, uint32_t wid)
 {
     table_remove(&wm->managed_window, &wid);

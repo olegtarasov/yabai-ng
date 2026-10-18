@@ -343,6 +343,10 @@ int main(int argc, char **argv)
     }
 
     SLSRegisterConnectionNotifyProc(g_connection, connection_handler, 808, NULL);
+    if (workspace_is_macos_sequoia() || workspace_is_macos_tahoe() || workspace_is_macos_27()) {
+        SLSRegisterConnectionNotifyProc(g_connection, connection_handler, 815, NULL);
+        SLSRegisterConnectionNotifyProc(g_connection, connection_handler, 816, NULL);
+    }
     SLSRegisterConnectionNotifyProc(g_connection, connection_handler, 1202, NULL);
 
     if (workspace_is_macos_sequoia() || workspace_is_macos_tahoe() || workspace_is_macos_27()) {

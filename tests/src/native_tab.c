@@ -17,6 +17,7 @@ TEST_FUNC(native_tab_reparent_preserves_all_members_and_group_float,
     TEST_CHECK(window_check_flag(&selected, WINDOW_TAB), false);
     TEST_CHECK(window_check_flag(&selected, WINDOW_TAB_PARENT), true);
     TEST_CHECK(window_check_flag(&selected, WINDOW_FLOAT), true);
+    TEST_CHECK(window_check_flag(&child, WINDOW_FLOAT), true);
     TEST_CHECK(native_tab_windows_share_group(&selected, &child), true);
     TEST_CHECK(native_tab_windows_share_group(&selected, &unrelated), false);
     table_free(&wm.window);

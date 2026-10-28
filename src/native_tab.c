@@ -287,7 +287,12 @@ static bool native_tab_promote_window(struct window_manager *wm, struct window *
     native_tab_refresh_ax_reference(selected);
     if (node) {
         // Apply the existing slot to the new AX window, including zoom geometry.
-        window_node_flush(node);
+        if (native_tab_is_ordered_in(selected) && !selected->application->is_hidden &&
+            !window_check_flag(selected, WINDOW_MINIMIZE) && !window_check_flag(selected, WINDOW_FULLSCREEN)) {
+            window_node_flush(node);
+        } else {
+            view_set_flag(view, VIEW_IS_DIRTY);
+        }
         event_signal_push(SIGNAL_SPACE_STACKS_CHANGED, (void *)(uintptr_t) view->sid);
     }
     managed_space_request_reconcile(&g_managed_space);
@@ -342,8 +347,13 @@ bool native_tab_repair_window(struct window_manager *wm, struct window *window)
     if (window_check_flag(window, WINDOW_FULLSCREEN) || window_check_flag(window, WINDOW_MINIMIZE) || window->application->is_hidden) return false;
     bool repaired = false;
     if (window_check_flag(window, WINDOW_TAB)) {
-        struct window *parent = native_tab_managed_window(wm, window);
-        if (parent == window && native_tab_is_ordered_in(window)) {
+        struct window *parent = window_manager_find_window(wm, window->tab_parent_id);
+        if (parent && parent->application != window->application) parent = NULL;
+        if (parent && !native_tab_is_live(parent) && native_tab_is_ordered_in(window)) {
+            // AX may invalidate the old representative before its queued destroy
+            // event. Transfer the whole recorded group before admitting a new tile.
+            repaired = native_tab_promote_window(wm, parent, window, true);
+        } else if (!parent && native_tab_is_ordered_in(window)) {
             // A missed/queued destruction must not strand a selected orphan.
             native_tab_clear_child(wm, window);
             if (window_manager_should_manage_window(window) && !window_manager_find_managed_window(wm, window)) {
@@ -351,7 +361,7 @@ bool native_tab_repair_window(struct window_manager *wm, struct window *window)
                 window_manager_add_managed_window(wm, window, view);
             }
             repaired = true;
-        } else if (parent != window && native_tab_is_ordered_in(window) &&
+        } else if (parent && native_tab_is_ordered_in(window) &&
             (!native_tab_is_ordered_in(parent) || application_focused_window(window->application) == window->id)) {
             // Validate with the current AX element before reusing a recorded group.
             native_tab_refresh_ax_reference(window);
@@ -370,11 +380,27 @@ bool native_tab_repair_window(struct window_manager *wm, struct window *window)
     if (!window_manager_find_managed_window(wm, window) && !window_check_flag(window, WINDOW_TAB_PARENT)) return repaired;
     table_for (struct window *candidate, wm->window, {
         if (!native_tab_is_live(candidate) || candidate == window || candidate->application != window->application) continue;
-        if (!window_check_rule_flag(candidate, WINDOW_RULE_TAB) || window_check_flag(candidate, WINDOW_TAB)) continue;
+        if (!window_check_rule_flag(candidate, WINDOW_RULE_TAB)) continue;
         if (!window_is_standard(candidate) || window_check_flag(candidate, WINDOW_FULLSCREEN)) continue;
+        if (window_check_flag(candidate, WINDOW_TAB) && candidate->tab_parent_id == window->id) {
+            // Detaching the representative can expose a different member while
+            // both retain their WindowServer IDs. Do not keep that window hidden
+            // behind the representative's presentation/tiling identity.
+            if (native_tab_is_ordered_in(window) && native_tab_is_ordered_in(candidate) &&
+                !native_tab_windows_share_ax_tab_group(window, candidate)) {
+                native_tab_clear_child(wm, candidate);
+                if (window_manager_should_manage_window(candidate) && !window_manager_find_managed_window(wm, candidate)) {
+                    struct view *view = space_manager_tile_window_on_space(&g_space_manager, candidate, window_space(candidate->id));
+                    window_manager_add_managed_window(wm, candidate, view);
+                }
+                repaired = true;
+            }
+            continue;
+        }
         if (window_check_flag(candidate, WINDOW_TAB_PARENT) || !native_tab_same_space(window, candidate)) continue;
         if (native_tab_is_ordered_in(window) && native_tab_is_ordered_in(candidate)) continue;
         if (!native_tab_windows_share_ax_tab_group(window, candidate)) continue;
+        if (window_check_flag(candidate, WINDOW_TAB)) native_tab_clear_child(wm, candidate);
         native_tab_convert_to_child(wm, candidate, window);
         repaired = true;
     })

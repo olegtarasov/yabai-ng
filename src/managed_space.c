@@ -517,7 +517,7 @@ static uint64_t managed_space_find_unmanaged_user_space(void)
     return 0;
 }
 
-static bool managed_space_window_is_actionable(struct window *window)
+static bool managed_space_window_is_presentable(struct window *window)
 {
     if (!window) return false;
     if (!window->id) return false;
@@ -528,8 +528,12 @@ static bool managed_space_window_is_actionable(struct window *window)
     if (window_check_flag(window, WINDOW_STICKY) || window_is_sticky(window->id)) return false;
     if (window_check_flag(window, WINDOW_MINIMIZE)) return false;
     if (window_check_flag(window, WINDOW_FULLSCREEN)) return false;
-    if (!native_tab_is_presentation_window(&g_window_manager, window)) return false;
     return true;
+}
+
+static bool managed_space_window_is_actionable(struct window *window)
+{
+    return managed_space_window_is_presentable(window) && !window_check_flag(window, WINDOW_TAB);
 }
 
 static bool managed_space_window_is_ordered_in(struct window *window)
@@ -541,7 +545,9 @@ static bool managed_space_window_is_ordered_in(struct window *window)
 
 bool managed_space_window_is_displayable(struct window *window)
 {
-    return managed_space_window_is_actionable(window) && managed_space_window_is_ordered_in(window);
+    return managed_space_window_is_presentable(window) &&
+           native_tab_is_presentation_window(&g_window_manager, window) &&
+           managed_space_window_is_ordered_in(window);
 }
 
 static bool managed_space_fullscreen_window_is_displayable(struct window *window)

@@ -6,6 +6,25 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [27.0.4] - 2026-10-28
+
+### Fixed
+- Preserve native tab groups' tiling position, stack order, zoom, and floating
+  state when selecting another tab, including Fork repository tabs.
+- Count a visible native tab group once in managed-space presentation so its
+  space remains available to bars when another space is focused.
+- Correct moves and resizes of the selected tiled tab, and make float/unfloat
+  commands operate on the whole group.
+- Reparent surviving tabs after window destruction, recover detached tabs, and
+  handle window recreation during Fork workspace switches.
+- Require Accessibility tab-group evidence instead of grouping unrelated
+  windows by matching geometry or application/space alone. Reapplying ordinary
+  management rules clears native tab relationships.
+
+### Tests
+- Add unit coverage for group handoff and an opt-in live native-tab regression
+  suite covering selection, floating, detachment, destruction, and recreation.
+
 ## [27.0.3] - 2026-10-18
 
 ### Fixed

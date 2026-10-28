@@ -525,6 +525,10 @@ void native_tab_discover_application_windows(struct window_manager *wm, struct a
         AXUIElementRef ref = (AXUIElementRef) CFArrayGetValueAtIndex(windows, i);
         uint32_t wid = ax_window_id(ref);
         if (!wid || wid == ignored_id || window_manager_find_window(wm, wid)) continue;
+        int connection = 0;
+        pid_t pid = 0;
+        if (SLSGetWindowOwner(g_connection, wid, &connection) != kCGErrorSuccess ||
+            SLSConnectionGetPID(connection, &pid) != kCGErrorSuccess || pid != application->pid) continue;
         debug("%s: discovering recreated %s window %u\n", __FUNCTION__, application->name, wid);
         event_loop_post(&g_event_loop, WINDOW_CREATED, (void *) CFRetain(ref), 0);
     }

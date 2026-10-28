@@ -124,6 +124,7 @@ static struct window *resolve_missing_focused_window(struct application *applica
 
     managed_space_request_reconcile(&g_managed_space);
 
+    native_tab_discover_application_windows(&g_window_manager, application, 0);
     if (workspace_is_macos_sequoia() || workspace_is_macos_tahoe() || workspace_is_macos_27()) {
         update_window_notifications();
     }
@@ -699,6 +700,7 @@ static EVENT_HANDLER(WINDOW_CREATED)
 
     managed_space_request_reconcile(&g_managed_space);
 
+    native_tab_discover_application_windows(&g_window_manager, application, 0);
     if (workspace_is_macos_sequoia() || workspace_is_macos_tahoe() || workspace_is_macos_27()) {
         update_window_notifications();
     }
@@ -733,6 +735,7 @@ static EVENT_HANDLER(WINDOW_DESTROYED)
     window_manager_remove_scratchpad_for_window(&g_window_manager, window, false);
     window_manager_remove_window(&g_window_manager, window->id);
     window_unobserve(window);
+    native_tab_discover_application_windows(&g_window_manager, window->application, window->id);
     window_destroy(window);
 
     managed_space_request_reconcile(&g_managed_space);

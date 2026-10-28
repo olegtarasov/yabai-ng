@@ -14,5 +14,6 @@ struct window *native_tab_managed_window(struct window_manager *wm, struct windo
 void native_tab_sync_group_float(struct window_manager *wm, struct window *window);
 void native_tab_forget_window(struct window_manager *wm, struct window *window);
 bool native_tab_is_presentation_window(struct window_manager *wm, struct window *window);
+void native_tab_discover_application_windows(struct window_manager *wm, struct application *application, uint32_t ignored_id);
 
 #endif

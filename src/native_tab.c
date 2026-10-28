@@ -505,3 +505,28 @@ bool native_tab_is_presentation_window(struct window_manager *wm, struct window 
     })
     return selected == window;
 }
+
+void native_tab_discover_application_windows(struct window_manager *wm, struct application *application, uint32_t ignored_id)
+{
+    if (!application) return;
+    bool enabled = false;
+    table_for (struct window *window, wm->window, {
+        if (window->application == application && window_check_rule_flag(window, WINDOW_RULE_TAB)) enabled = true;
+    })
+    struct window probe = { .application = application };
+    for (int i = 0; !enabled && i < buf_len(wm->rules); ++i) {
+        if (wm->rules[i].effects.manage == RULE_PROP_TAB &&
+            window_manager_rule_matches_window(&wm->rules[i], &probe, "", "AXWindow", "AXStandardWindow")) enabled = true;
+    }
+    if (!enabled) return;
+    CFArrayRef windows = application_window_list(application);
+    if (!windows) return;
+    for (CFIndex i = 0; i < CFArrayGetCount(windows); ++i) {
+        AXUIElementRef ref = (AXUIElementRef) CFArrayGetValueAtIndex(windows, i);
+        uint32_t wid = ax_window_id(ref);
+        if (!wid || wid == ignored_id || window_manager_find_window(wm, wid)) continue;
+        debug("%s: discovering recreated %s window %u\n", __FUNCTION__, application->name, wid);
+        event_loop_post(&g_event_loop, WINDOW_CREATED, (void *) CFRetain(ref), 0);
+    }
+    CFRelease(windows);
+}

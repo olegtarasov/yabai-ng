@@ -917,7 +917,7 @@ ARGUMENT
 *manage='<BOOL_SEL>|tab'*::
     Window should be managed (tile vs float). +
     Most windows will be managed automatically, so this should mainly be used to make a window float. +
-    Specify the value 'tab' to manage real windows while detecting native macOS tab children and excluding them from tiling.
+    Specify the value 'tab' to manage each confirmed native macOS tab group as one window. The selected tab inherits the group's tiling position and floating state. Independent windows remain separate; ambiguous tab titles are not grouped. Changing the rule to 'on' or 'off' and reapplying it clears existing tab relationships.
 
 *sticky='<BOOL_SEL>'*::
     Window appears on all spaces. +

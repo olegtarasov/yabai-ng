@@ -108,10 +108,12 @@ bool window_manager_rule_matches_window(struct rule *rule, struct window *window
 void window_manager_apply_manage_rule_effects_to_window(struct space_manager *sm, struct window_manager *wm, struct window *window, struct rule_effects *effects)
 {
     if (effects->manage == RULE_PROP_ON) {
+        native_tab_forget_window(wm, window);
         window_set_rule_flag(window, WINDOW_RULE_MANAGED);
         window_clear_rule_flag(window, WINDOW_RULE_TAB);
         window_manager_make_window_floating(sm, wm, window, false, true);
     } else if (effects->manage == RULE_PROP_OFF) {
+        native_tab_forget_window(wm, window);
         window_clear_rule_flag(window, WINDOW_RULE_MANAGED);
         window_clear_rule_flag(window, WINDOW_RULE_TAB);
         window_manager_make_window_floating(sm, wm, window, true, true);
@@ -298,6 +300,7 @@ void window_manager_handle_window_visibility_changed(struct space_manager *sm, s
     // notifications. Re-read current state: queued order notifications may already be stale.
     uint8_t ordered_in = 0;
     if (SLSWindowIsOrderedIn(g_connection, window->id, &ordered_in) != kCGErrorSuccess) return;
+    if (ordered_in) native_tab_repair_window(wm, window);
     if (window->application->is_hidden || window_check_flag(window, WINDOW_MINIMIZE) ||
         window_check_flag(window, WINDOW_FULLSCREEN) || window_check_flag(window, WINDOW_TAB)) return;
     if (native_tab_should_preserve_parent(wm, window)) return;
@@ -2290,6 +2293,7 @@ void window_manager_make_window_floating(struct space_manager *sm, struct window
 {
     TIME_FUNCTION;
 
+    window = native_tab_managed_window(wm, window);
     if (!window_manager_is_window_eligible(window)) return;
 
     if (!force) {
@@ -2318,6 +2322,7 @@ void window_manager_make_window_floating(struct space_manager *sm, struct window
             }
         }
     }
+    native_tab_sync_group_float(wm, window);
 }
 
 void window_manager_make_window_sticky(struct space_manager *sm, struct window_manager *wm, struct window *window, bool should_sticky)

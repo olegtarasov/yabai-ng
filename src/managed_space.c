@@ -528,7 +528,7 @@ static bool managed_space_window_is_actionable(struct window *window)
     if (window_check_flag(window, WINDOW_STICKY) || window_is_sticky(window->id)) return false;
     if (window_check_flag(window, WINDOW_MINIMIZE)) return false;
     if (window_check_flag(window, WINDOW_FULLSCREEN)) return false;
-    if (window_check_flag(window, WINDOW_TAB)) return false;
+    if (!native_tab_is_presentation_window(&g_window_manager, window)) return false;
     return true;
 }
 
@@ -554,7 +554,7 @@ static bool managed_space_fullscreen_window_is_displayable(struct window *window
     if (!window_is_standard(window)) return false;
     if (window_check_flag(window, WINDOW_STICKY) || window_is_sticky(window->id)) return false;
     if (window_check_flag(window, WINDOW_MINIMIZE)) return false;
-    if (window_check_flag(window, WINDOW_TAB)) return false;
+    if (!native_tab_is_presentation_window(&g_window_manager, window)) return false;
     return managed_space_window_is_ordered_in(window);
 }
 

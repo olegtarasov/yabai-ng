@@ -716,12 +716,12 @@ static EVENT_HANDLER(WINDOW_DESTROYED)
 
     struct view *view = window_manager_find_managed_window(&g_window_manager, window);
     uint64_t destroyed_sid = view ? view->sid : 0;
+    native_tab_handle_window_destroyed(&g_space_manager, &g_window_manager, window, destroyed_sid);
+    view = window_manager_find_managed_window(&g_window_manager, window);
     if (view) {
         space_manager_untile_window(view, window);
         window_manager_remove_managed_window(&g_window_manager, window->id);
     }
-
-    native_tab_handle_window_destroyed(&g_space_manager, &g_window_manager, window, destroyed_sid);
 
     if (g_mouse_state.window == window) g_mouse_state.window = NULL;
     if (g_mouse_state.ffm_window_id == window->id) g_mouse_state.ffm_window_id = 0;

@@ -1,27 +1,12 @@
-#define NATIVE_TAB_POS_TOL 10.0f
-#define NATIVE_TAB_SIZE_TOL 35.0f
 #define NATIVE_TAB_AX_TAB_GROUP_ROLE CFSTR("AXTabGroup")
 #define NATIVE_TAB_AX_TABS_ATTRIBUTE CFSTR("AXTabs")
 #define NATIVE_TAB_AX_CHILDREN_IN_NAVIGATION_ORDER_ATTRIBUTE CFSTR("AXChildrenInNavigationOrder")
-
-static inline bool native_tab_near(float a, float b, float tolerance)
-{
-    return AX_ABS(a, b) < tolerance;
-}
 
 static bool native_tab_same_space(struct window *a, struct window *b)
 {
     uint64_t a_sid = window_space(a->id);
     uint64_t b_sid = window_space(b->id);
     return !a_sid || !b_sid || a_sid == b_sid;
-}
-
-static bool native_tab_frames_match(CGRect a, CGRect b)
-{
-    return native_tab_near(a.origin.x,    b.origin.x,    NATIVE_TAB_POS_TOL)  &&
-           native_tab_near(a.origin.y,    b.origin.y,    NATIVE_TAB_POS_TOL)  &&
-           native_tab_near(a.size.width,  b.size.width,  NATIVE_TAB_SIZE_TOL) &&
-           native_tab_near(a.size.height, b.size.height, NATIVE_TAB_SIZE_TOL);
 }
 
 static bool native_tab_ax_role_is(AXUIElementRef element, CFStringRef expected_role)
@@ -102,6 +87,7 @@ static bool native_tab_tabs_contain_title(CFArrayRef tabs, CFStringRef title)
 {
     if (!tabs || !title || CFStringGetLength(title) == 0) return false;
 
+    int matches = 0;
     int tab_count = CFArrayGetCount(tabs);
     for (int i = 0; i < tab_count; ++i) {
         AXUIElementRef tab = (AXUIElementRef) CFArrayGetValueAtIndex(tabs, i);
@@ -113,10 +99,10 @@ static bool native_tab_tabs_contain_title(CFArrayRef tabs, CFStringRef title)
                              CFStringCompare(title, tab_title, 0) == kCFCompareEqualTo;
         CFRelease(tab_title);
 
-        if (title_matches) return true;
+        if (title_matches) ++matches;
     }
 
-    return false;
+    return matches == 1;
 }
 
 static bool native_tab_tabs_contain_window_title(CFArrayRef tabs, struct window *window)
@@ -126,7 +112,8 @@ static bool native_tab_tabs_contain_window_title(CFArrayRef tabs, struct window 
 
 static bool native_tab_tabs_match_windows(CFArrayRef tabs, struct window *a, struct window *b)
 {
-    return native_tab_tabs_contain_window_title(tabs, a) &&
+    return a->title && b->title && !CFEqual(a->title, b->title) &&
+           native_tab_tabs_contain_window_title(tabs, a) &&
            native_tab_tabs_contain_window_title(tabs, b);
 }
 
@@ -149,139 +136,82 @@ static bool native_tab_windows_share_ax_tab_group(struct window *a, struct windo
     return false;
 }
 
-static bool native_tab_is_managed_parent_candidate(struct window_manager *wm, struct window *window, struct window *candidate)
+// The selected native tab owns the group's BSP slot. Transferring that slot in
+// place keeps splits, stack order, zoom and insertion state stable across tabs.
+static bool native_tab_is_live(struct window *window)
 {
-    if (!candidate) return false;
-    if (candidate == window) return false;
-    if (candidate->application != window->application) return false;
-    if (window_check_flag(candidate, WINDOW_TAB)) return false;
-    if (!window_manager_find_managed_window(wm, candidate)) return false;
-    if (!native_tab_same_space(window, candidate)) return false;
-    return true;
+    return window && window->id && window->id_ptr;
 }
 
-static bool native_tab_is_repair_child_candidate(struct window *parent, struct window *candidate)
+static bool native_tab_is_ordered_in(struct window *window)
 {
-    if (!candidate) return false;
-    if (candidate == parent) return false;
-    if (candidate->application != parent->application) return false;
-    if (!window_check_rule_flag(candidate, WINDOW_RULE_TAB)) return false;
-    if (window_check_flag(candidate, WINDOW_TAB)) return false;
-    if (window_check_flag(candidate, WINDOW_TAB_PARENT)) return false;
-    if (!native_tab_same_space(parent, candidate)) return false;
-    return true;
-}
-
-static bool native_tab_parent_has_children(struct window_manager *wm, struct window *parent, uint32_t ignored_child_id)
-{
-    table_for (struct window *window, wm->window, {
-        if (window->id == ignored_child_id) continue;
-        if (window_check_flag(window, WINDOW_TAB) && window->tab_parent_id == parent->id) {
-            return true;
-        }
-    })
-
-    return false;
+    uint8_t ordered_in = 0;
+    return native_tab_is_live(window) &&
+           SLSWindowIsOrderedIn(g_connection, window->id, &ordered_in) == kCGErrorSuccess && ordered_in;
 }
 
 static uint32_t native_tab_group_id(struct window *window)
 {
-    if (!window) return 0;
-    if (!window_check_rule_flag(window, WINDOW_RULE_TAB)) return 0;
+    if (!window || !window_check_rule_flag(window, WINDOW_RULE_TAB)) return 0;
     if (window_check_flag(window, WINDOW_TAB)) return window->tab_parent_id;
-    if (window_check_flag(window, WINDOW_TAB_PARENT)) return window->id;
-    return 0;
+    return window_check_flag(window, WINDOW_TAB_PARENT) ? window->id : 0;
 }
 
 static bool native_tab_window_is_in_group(struct window *window, uint32_t group_id)
 {
-    if (!group_id) return false;
-    if (window_check_flag(window, WINDOW_TAB)) return window->tab_parent_id == group_id;
-    return window->id == group_id;
+    return group_id && (window->id == group_id ||
+           (window_check_flag(window, WINDOW_TAB) && window->tab_parent_id == group_id));
 }
 
 bool native_tab_windows_share_group(struct window *a, struct window *b)
 {
-    if (!a || !b) return false;
-    if (a->application != b->application) return false;
+    return a && b && a->application == b->application && native_tab_group_id(a) &&
+           native_tab_group_id(a) == native_tab_group_id(b);
+}
 
-    uint32_t a_group_id = native_tab_group_id(a);
-    uint32_t b_group_id = native_tab_group_id(b);
-    return a_group_id && a_group_id == b_group_id;
+struct window *native_tab_managed_window(struct window_manager *wm, struct window *window)
+{
+    if (!window || !window_check_flag(window, WINDOW_TAB)) return window;
+    struct window *parent = window_manager_find_window(wm, window->tab_parent_id);
+    return native_tab_is_live(parent) && parent->application == window->application ? parent : window;
 }
 
 bool native_tab_set_group_opacity(struct window_manager *wm, struct window *window, float opacity)
 {
     uint32_t group_id = native_tab_group_id(window);
     if (!group_id) return false;
-
     table_for (struct window *candidate, wm->window, {
-        if (candidate->application != window->application) continue;
-        if (!native_tab_window_is_in_group(candidate, group_id)) continue;
-
+        if (candidate->application != window->application || !native_tab_window_is_in_group(candidate, group_id)) continue;
         window_manager_set_window_opacity(wm, candidate, opacity);
     })
-
     return true;
 }
 
-static void native_tab_refresh_parent_flag(struct window_manager *wm, struct window *parent, uint32_t ignored_child_id)
+void native_tab_sync_group_float(struct window_manager *wm, struct window *window)
+{
+    uint32_t group_id = native_tab_group_id(window);
+    if (!group_id) return;
+    table_for (struct window *candidate, wm->window, {
+        if (candidate->application != window->application || !native_tab_window_is_in_group(candidate, group_id)) continue;
+        if (window_check_flag(window, WINDOW_FLOAT)) window_set_flag(candidate, WINDOW_FLOAT);
+        else window_clear_flag(candidate, WINDOW_FLOAT);
+    })
+}
+
+static bool native_tab_parent_has_children(struct window_manager *wm, struct window *parent, uint32_t ignored_id)
+{
+    table_for (struct window *candidate, wm->window, {
+        if (candidate->id == ignored_id || candidate->application != parent->application) continue;
+        if (native_tab_is_live(candidate) && window_check_flag(candidate, WINDOW_TAB) && candidate->tab_parent_id == parent->id) return true;
+    })
+    return false;
+}
+
+static void native_tab_refresh_parent_flag(struct window_manager *wm, struct window *parent, uint32_t ignored_id)
 {
     if (!parent) return;
-
-    if (native_tab_parent_has_children(wm, parent, ignored_child_id)) {
-        window_set_flag(parent, WINDOW_TAB_PARENT);
-    } else {
-        window_clear_flag(parent, WINDOW_TAB_PARENT);
-    }
-}
-
-static struct window *native_tab_find_recorded_parent(struct window_manager *wm, struct window *window)
-{
-    if (!window->tab_parent_id) return NULL;
-
-    struct window *parent = window_manager_find_window(wm, window->tab_parent_id);
-    if (!native_tab_is_managed_parent_candidate(wm, window, parent)) return NULL;
-    if (!native_tab_frames_match(window->frame, parent->frame) &&
-        !native_tab_windows_share_ax_tab_group(parent, window)) return NULL;
-
-    return parent;
-}
-
-static struct window *native_tab_find_parent(struct window_manager *wm, struct window *window)
-{
-    struct window *recorded_parent = native_tab_find_recorded_parent(wm, window);
-    if (recorded_parent) return recorded_parent;
-
-    int window_count;
-    struct window **window_list = window_manager_find_application_windows(wm, window->application, &window_count);
-
-    for (int i = 0; i < window_count; ++i) {
-        struct window *candidate = window_list[i];
-        if (!native_tab_is_managed_parent_candidate(wm, window, candidate)) continue;
-        if (!native_tab_frames_match(window->frame, candidate->frame) &&
-            !native_tab_windows_share_ax_tab_group(candidate, window)) continue;
-        return candidate;
-    }
-
-    return NULL;
-}
-
-static struct window *native_tab_find_managed_sibling(struct window_manager *wm, struct window *window)
-{
-    uint64_t sid = window_space(window->id);
-
-    int window_count;
-    struct window **window_list = window_manager_find_application_windows(wm, window->application, &window_count);
-
-    for (int i = 0; i < window_count; ++i) {
-        struct window *candidate = window_list[i];
-        if (!native_tab_is_managed_parent_candidate(wm, window, candidate)) continue;
-        if (sid && window_space(candidate->id) != sid) continue;
-        return candidate;
-    }
-
-    return NULL;
+    if (native_tab_parent_has_children(wm, parent, ignored_id)) window_set_flag(parent, WINDOW_TAB_PARENT);
+    else window_clear_flag(parent, WINDOW_TAB_PARENT);
 }
 
 static void native_tab_mark_child(struct window *window, struct window *parent)
@@ -290,31 +220,107 @@ static void native_tab_mark_child(struct window *window, struct window *parent)
     window_clear_flag(window, WINDOW_TAB_PARENT);
     window->tab_parent_id = parent->id;
     window_set_flag(parent, WINDOW_TAB_PARENT);
+    if (window_check_flag(parent, WINDOW_FLOAT)) window_set_flag(window, WINDOW_FLOAT);
+    else window_clear_flag(window, WINDOW_FLOAT);
 }
 
-static void native_tab_sync_children_to_parent(struct window_manager *wm, struct window *parent)
+static void native_tab_reparent_members(struct window_manager *wm, struct window *parent, struct window *selected, bool retiring)
 {
-    if (!parent) return;
-
-    table_for (struct window *child, wm->window, {
-        if (!window_check_flag(child, WINDOW_TAB)) continue;
-        if (child->tab_parent_id != parent->id) continue;
-        if (native_tab_frames_match(child->frame, parent->frame)) continue;
-
-        debug("%s: resizing native tab %d to parent %d frame\n", __FUNCTION__, child->id, parent->id);
-        window_manager_set_window_frame(child, parent->frame.origin.x, parent->frame.origin.y, parent->frame.size.width, parent->frame.size.height);
-        child->frame = parent->frame;
+    if (window_check_flag(parent, WINDOW_FLOAT)) window_set_flag(selected, WINDOW_FLOAT);
+    else window_clear_flag(selected, WINDOW_FLOAT);
+    table_for (struct window *candidate, wm->window, {
+        if (candidate == selected || candidate == parent || candidate->application != parent->application) continue;
+        if (window_check_flag(candidate, WINDOW_TAB) && candidate->tab_parent_id == parent->id) native_tab_mark_child(candidate, selected);
     })
+    window_clear_flag(selected, WINDOW_TAB);
+    selected->tab_parent_id = 0;
+    window_clear_flag(parent, WINDOW_TAB_PARENT);
+    if (!retiring) native_tab_mark_child(parent, selected);
+    native_tab_refresh_parent_flag(wm, selected, 0);
+}
+
+static void native_tab_replace_node_window(struct view *view, struct window_node *node, uint32_t old_id, uint32_t new_id)
+{
+    for (int i = 0; i < node->window_count; ++i) {
+        if (node->window_list[i] == old_id) node->window_list[i] = new_id;
+        if (node->window_order[i] == old_id) node->window_order[i] = new_id;
+    }
+    if (view->insertion_point == old_id) view->insertion_point = new_id;
+}
+
+static void native_tab_refresh_ax_reference(struct window *window)
+{
+    CFArrayRef windows = application_window_list(window->application);
+    if (!windows) return;
+    for (CFIndex i = 0; i < CFArrayGetCount(windows); ++i) {
+        AXUIElementRef ref = (AXUIElementRef) CFArrayGetValueAtIndex(windows, i);
+        if (ax_window_id(ref) != window->id) continue;
+        if (!CFEqual(ref, window->ref)) {
+            window_unobserve(window);
+            CFRelease(window->ref);
+            window->ref = (AXUIElementRef) CFRetain(ref);
+            window_observe(window);
+        }
+        break;
+    }
+    CFRelease(windows);
+}
+
+static bool native_tab_promote_window(struct window_manager *wm, struct window *parent, struct window *selected, bool retiring)
+{
+    struct view *view = window_manager_find_managed_window(wm, parent);
+    struct view *selected_view = window_manager_find_managed_window(wm, selected);
+    if (selected_view) {
+        space_manager_untile_window(selected_view, selected);
+        window_manager_remove_managed_window(wm, selected->id);
+    }
+    struct window_node *node = view ? view_find_window_node(view, parent->id) : NULL;
+    if (node) {
+        bool feedback = node->feedback_window.id != 0;
+        if (feedback) insert_feedback_destroy(node);
+        native_tab_replace_node_window(view, node, parent->id, selected->id);
+        window_manager_remove_managed_window(wm, parent->id);
+        window_manager_add_managed_window(wm, selected, view);
+        if (feedback) insert_feedback_show(node);
+    }
+    native_tab_reparent_members(wm, parent, selected, retiring);
+    native_tab_refresh_ax_reference(selected);
+    if (node) {
+        // Apply the existing slot to the new AX window, including zoom geometry.
+        window_node_flush(node);
+        event_signal_push(SIGNAL_SPACE_STACKS_CHANGED, (void *)(uintptr_t) view->sid);
+    }
+    managed_space_request_reconcile(&g_managed_space);
+    return true;
+}
+
+static bool native_tab_is_parent_candidate(struct window_manager *wm, struct window *window, struct window *candidate)
+{
+    if (!native_tab_is_live(candidate) || candidate == window || candidate->application != window->application) return false;
+    if (!window_check_rule_flag(candidate, WINDOW_RULE_TAB) || window_check_flag(candidate, WINDOW_TAB)) return false;
+    if (window_check_flag(candidate, WINDOW_FULLSCREEN) || window_check_flag(window, WINDOW_FULLSCREEN)) return false;
+    if (!window_is_standard(candidate) || !window_is_standard(window) || !native_tab_same_space(window, candidate)) return false;
+    if (!window_manager_find_managed_window(wm, candidate) && !window_check_flag(candidate, WINDOW_TAB_PARENT)) return false;
+    return true;
+}
+
+static struct window *native_tab_find_parent(struct window_manager *wm, struct window *window)
+{
+    // Geometry and app/space coincidence are not evidence of native tabbing.
+    table_for (struct window *candidate, wm->window, {
+        if (!native_tab_is_parent_candidate(wm, window, candidate)) continue;
+        if (!native_tab_windows_share_ax_tab_group(candidate, window)) continue;
+        if (native_tab_is_ordered_in(candidate) && native_tab_is_ordered_in(window)) continue;
+        return candidate;
+    })
+    return NULL;
 }
 
 static void native_tab_clear_child(struct window_manager *wm, struct window *window)
 {
-    uint32_t parent_id = window->tab_parent_id;
-
+    struct window *parent = window_manager_find_window(wm, window->tab_parent_id);
     window_clear_flag(window, WINDOW_TAB);
     window->tab_parent_id = 0;
-
-    struct window *parent = parent_id ? window_manager_find_window(wm, parent_id) : NULL;
     native_tab_refresh_parent_flag(wm, parent, window->id);
 }
 
@@ -322,125 +328,87 @@ static bool native_tab_convert_to_child(struct window_manager *wm, struct window
 {
     struct view *view = window_manager_find_managed_window(wm, window);
     if (view) {
-        debug("%s: managed window %d now matches native tab parent %d\n", __FUNCTION__, window->id, parent->id);
         space_manager_untile_window(view, window);
         window_manager_remove_managed_window(wm, window->id);
         window_manager_purify_window(wm, window);
-    } else {
-        debug("%s: unmanaged window %d now matches native tab parent %d\n", __FUNCTION__, window->id, parent->id);
     }
-
     native_tab_mark_child(window, parent);
     return true;
 }
 
 bool native_tab_repair_window(struct window_manager *wm, struct window *window)
 {
-    if (!window_check_rule_flag(window, WINDOW_RULE_TAB)) return false;
-    if (window_check_flag(window, WINDOW_TAB)) return false;
-    if (!window_manager_find_managed_window(wm, window)) return false;
-
-    CFArrayRef tabs = native_tab_copy_tabs(window);
-    if (!tabs) return false;
-
-    if (!native_tab_tabs_contain_window_title(tabs, window)) {
-        CFRelease(tabs);
-        return false;
-    }
-
+    if (!window_check_rule_flag(window, WINDOW_RULE_TAB) || !native_tab_is_live(window)) return false;
+    if (window_check_flag(window, WINDOW_FULLSCREEN) || window_check_flag(window, WINDOW_MINIMIZE) || window->application->is_hidden) return false;
     bool repaired = false;
-
-    int window_count;
-    struct window **window_list = window_manager_find_application_windows(wm, window->application, &window_count);
-
-    for (int i = 0; i < window_count; ++i) {
-        struct window *candidate = window_list[i];
-        if (!native_tab_is_repair_child_candidate(window, candidate)) continue;
-        if (!native_tab_tabs_contain_window_title(tabs, candidate)) continue;
-
-        debug("%s: repairing native tab %d using parent %d from AXTabGroup\n", __FUNCTION__, candidate->id, window->id);
+    if (window_check_flag(window, WINDOW_TAB)) {
+        struct window *parent = native_tab_managed_window(wm, window);
+        if (parent == window && native_tab_is_ordered_in(window)) {
+            // A missed/queued destruction must not strand a selected orphan.
+            native_tab_clear_child(wm, window);
+            if (window_manager_should_manage_window(window) && !window_manager_find_managed_window(wm, window)) {
+                struct view *view = space_manager_tile_window_on_space(&g_space_manager, window, window_space(window->id));
+                window_manager_add_managed_window(wm, window, view);
+            }
+            repaired = true;
+        } else if (parent != window && native_tab_is_ordered_in(window) &&
+            (!native_tab_is_ordered_in(parent) || application_focused_window(window->application) == window->id)) {
+            // Validate with the current AX element before reusing a recorded group.
+            native_tab_refresh_ax_reference(window);
+            if (native_tab_windows_share_ax_tab_group(parent, window)) {
+                repaired = native_tab_promote_window(wm, parent, window, false);
+            } else {
+                native_tab_clear_child(wm, window);
+                if (window_manager_should_manage_window(window) && !window_manager_find_managed_window(wm, window)) {
+                    struct view *view = space_manager_tile_window_on_space(&g_space_manager, window, window_space(window->id));
+                    window_manager_add_managed_window(wm, window, view);
+                }
+                repaired = true;
+            }
+        } else return false;
+    }
+    if (!window_manager_find_managed_window(wm, window) && !window_check_flag(window, WINDOW_TAB_PARENT)) return repaired;
+    table_for (struct window *candidate, wm->window, {
+        if (!native_tab_is_live(candidate) || candidate == window || candidate->application != window->application) continue;
+        if (!window_check_rule_flag(candidate, WINDOW_RULE_TAB) || window_check_flag(candidate, WINDOW_TAB)) continue;
+        if (!window_is_standard(candidate) || window_check_flag(candidate, WINDOW_FULLSCREEN)) continue;
+        if (window_check_flag(candidate, WINDOW_TAB_PARENT) || !native_tab_same_space(window, candidate)) continue;
+        if (native_tab_is_ordered_in(window) && native_tab_is_ordered_in(candidate)) continue;
+        if (!native_tab_windows_share_ax_tab_group(window, candidate)) continue;
         native_tab_convert_to_child(wm, candidate, window);
         repaired = true;
-    }
-
-    CFRelease(tabs);
-
+    })
     if (repaired) {
-        native_tab_sync_children_to_parent(wm, window);
-        if (native_tab_focused_window(wm, window)) {
-            native_tab_set_group_opacity(wm, window, wm->active_window_opacity);
-        }
+        native_tab_set_group_opacity(wm, window, native_tab_focused_window(wm, window)
+            ? wm->active_window_opacity : wm->normal_window_opacity);
+        managed_space_request_reconcile(&g_managed_space);
     }
-
     return repaired;
-}
-
-static bool native_tab_tile_detached_child(struct space_manager *sm, struct window_manager *wm, struct window *window)
-{
-    debug("%s: native tab %d detached, tiling as a normal window\n", __FUNCTION__, window->id);
-
-    uint32_t parent_id = window->tab_parent_id;
-    struct window *parent = parent_id ? window_manager_find_window(wm, parent_id) : NULL;
-
-    native_tab_clear_child(wm, window);
-
-    if (window_manager_should_manage_window(window) && !window_manager_find_managed_window(wm, window)) {
-        uint64_t sid = window_space(window->id);
-        if (!sid) sid = sm->current_space_id;
-
-        struct view *view = space_manager_tile_window_on_space(sm, window, sid);
-        window_manager_add_managed_window(wm, window, view);
-    }
-
-    native_tab_sync_children_to_parent(wm, parent);
-
-    return true;
 }
 
 bool native_tab_handle_window_created(struct window_manager *wm, struct window *window)
 {
-    if (!window_check_rule_flag(window, WINDOW_RULE_TAB)) return false;
-
+    if (!window_check_rule_flag(window, WINDOW_RULE_TAB) || !window_is_standard(window)) return false;
     struct window *parent = native_tab_find_parent(wm, window);
-    if (!parent && window_is_standard(window)) {
-        parent = native_tab_find_managed_sibling(wm, window);
-        if (parent) {
-            debug("%s: native tab assumed for %s %d using managed sibling %d\n", __FUNCTION__, window->application->name, window->id, parent->id);
-            window_manager_set_window_frame(window, parent->frame.origin.x, parent->frame.origin.y, parent->frame.size.width, parent->frame.size.height);
-            window->frame = parent->frame;
-        }
-    }
-
     if (!parent) return false;
-
-    debug("%s: native tab detected for %s %d with parent %d\n", __FUNCTION__, window->application->name, window->id, parent->id);
     native_tab_mark_child(window, parent);
-    native_tab_sync_children_to_parent(wm, parent);
-    if (native_tab_focused_window(wm, window)) {
-        native_tab_set_group_opacity(wm, window, wm->active_window_opacity);
-    }
+    native_tab_repair_window(wm, window);
     return true;
 }
 
 static bool native_tab_handle_window_frame_changed(struct space_manager *sm, struct window_manager *wm, struct window *window)
 {
     if (!window_check_rule_flag(window, WINDOW_RULE_TAB)) return false;
-
-    if (window_check_flag(window, WINDOW_TAB_PARENT)) {
-        native_tab_sync_children_to_parent(wm, window);
-    }
-
-    if (native_tab_repair_window(wm, window)) return true;
-
-    if (window_check_flag(window, WINDOW_TAB)) {
-        struct window *parent = native_tab_find_parent(wm, window);
-        return parent ? true : native_tab_tile_detached_child(sm, wm, window);
-    }
-
+    native_tab_repair_window(wm, window);
+    if (!window_check_flag(window, WINDOW_TAB)) return false;
     struct window *parent = native_tab_find_parent(wm, window);
-    if (!parent) return false;
-
-    return native_tab_convert_to_child(wm, window, parent);
+    if (parent) return true; // Inactive member; the selected member owns the BSP slot.
+    native_tab_clear_child(wm, window);
+    if (window_manager_should_manage_window(window) && !window_manager_find_managed_window(wm, window)) {
+        struct view *view = space_manager_tile_window_on_space(sm, window, window_space(window->id));
+        window_manager_add_managed_window(wm, window, view);
+    }
+    return true;
 }
 
 bool native_tab_handle_window_moved(struct space_manager *sm, struct window_manager *wm, struct window *window)
@@ -456,65 +424,58 @@ bool native_tab_handle_window_resized(struct space_manager *sm, struct window_ma
 void native_tab_handle_window_destroyed(struct space_manager *sm, struct window_manager *wm, struct window *window, uint64_t destroyed_sid)
 {
     if (window_check_flag(window, WINDOW_TAB)) {
-        uint32_t parent_id = window->tab_parent_id;
-        struct window *parent = parent_id ? window_manager_find_window(wm, parent_id) : NULL;
-        native_tab_refresh_parent_flag(wm, parent, window->id);
+        native_tab_refresh_parent_flag(wm, window_manager_find_window(wm, window->tab_parent_id), window->id);
         return;
     }
-
     if (!window_check_flag(window, WINDOW_TAB_PARENT)) return;
-
-    table_for (struct window *sibling, wm->window, {
-        if (sibling == window) continue;
-        if (!window_check_flag(sibling, WINDOW_TAB)) continue;
-        if (sibling->tab_parent_id && sibling->tab_parent_id != window->id) continue;
-        if (sibling->application != window->application) continue;
-        if (!native_tab_frames_match(sibling->frame, window->frame)) continue;
-
-        debug("%s: promoting native tab %d to replace destroyed parent %d\n", __FUNCTION__, sibling->id, window->id);
-
-        window_clear_flag(sibling, WINDOW_TAB);
-        sibling->tab_parent_id = 0;
-
-        if (window_manager_should_manage_window(sibling) && !window_manager_find_managed_window(wm, sibling)) {
-            struct view *view = space_manager_tile_window_on_space(sm, sibling, destroyed_sid);
-            window_manager_add_managed_window(wm, sibling, view);
-        }
-
-        native_tab_refresh_parent_flag(wm, sibling, 0);
-        return;
+    struct window *replacement = NULL;
+    table_for (struct window *candidate, wm->window, {
+        if (!native_tab_is_live(candidate) || candidate == window || candidate->application != window->application) continue;
+        if (!window_check_flag(candidate, WINDOW_TAB) || candidate->tab_parent_id != window->id) continue;
+        if (!replacement || native_tab_is_ordered_in(candidate)) replacement = candidate;
     })
+    if (!replacement) return;
+    native_tab_promote_window(wm, window, replacement, true);
+    if (!window_manager_find_managed_window(wm, replacement) && window_manager_should_manage_window(replacement) && native_tab_is_ordered_in(replacement)) {
+        uint64_t sid = destroyed_sid ? destroyed_sid : window_space(replacement->id);
+        struct view *view = space_manager_tile_window_on_space(sm, replacement, sid);
+        window_manager_add_managed_window(wm, replacement, view);
+    }
+}
+
+void native_tab_forget_window(struct window_manager *wm, struct window *window)
+{
+    if (window_check_flag(window, WINDOW_TAB)) native_tab_clear_child(wm, window);
+    table_for (struct window *candidate, wm->window, {
+        if (candidate->application != window->application) continue;
+        if (window_check_flag(candidate, WINDOW_TAB) && candidate->tab_parent_id == window->id) native_tab_clear_child(wm, candidate);
+    })
+    window_clear_flag(window, WINDOW_TAB_PARENT);
 }
 
 struct window *native_tab_focused_window(struct window_manager *wm, struct window *window)
 {
-    if (!window) return NULL;
-    if (!window_check_rule_flag(window, WINDOW_RULE_TAB)) return NULL;
-    if (!application_is_frontmost(window->application)) return NULL;
-
-    uint32_t focused_window_id = application_focused_window(window->application);
-    if (!focused_window_id) return NULL;
-
-    struct window *focused_window = window_manager_find_window(wm, focused_window_id);
-    if (!focused_window) return NULL;
-    if (focused_window->application != window->application) return NULL;
-    if (!window_check_rule_flag(focused_window, WINDOW_RULE_TAB)) return NULL;
-    if (!native_tab_same_space(window, focused_window)) return NULL;
-
-    if (window_check_flag(focused_window, WINDOW_TAB)) {
-        return native_tab_find_parent(wm, focused_window) ? focused_window : NULL;
-    }
-
-    if (window_check_flag(focused_window, WINDOW_TAB_PARENT)) {
-        return native_tab_parent_has_children(wm, focused_window, 0) ? focused_window : NULL;
-    }
-
-    return NULL;
+    if (!window || !native_tab_group_id(window) || !application_is_frontmost(window->application)) return NULL;
+    struct window *focused = window_manager_find_window(wm, application_focused_window(window->application));
+    return focused && native_tab_windows_share_group(window, focused) ? focused : NULL;
 }
 
 bool native_tab_should_preserve_parent(struct window_manager *wm, struct window *window)
 {
-    if (!window) return false;
-    if (!window_check_flag(window, WINDOW_TAB_PARENT)) return false;
-    return native_tab_parent_has_children(wm, window, 0);
+    return window && window_check_flag(window, WINDOW_TAB_PARENT) && native_tab_parent_has_children(wm, window, 0);
+}
+
+bool native_tab_is_presentation_window(struct window_manager *wm, struct window *window)
+{
+    uint32_t group_id = native_tab_group_id(window);
+    if (!group_id) return true;
+    // During queued focus/order transitions, choose exactly one ordered member.
+    struct window *selected = NULL;
+    table_for (struct window *candidate, wm->window, {
+        if (candidate->application != window->application || !native_tab_window_is_in_group(candidate, group_id)) continue;
+        if (candidate->application->is_hidden || window_check_flag(candidate, WINDOW_MINIMIZE) || !native_tab_is_ordered_in(candidate)) continue;
+        if (candidate->id == group_id) return candidate == window;
+        if (!selected || candidate->id < selected->id) selected = candidate;
+    })
+    return selected == window;
 }

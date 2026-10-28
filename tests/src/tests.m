@@ -14,12 +14,17 @@ typedef TEST_SIG(function);
 #include "area.c"
 #include "mouse.c"
 #include "stack_focus.c"
+#include "native_tab.c"
 #include "managed_space.c"
 #include "managed_space_topology.c"
 #include "managed_space_sip_fallback.c"
 
 #define TEST_ENTRY(name) { #name, test_##name },
 #define TEST_LIST                                              \
+    TEST_ENTRY(native_tab_reparent_preserves_all_members_and_group_float) \
+    TEST_ENTRY(native_tab_parent_retirement_reparents_survivors_without_frame_matching) \
+    TEST_ENTRY(native_tab_slot_transfer_preserves_stack_order_zoom_and_insertion) \
+    TEST_ENTRY(native_tab_rule_removal_dissolves_membership_and_group_float_is_shared) \
     TEST_ENTRY(display_area_is_in_direction)                   \
     TEST_ENTRY(closest_display_in_direction)                   \
     TEST_ENTRY(mouse_drop_action_modifier_inherits_default)     \

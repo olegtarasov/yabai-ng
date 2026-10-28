@@ -2,12 +2,12 @@
 .\"     Title: yabai
 .\"    Author: [see the "AUTHOR(S)" section]
 .\" Generator: Asciidoctor 2.0.26
-.\"      Date: 2026-08-19
+.\"      Date: 2026-10-28
 .\"    Manual: Yabai Manual
 .\"    Source: Yabai
 .\"  Language: English
 .\"
-.TH "YABAI" "1" "2026-08-19" "Yabai" "Yabai Manual"
+.TH "YABAI" "1" "2026-10-28" "Yabai" "Yabai Manual"
 .ie \n(.g .ds Aq \(aq
 .el       .ds Aq '
 .ss \n[.ss] 0
@@ -1248,7 +1248,7 @@ Window should be managed (tile vs float).
 .br
 Most windows will be managed automatically, so this should mainly be used to make a window float.
 .br
-Specify the value \fItab\fP to manage real windows while detecting native macOS tab children and excluding them from tiling.
+Specify the value \fItab\fP to manage each confirmed native macOS tab group as one window. The selected tab inherits the group\(cqs tiling position and floating state. Independent windows remain separate; ambiguous tab titles are not grouped. Changing the rule to \fIon\fP or \fIoff\fP and reapplying it clears existing tab relationships.
 .RE
 .sp
 \fBsticky=\fI<BOOL_SEL>\fP\fP

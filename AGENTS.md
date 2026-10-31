@@ -185,6 +185,27 @@ service.
 For runtime changes, validate with a local yabai instance before recommending
 installation or service restart.
 
+## Development Host and Iteration
+
+- Use the fastest useful local feedback loop. Build and run local test versions
+  before publishing; a release round trip is not required for testing.
+- You may temporarily replace the installed Homebrew binary or its symlink with
+  a local build, install a test scripting addition, and restart affected
+  services to validate changes on the development host.
+- The user authorizes changes to the development host needed for this work,
+  including system files, signing, permissions, sudoers rules, installations,
+  and service configuration. Proceed autonomously within the task's scope;
+  do not request routine confirmation for these changes. Follow any explicit
+  user limits and higher-priority requirements.
+- Always clean up stale system permissions associated with this setup. Remove
+  grants for obsolete binary paths, retired signing identities, and temporary
+  test installations once they are no longer needed. Keep only permissions
+  required by the current installation and active development work; preserve
+  unrelated applications' permissions.
+- After testing, remove temporary fixtures and restore the user's desktop
+  state. After a release, leave the published Homebrew installation active,
+  with current permissions and sudoers digests, rather than a local test build.
+
 ## Upstream Merge Playbook
 
 When merging a new upstream release tag:
@@ -228,7 +249,13 @@ When merging a new upstream release tag:
 
 ## Release Checklist
 
-When asked to cut a new `yabai-ng` release:
+Every completed fix to yabai code defaults to a patch-version bump and a full
+`yabai-ng` release, without waiting for the user to request either. Configuration
+or documentation-only changes do not trigger this default. Explicit user
+instructions take priority, including skipping a release or choosing a minor
+version bump instead.
+
+For every release:
 
 - Update `CHANGELOG.md` with a new `## [X.Y.Z] - YYYY-MM-DD` entry.
 - Confirm the default `VERSION` in `makefile` and the fallback version in
@@ -241,6 +268,15 @@ When asked to cut a new `yabai-ng` release:
 - Push the tag with `git push origin vX.Y.Z` and watch the release workflow.
 - Verify the GitHub release asset, installer hash update, and
   `olegtarasov/homebrew-tap` formula update.
+- Update the development host from the published repository through Homebrew.
+  Confirm the active executable resolves to the published Homebrew version,
+  not a temporary local build.
+- Load the matching scripting addition, refresh required permissions and
+  sudoers digests, and remove stale permissions from previous installations
+  and temporary test builds.
+- Restart affected services and validate the installed published version with
+  live smoke tests for the changed behavior and relevant existing integrations.
+  A successful release workflow or local-build test alone is not completion.
 
 ## Commit Checkpoints
 

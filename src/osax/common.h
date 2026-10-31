@@ -4,7 +4,7 @@
 #define SA_SOCKET_PATH_FMT "/tmp/yabai-sa_%s.socket"
 #define SA_SOCKET_BUFF_LEN 0x1000
 
-#define OSAX_VERSION                "2.1.30"
+#define OSAX_VERSION                "2.1.31-ng.1"
 
 #define OSAX_ATTRIB_DOCK_SPACES     0x01
 #define OSAX_ATTRIB_DPPM            0x02
@@ -21,6 +21,15 @@
                                      OSAX_ATTRIB_MOV_SPACE | \
                                      OSAX_ATTRIB_SET_WINDOW | \
                                      OSAX_ATTRIB_ANIM_TIME)
+
+// macOS 27.2 removed the wallpaper manager and unused legacy window-focus
+// function. Space movement uses the Dock's replacement handler instead.
+static inline unsigned osax_required_attrib(int major, int minor, int arm64)
+{
+    return arm64 && major == 27 && minor >= 2
+         ? OSAX_ATTRIB_ALL & ~(OSAX_ATTRIB_DPPM | OSAX_ATTRIB_SET_WINDOW)
+         : OSAX_ATTRIB_ALL;
+}
 
 enum sa_opcode
 {

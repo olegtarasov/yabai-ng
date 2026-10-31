@@ -267,6 +267,16 @@ out:
     return result;
 }
 
+static uint32_t scripting_addition_required_attrib(void)
+{
+    NSOperatingSystemVersion version = [[NSProcessInfo processInfo] operatingSystemVersion];
+#ifdef __arm64__
+    return osax_required_attrib((int) version.majorVersion, (int) version.minorVersion, 1);
+#else
+    return osax_required_attrib((int) version.majorVersion, (int) version.minorVersion, 0);
+#endif
+}
+
 void scripting_addition_probe(struct scripting_addition_probe_result *result)
 {
     memset(result, 0, sizeof(struct scripting_addition_probe_result));
@@ -278,7 +288,7 @@ void scripting_addition_probe(struct scripting_addition_probe_result *result)
     snprintf(result->version, sizeof(result->version), "%s", version);
     if (!string_equals(version, OSAX_VERSION)) {
         result->status = SCRIPTING_ADDITION_PROBE_VERSION_MISMATCH;
-    } else if ((result->capabilities & OSAX_ATTRIB_ALL) != OSAX_ATTRIB_ALL) {
+    } else if ((result->capabilities & scripting_addition_required_attrib()) != scripting_addition_required_attrib()) {
         result->status = SCRIPTING_ADDITION_PROBE_CAPABILITIES_MISSING;
     } else {
         result->status = SCRIPTING_ADDITION_PROBE_COMPATIBLE;
@@ -297,7 +307,7 @@ static int scripting_addition_perform_validation(void)
     }
 
     if (string_equals(version, OSAX_VERSION)) {
-        if ((attrib & OSAX_ATTRIB_ALL) == OSAX_ATTRIB_ALL) {
+        if ((attrib & scripting_addition_required_attrib()) == scripting_addition_required_attrib()) {
             notify("scripting-addition", "payload v%s", version);
             return 0;
         }

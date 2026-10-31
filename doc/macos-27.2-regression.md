@@ -64,3 +64,24 @@ verified commands, signal delivery and bar query state.
 
 Upstream master dd84572 (including v7.1.25) was already an ancestor; fetching
 upstream and merging reported no new work.
+
+## Published package acceptance
+
+Release workflow 41182978451 completed successfully. The GitHub asset, installer
+and Homebrew tap agree on SHA-256
+`ec7f025f6173b03e365adeadaa46b3afca180484250f13649ebaab0a5d4f6860`.
+Homebrew upgraded the machine to 27.0.5; `/opt/homebrew/bin/yabai` resolves to
+`/opt/homebrew/Cellar/yabai-ng/27.0.5/bin/yabai`. Accessibility was enabled for
+the new versioned path, and the existing sudoers rule was updated to its binary
+digest and checked with `visudo`.
+
+The installed package passed disposable-window transfer, opacity, sub-layer,
+sticky and floating checks; fullscreen entry, `next_fullscreen`,
+`prev_fullscreen`, and fullscreen exit; managed create/reorder/destroy; and
+space-focus/SketchyBar-highlight checks. The 35-space registry was restored.
+`skhd --status` reported its event tap active and Input Monitoring granted.
+
+The macos-config repository now reloads the scripting addition from an
+idempotently registered `dock_did_restart` signal (commit feac000). A real Dock
+restart recovered focus automatically using the Homebrew binary, with the
+primary provider unchanged, fallback queue empty and Mission Control unowned.

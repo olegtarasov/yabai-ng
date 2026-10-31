@@ -91,7 +91,7 @@ static bool macOSSequoia;
 static bool macOSNewSpaceMove;
 
 //
-// NOTE: Since macOS 27, move_space_fp is a Swift method of the Dock that takes the display
+// NOTE: Since macOS 27.2, move_space_fp is a Swift method of the Dock that takes the display
 // UUID as a Swift String. Strings are made with String(cString:) and released through the
 // Swift runtime, both resolved when the payload loads.
 //
@@ -101,8 +101,6 @@ typedef struct swift_string (*swift_string_create_call)(const char *cstring) __a
 typedef void (*swift_bridge_object_release_call)(void *object);
 static swift_string_create_call swift_string_create;
 static swift_bridge_object_release_call swift_bridge_object_release;
-
-
 
 static pthread_t daemon_thread;
 static int daemon_sockfd;
@@ -309,7 +307,7 @@ static void init_instances()
     uint64_t dppm_addr = hex_find_seq(baseaddr + get_dppm_offset(os_version), get_dppm_pattern(os_version));
     if (dppm_addr == 0) {
         dp_desktop_picture_manager = nil;
-        NSLog(@"[yabai-sa] could not locate pointer to dppm! moving spaces will not work!");
+        if (!macOSNewSpaceMove) NSLog(@"[yabai-sa] could not locate pointer to dppm! moving spaces will not work!");
     } else {
 #ifdef __x86_64__
         uint32_t dppm_offset = *(int32_t *)dppm_addr;
@@ -392,7 +390,7 @@ static void init_instances()
 
     uint64_t set_front_window_addr = hex_find_seq(baseaddr + get_set_front_window_offset(os_version), get_set_front_window_pattern(os_version));
     if (set_front_window_addr == 0x0) {
-        NSLog(@"[yabai-sa] failed to get pointer to setFrontWindow function..");
+        if (!macOSNewSpaceMove) NSLog(@"[yabai-sa] failed to get pointer to setFrontWindow function..");
         set_front_window_fp = 0;
     } else {
         NSLog(@"[yabai-sa] (0x%llx) setFrontWindow found at address 0x%llX (0x%llx)", baseaddr, set_front_window_addr, set_front_window_addr - baseaddr);
@@ -588,6 +586,7 @@ static void space_move(uint64_t source_space_id, uint64_t dest_space_id, uint64_
     id source_space = space_for_display_with_id(source_display_uuid, source_space_id);
     id source_display_space = display_space_for_display_uuid(source_display_uuid);
     id dest_display_space = display_space_for_display_uuid(dest_display_uuid);
+    if (!source_space || !source_display_space || !dest_display_space) goto out;
 
     //
     // NOTE: The Dock expects every display to have a current space; never store nil,
@@ -667,10 +666,12 @@ static void do_space_destroy(char *message)
     unpack(space_id);
 
     CFStringRef display_uuid = SLSCopyManagedDisplayForSpace(SLSMainConnectionID(), space_id);
+    if (!display_uuid) return;
     uint64_t active_space_id = SLSManagedDisplayGetCurrentSpace(SLSMainConnectionID(), display_uuid);
 
     id space = space_for_display_with_id(display_uuid, space_id);
     id display_space = display_space_for_display_uuid(display_uuid);
+    if (!space || !display_space) { CFRelease(display_uuid); return; }
 
     dispatch_sync(dispatch_get_main_queue(), ^{
         ((remove_space_call) remove_space_fp)(space, display_space, dock_spaces, space_id, space_id);
@@ -693,6 +694,7 @@ static void do_space_create(char *message)
     unpack(space_id);
 
     CFStringRef __block display_uuid = SLSCopyManagedDisplayForSpace(SLSMainConnectionID(), space_id);
+    if (!display_uuid) return;
     dispatch_sync(dispatch_get_main_queue(), ^{
         id new_space = macOSSequoia
                      ? [[objc_getClass("ManagedSpace") alloc] init]

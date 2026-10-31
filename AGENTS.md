@@ -60,8 +60,8 @@ Managed topology has two deliberately separate implementations:
 
 `src/managed_space_topology.*` is only the provider-selection and dispatch
 facade. In `auto` mode it performs one scripting-addition handshake when managed
-mode is enabled. An exact version with all capability bits selects the primary
-provider; any other result selects the SIP fallback provider. The result is
+mode is enabled. An exact version with all platform-required capability bits
+selects the primary provider; any other result selects the SIP fallback provider. The result is
 sticky for that managed-mode session. A Dock restart or operation failure must
 never switch providers implicitly. Reapplying the backend policy is the
 explicit refresh mechanism.
@@ -179,7 +179,8 @@ does not remove the generated `src/osax/payload_bin.c`, so it can otherwise
 embed a stale scripting-addition payload whose version differs from the host
 binary. After such a rebuild, uninstall and reinstall the scripting addition,
 load it, and verify that its handshake reports the current `OSAX_VERSION` with
-all capability bits present before restarting the yabai service.
+all platform-required capability bits present before restarting the yabai
+service.
 
 For runtime changes, validate with a local yabai instance before recommending
 installation or service restart.

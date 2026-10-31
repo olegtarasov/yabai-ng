@@ -45,7 +45,7 @@ dev-setup: install
 	ln -s "$(DEV_BUILD)" "$(DEV_BIN)"
 	test "$$(readlink "$(DEV_BIN)")" = "$(DEV_BUILD)"
 
-$(OSAX_SRC): $(OSAX_PATH)/loader.m $(OSAX_PATH)/payload.m
+$(OSAX_SRC): $(OSAX_PATH)/loader.m $(OSAX_PATH)/payload.m $(OSAX_PATH)/common.h $(OSAX_PATH)/arm64_payload.m $(OSAX_PATH)/x64_payload.m
 	xcrun clang $(OSAX_PATH)/payload.m -shared -fPIC -O3 -mmacosx-version-min=11.0 -arch x86_64 -arch arm64e -o $(OSAX_PATH)/payload $(FRAMEWORK_PATH) -framework SkyLight -framework Foundation -framework Carbon
 	xcrun clang $(OSAX_PATH)/loader.m -O3 -mmacosx-version-min=11.0 -arch x86_64 -arch arm64e -o $(OSAX_PATH)/loader -framework Cocoa
 	xxd -i -a $(OSAX_PATH)/payload $(OSAX_PATH)/payload_bin.c

@@ -6,6 +6,22 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [27.0.5] - 2026-10-31
+
+### Fixed
+
+- Restore scripting-addition space focus, creation, destruction, reordering,
+  and display movement on macOS 27.2 (26B123). Update Dock scan starts and
+  signatures for both arm64e slices, use the replacement current-space selector,
+  and invoke the Dock's new Swift space-move report handler on its main queue.
+- Require all capabilities used by the current platform when selecting the
+  primary managed-topology provider. macOS 27.2 no longer requires the removed
+  desktop-picture manager or unused window-focus lookup; space movement
+  remains mandatory. The handshake continues to report the actual lookup bits.
+- Bump the embedded scripting-addition version to force installation of the
+  compatible payload. Add capability regression tests and a local Dock signature
+  checker covering both arm64e slices.
+
 ## [27.0.4] - 2026-10-28
 
 ### Fixed

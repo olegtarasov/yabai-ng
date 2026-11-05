@@ -27,6 +27,7 @@ typedef TEST_SIG(function);
     TEST_ENTRY(native_tab_parent_retirement_reparents_survivors_without_frame_matching) \
     TEST_ENTRY(native_tab_slot_transfer_preserves_stack_order_zoom_and_insertion) \
     TEST_ENTRY(native_tab_rule_removal_dissolves_membership_and_group_float_is_shared) \
+    TEST_ENTRY(native_tab_group_move_includes_only_live_recorded_members) \
     TEST_ENTRY(display_area_is_in_direction)                   \
     TEST_ENTRY(closest_display_in_direction)                   \
     TEST_ENTRY(mouse_drop_action_modifier_inherits_default)     \
@@ -62,6 +63,7 @@ typedef TEST_SIG(function);
     TEST_ENTRY(managed_space_native_tab_handoff_moves_home_residence_and_active_drag) \
     TEST_ENTRY(managed_space_create_ownership_preserves_same_display_fifo_with_replacement) \
     TEST_ENTRY(managed_space_create_cancellation_and_delayed_receipts_preserve_newer_ownership) \
+    TEST_ENTRY(managed_space_sip_fallback_create_failure_after_event_preserves_next_pending_owner) \
     TEST_ENTRY(managed_space_sip_fallback_destroy_preserves_remaining_uuid_order_after_sid_refresh) \
     TEST_ENTRY(managed_space_scripting_addition_destroy_preserves_primary_swap_delete_semantics) \
     TEST_ENTRY(managed_space_topology_backend_policy_values_are_stable) \

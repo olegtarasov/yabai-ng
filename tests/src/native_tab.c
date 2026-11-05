@@ -75,3 +75,48 @@ TEST_FUNC(native_tab_rule_removal_dissolves_membership_and_group_float_is_shared
     TEST_CHECK(child.tab_parent_id, 0);
     table_free(&wm.window);
 });
+
+TEST_FUNC(native_tab_group_move_includes_only_live_recorded_members,
+{
+    struct window_manager wm = {0};
+    struct application application = {0};
+    struct application other_application = {0};
+    struct window parent = ((struct window) { .id = 10, .application = &application, .flags = WINDOW_TAB_PARENT, .rule_flags = WINDOW_RULE_TAB });
+    struct window selected = ((struct window) { .id = 20, .application = &application, .flags = WINDOW_TAB, .tab_parent_id = 10, .rule_flags = WINDOW_RULE_TAB });
+    struct window inactive = ((struct window) { .id = 30, .application = &application, .flags = WINDOW_TAB, .tab_parent_id = 10, .rule_flags = WINDOW_RULE_TAB });
+    struct window retired = ((struct window) { .id = 40, .application = &application, .flags = WINDOW_TAB, .tab_parent_id = 10, .rule_flags = WINDOW_RULE_TAB });
+    struct window unrelated = ((struct window) { .id = 50, .application = &other_application, .flags = WINDOW_TAB, .tab_parent_id = 10, .rule_flags = WINDOW_RULE_TAB });
+    struct window detached = ((struct window) { .id = 60, .application = &application, .rule_flags = WINDOW_RULE_TAB });
+    parent.id_ptr = &parent.id;
+    selected.id_ptr = &selected.id;
+    inactive.id_ptr = &inactive.id;
+    unrelated.id_ptr = &unrelated.id;
+    detached.id_ptr = &detached.id;
+    table_init(&wm.window, 8, hash_wm, compare_wm);
+    table_add(&wm.window, &parent.id, &parent);
+    table_add(&wm.window, &selected.id, &selected);
+    table_add(&wm.window, &inactive.id, &inactive);
+    table_add(&wm.window, &retired.id, &retired);
+    table_add(&wm.window, &unrelated.id, &unrelated);
+    table_add(&wm.window, &detached.id, &detached);
+
+    uint32_t *window_list = native_tab_collect_move_windows(&wm, &selected);
+    TEST_CHECK(buf_len(window_list), 3);
+    TEST_CHECK(window_list[0], selected.id);
+    bool found_parent = false;
+    bool found_inactive = false;
+    for (int i = 0; i < buf_len(window_list); ++i) {
+        if (window_list[i] == parent.id) found_parent = true;
+        if (window_list[i] == inactive.id) found_inactive = true;
+    }
+    TEST_CHECK(found_parent, true);
+    TEST_CHECK(found_inactive, true);
+    buf_free(window_list);
+
+    window_list = native_tab_collect_move_windows(&wm, &detached);
+    TEST_CHECK(buf_len(window_list), 1);
+    TEST_CHECK(window_list[0], detached.id);
+    buf_free(window_list);
+    TEST_CHECK(native_tab_collect_move_windows(&wm, &retired) == NULL, true);
+    table_free(&wm.window);
+});

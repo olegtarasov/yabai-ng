@@ -176,6 +176,42 @@ struct window *native_tab_managed_window(struct window_manager *wm, struct windo
     return native_tab_is_live(parent) && parent->application == window->application ? parent : window;
 }
 
+static uint32_t *native_tab_collect_move_windows(struct window_manager *wm, struct window *window)
+{
+    uint32_t *window_list = NULL;
+    if (!native_tab_is_live(window)) return NULL;
+
+    buf_push(window_list, window->id);
+    if (!native_tab_group_id(window)) return window_list;
+
+    table_for (struct window *candidate, wm->window, {
+        if (candidate == window || !native_tab_is_live(candidate)) continue;
+        if (native_tab_windows_share_group(window, candidate)) buf_push(window_list, candidate->id);
+    })
+    return window_list;
+}
+
+void native_tab_move_window_group_to_space(struct window_manager *wm, struct window *window, uint64_t sid)
+{
+    uint32_t *window_list = native_tab_collect_move_windows(wm, window);
+    int window_count = buf_len(window_list);
+    bool needs_move = false;
+    for (int i = 0; i < window_count; ++i) {
+        if (window_space(window_list[i]) != sid) needs_move = true;
+    }
+
+    if (needs_move) {
+        if (window_count > 1) {
+            // Inactive native tabs retain separate WindowServer IDs. Moving only
+            // the selected member strands the next selected tab on its old space.
+            space_manager_move_window_list_to_space(sid, window_list, window_count);
+        } else {
+            space_manager_move_window_to_space(sid, window);
+        }
+    }
+    buf_free(window_list);
+}
+
 bool native_tab_set_group_opacity(struct window_manager *wm, struct window *window, float opacity)
 {
     uint32_t group_id = native_tab_group_id(window);

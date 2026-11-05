@@ -238,10 +238,8 @@ void mouse_update_drop_feedback(struct mouse_state *ms, struct view *src_view, s
 
 static void mouse_drop_move_window_to_space(struct window *window, uint64_t sid)
 {
-    if (window_space(window->id) != sid) {
-        space_manager_move_window_to_space(sid, window);
-        SLSSpaceSetFrontPSN(g_connection, sid, window->application->psn);
-    }
+    native_tab_move_window_group_to_space(&g_window_manager, window, sid);
+    SLSSpaceSetFrontPSN(g_connection, sid, window->application->psn);
 }
 
 void mouse_drop_action_stack(struct window_manager *wm, struct view *src_view, struct window *src_window, struct view *dst_view, struct window *dst_window)

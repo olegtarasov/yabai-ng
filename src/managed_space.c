@@ -349,6 +349,13 @@ static int managed_space_created_space_owner(struct managed_space *ms, CFStringR
     return owner;
 }
 
+static int managed_space_failed_create_owner(struct managed_space *ms, CFStringRef display_uuid,
+                                             bool topology_event_observed)
+{
+    return topology_event_observed ? MANAGED_SPACE_CREATE_OWNER_NONE
+                                   : managed_space_created_space_owner(ms, display_uuid);
+}
+
 static void managed_space_add_pending_create(struct managed_space *ms, uint32_t did, enum managed_space_display_affinity display_affinity, bool managed)
 {
     struct managed_space_create_request request = {
@@ -1518,6 +1525,7 @@ static bool managed_space_recreate_missing_space(struct managed_space *ms, bool 
 
     if (result.queued) {
         ms->pending_reconcile = true;
+        managed_space_request_replacement_retry(ms);
         return true;
     }
 
@@ -2319,8 +2327,13 @@ void managed_space_handle_sip_fallback_operation_failed(struct managed_space *ms
 
     ms->last_replacement_error = SPACE_OP_ERROR_SCRIPTING_ADDITION;
     if (request->operation == MANAGED_SPACE_TOPOLOGY_OPERATION_CREATE) {
-        CFStringRef display_name = display_uuid(request->target_did);
-        int owner = managed_space_created_space_owner(ms, display_name);
+        CFStringRef display_name = NULL;
+        // SLS creation already consumed this operation's metadata; its failure
+        // during AX/Dock settlement must not cancel the next queued create.
+        if (!request->topology_event_observed) {
+            display_name = display_uuid(request->target_did);
+        }
+        int owner = managed_space_failed_create_owner(ms, display_name, request->topology_event_observed);
         if (display_name) CFRelease(display_name);
         if (owner >= 0) {
             managed_space_remove_pending_create_at_index(ms, owner);

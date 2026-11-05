@@ -1941,7 +1941,7 @@ enum window_op_error window_manager_stack_window(struct space_manager *sm, struc
     }
 
     if (window_space(a->id) != b_view->sid) {
-        space_manager_move_window_to_space(b_view->sid, a);
+        native_tab_move_window_group_to_space(wm, a, b_view->sid);
     }
 
     b_node = view_find_window_node(b_view, b->id);
@@ -2072,7 +2072,7 @@ enum window_op_error window_manager_warp_window(struct space_manager *sm, struct
             space_manager_untile_window(a_view, a);
             window_manager_remove_managed_window(wm, a->id);
             window_manager_add_managed_window(wm, a, b_view);
-            space_manager_move_window_to_space(b_view->sid, a);
+            native_tab_move_window_group_to_space(wm, a, b_view->sid);
             space_manager_tile_window_on_space_with_insertion_point(sm, a, b_view->sid, b->id);
         }
     }
@@ -2121,14 +2121,14 @@ enum window_op_error window_manager_swap_window(struct space_manager *sm, struct
         for (int i = 0; i < a_node->window_count; ++i) {
             struct window *window = window_manager_find_window(wm, a_node->window_list[i]);
             window_manager_remove_managed_window(wm, a_node->window_list[i]);
-            space_manager_move_window_to_space(b_view->sid, window);
+            native_tab_move_window_group_to_space(wm, window, b_view->sid);
             window_manager_add_managed_window(wm, window, b_view);
         }
 
         for (int i = 0; i < b_node->window_count; ++i) {
             struct window *window = window_manager_find_window(wm, b_node->window_list[i]);
             window_manager_remove_managed_window(wm, b_node->window_list[i]);
-            space_manager_move_window_to_space(a_view->sid, window);
+            native_tab_move_window_group_to_space(wm, window, a_view->sid);
             window_manager_add_managed_window(wm, window, a_view);
         }
 
@@ -2204,6 +2204,7 @@ void window_manager_send_window_to_space(struct space_manager *sm, struct window
 {
     TIME_FUNCTION;
 
+    window = native_tab_managed_window(wm, window);
     uint64_t src_sid = window_space(window->id);
     if (src_sid == dst_sid) return;
 
@@ -2223,7 +2224,7 @@ void window_manager_send_window_to_space(struct space_manager *sm, struct window
         window_manager_purify_window(wm, window);
     }
 
-    space_manager_move_window_to_space(dst_sid, window);
+    native_tab_move_window_group_to_space(wm, window, dst_sid);
     SLSSpaceSetFrontPSN(g_connection, dst_sid, window->application->psn);
 
     if (window_manager_should_manage_window(window)) {
@@ -2595,7 +2596,7 @@ mode_2:;
         window_manager_focus_window_with_raise(&window->application->psn, window->id, window->ref);
     } else {
 mode_3:;
-        space_manager_move_window_to_space(sid, window);
+        native_tab_move_window_group_to_space(wm, window, sid);
         scripting_addition_order_window(window->id, 1, 0);
         window_manager_focus_window_with_raise(&window->application->psn, window->id, window->ref);
     }

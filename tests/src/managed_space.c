@@ -326,3 +326,35 @@ TEST_FUNC(managed_space_create_cancellation_and_delayed_receipts_preserve_newer_
     TEST_CHECK(managed_space_consume_replacement_receipt(&ms, CFSTR("rebound-space")), false);
     managed_space_destroy(&ms);
 });
+
+TEST_FUNC(managed_space_sip_fallback_create_failure_after_event_preserves_next_pending_owner,
+{
+    struct managed_space ms;
+    managed_space_init(&ms);
+    ms.enabled = true;
+    ms.event_posted = true;
+    struct managed_space_create_request first = {0};
+    first.display_uuid = CFRetain(CFSTR("display"));
+    first.sequence = 1;
+    first.managed = true;
+    struct managed_space_create_request next = {0};
+    next.display_uuid = CFRetain(CFSTR("display"));
+    next.sequence = 2;
+    next.managed = true;
+    buf_push(ms.pending_creates, first);
+    buf_push(ms.pending_creates, next);
+    managed_space_remove_pending_create_at_index(&ms, 0);
+    TEST_CHECK(managed_space_failed_create_owner(&ms, CFSTR("display"), false), 0);
+    TEST_CHECK(managed_space_failed_create_owner(&ms, CFSTR("display"), true), MANAGED_SPACE_CREATE_OWNER_NONE);
+
+    struct managed_space_sip_fallback_request failed = {0};
+    failed.operation = MANAGED_SPACE_TOPOLOGY_OPERATION_CREATE;
+    failed.origin = MANAGED_SPACE_TOPOLOGY_ORIGIN_COMMAND;
+    failed.topology_event_observed = true;
+    managed_space_handle_sip_fallback_operation_failed(&ms, &failed);
+    TEST_CHECK(buf_len(ms.pending_creates), 1);
+    TEST_CHECK(ms.pending_user_creates, 1);
+    TEST_CHECK((int) ms.pending_creates[0].sequence, 2);
+    TEST_CHECK(managed_space_created_space_owner(&ms, CFSTR("display")), 0);
+    managed_space_destroy(&ms);
+});

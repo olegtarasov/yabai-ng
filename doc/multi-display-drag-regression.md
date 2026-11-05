@@ -94,10 +94,11 @@ group members together; repeating the suite passed tab selection in both
 directions and independent movement after detachment.
 
 The physical fixture was prepared, including a full-width source tile, but no
-physical input was observed and the waiting attempt was closed. Pointer
-delivery, visual preview, and flicker-free tracking remain unverified until a
-separate physical check is performed. Published-package results are recorded
-after release.
+physical input was observed before that waiting attempt was closed. The owner
+subsequently tried physical cross-display dragging on the active 27.0.6
+candidate and reported that it works. This is manual acceptance, not a claimed
+synthetic-input or instrumented fixture pass. Published-package results are
+recorded after release.
 Actual hardware disconnect/reconnect has not been exercised. A real full-SIP
 host was unavailable; the owner explicitly accepted releasing with that check
 unverified. Forced fallback on this SIP-disabled host is reported separately.

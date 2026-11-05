@@ -19,6 +19,9 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   the reservation.
 - Clear drag state and insertion feedback on interruption, window retirement,
   and event-tap teardown. Use shared window transfers for cross-space drops.
+- Preserve space-creation ownership when user commands and reconciliation
+  overlap. Protect newly created spaces until metadata is admitted, and finish
+  fallback metadata from validated snapshots when a creation event is missing.
 
 ### Added
 

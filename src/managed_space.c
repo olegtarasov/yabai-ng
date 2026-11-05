@@ -11,6 +11,10 @@ extern int g_connection;
 static void managed_space_sort_entries_by_mission_control_order(struct managed_space *ms);
 static bool managed_space_is_required_placeholder(struct managed_space *ms, uint64_t sid);
 
+#ifdef TESTS
+static void (*managed_space_test_unobserved_create_completion)(struct managed_space *ms, uint64_t sid);
+#endif
+
 const char *managed_space_display_affinity_name(enum managed_space_display_affinity display_affinity)
 {
     switch (display_affinity) {
@@ -354,6 +358,19 @@ static int managed_space_failed_create_owner(struct managed_space *ms, CFStringR
 {
     return topology_event_observed ? MANAGED_SPACE_CREATE_OWNER_NONE
                                    : managed_space_created_space_owner(ms, display_uuid);
+}
+
+static bool managed_space_display_has_pending_create(struct managed_space *ms, CFStringRef display_uuid)
+{
+    return managed_space_created_space_owner(ms, display_uuid) != MANAGED_SPACE_CREATE_OWNER_NONE;
+}
+
+static bool managed_space_sid_has_pending_create(struct managed_space *ms, uint64_t sid)
+{
+    CFStringRef uuid = display_uuid(space_display_id(sid));
+    bool pending = managed_space_display_has_pending_create(ms, uuid);
+    if (uuid) CFRelease(uuid);
+    return pending;
 }
 
 static void managed_space_add_pending_create(struct managed_space *ms, uint32_t did, enum managed_space_display_affinity display_affinity, bool managed)
@@ -1035,6 +1052,7 @@ static uint64_t managed_space_find_empty_unmanaged_space_off_display(struct mana
         if (!space_is_user(sid)) continue;
         if (space_is_fullscreen(sid)) continue;
         if (managed_space_find_by_sid_internal(ms, sid)) continue;
+        if (managed_space_sid_has_pending_create(ms, sid)) continue;
         if (managed_space_is_required_placeholder(ms, sid)) continue;
         if (space_display_id(sid) == did) continue;
         if (!managed_space_is_raw_empty(sid)) continue;
@@ -1371,6 +1389,7 @@ static bool managed_space_cleanup_one_extra(struct managed_space *ms, bool *chan
         if (!space_is_user(sid)) continue;
         if (space_is_fullscreen(sid)) continue;
         if (managed_space_find_by_sid_internal(ms, sid)) continue;
+        if (managed_space_sid_has_pending_create(ms, sid)) continue;
         if (managed_space_is_required_placeholder(ms, sid)) continue;
 
         int window_count = 0;
@@ -2296,6 +2315,20 @@ void managed_space_handle_sip_fallback_operation_completed(struct managed_space 
                                                            struct managed_space_sip_fallback_request *request)
 {
     if (!ms->enabled) return;
+    if (request->operation == MANAGED_SPACE_TOPOLOGY_OPERATION_CREATE &&
+        request->created_sid && !request->topology_event_observed) {
+#ifdef TESTS
+        if (managed_space_test_unobserved_create_completion) {
+            managed_space_test_unobserved_create_completion(ms, request->created_sid);
+        } else
+#endif
+        {
+            // Validated AX/Dock snapshots can complete without an SLS notification.
+            space_manager_find_view(&g_space_manager, request->created_sid);
+            managed_space_handle_space_created(ms, request->created_sid);
+            managed_space_remember_replacement_receipt(ms, request->created_sid);
+        }
+    }
     if (request->origin != MANAGED_SPACE_TOPOLOGY_ORIGIN_COMMAND) return;
 
     switch (request->operation) {

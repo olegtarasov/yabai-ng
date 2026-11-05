@@ -64,6 +64,8 @@ typedef TEST_SIG(function);
     TEST_ENTRY(managed_space_create_ownership_preserves_same_display_fifo_with_replacement) \
     TEST_ENTRY(managed_space_create_cancellation_and_delayed_receipts_preserve_newer_ownership) \
     TEST_ENTRY(managed_space_sip_fallback_create_failure_after_event_preserves_next_pending_owner) \
+    TEST_ENTRY(managed_space_pending_create_protects_only_its_display_until_metadata_is_consumed) \
+    TEST_ENTRY(managed_space_sip_fallback_snapshot_create_completion_replays_exact_sid_before_origin_filter) \
     TEST_ENTRY(managed_space_sip_fallback_destroy_preserves_remaining_uuid_order_after_sid_refresh) \
     TEST_ENTRY(managed_space_scripting_addition_destroy_preserves_primary_swap_delete_semantics) \
     TEST_ENTRY(managed_space_topology_backend_policy_values_are_stable) \

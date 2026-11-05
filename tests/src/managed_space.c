@@ -358,3 +358,65 @@ TEST_FUNC(managed_space_sip_fallback_create_failure_after_event_preserves_next_p
     TEST_CHECK(managed_space_created_space_owner(&ms, CFSTR("display")), 0);
     managed_space_destroy(&ms);
 });
+
+TEST_FUNC(managed_space_pending_create_protects_only_its_display_until_metadata_is_consumed,
+{
+    struct managed_space ms;
+    managed_space_init(&ms);
+    struct managed_space_create_request request = {0};
+    request.display_uuid = CFRetain(CFSTR("display-a"));
+    request.sequence = 1;
+    request.managed = true;
+    buf_push(ms.pending_creates, request);
+    TEST_CHECK(managed_space_display_has_pending_create(&ms, CFSTR("display-a")), true);
+    TEST_CHECK(managed_space_display_has_pending_create(&ms, CFSTR("display-b")), false);
+    managed_space_remove_pending_create_at_index(&ms, 0);
+    TEST_CHECK(managed_space_display_has_pending_create(&ms, CFSTR("display-a")), false);
+
+    ms.pending_replacement_sequence = 2;
+    ms.pending_replacement_display_uuid = CFRetain(CFSTR("display-a"));
+    TEST_CHECK(managed_space_display_has_pending_create(&ms, CFSTR("display-a")), true);
+    managed_space_clear_replacement_ticket(&ms);
+    TEST_CHECK(managed_space_display_has_pending_create(&ms, CFSTR("display-a")), false);
+    managed_space_destroy(&ms);
+});
+
+static uint64_t managed_space_test_completed_sid;
+static int managed_space_test_completion_count;
+
+static void managed_space_test_capture_snapshot_create(struct managed_space *ms, uint64_t sid)
+{
+    (void) ms;
+    managed_space_test_completed_sid = sid;
+    ++managed_space_test_completion_count;
+}
+
+TEST_FUNC(managed_space_sip_fallback_snapshot_create_completion_replays_exact_sid_before_origin_filter,
+{
+    for (int reconcile = 0; reconcile < 2; ++reconcile) {
+        struct managed_space ms;
+        managed_space_init(&ms);
+        ms.enabled = true;
+
+        struct managed_space_sip_fallback_request completed = {0};
+        completed.operation = MANAGED_SPACE_TOPOLOGY_OPERATION_CREATE;
+        completed.origin = reconcile ? MANAGED_SPACE_TOPOLOGY_ORIGIN_RECONCILE : MANAGED_SPACE_TOPOLOGY_ORIGIN_COMMAND;
+        completed.created_sid = 42;
+        managed_space_test_completed_sid = 0;
+        managed_space_test_completion_count = 0;
+        managed_space_test_unobserved_create_completion = managed_space_test_capture_snapshot_create;
+        managed_space_handle_sip_fallback_operation_completed(&ms, &completed);
+        TEST_CHECK((int) managed_space_test_completed_sid, 42);
+        TEST_CHECK(managed_space_test_completion_count, 1);
+
+        completed.topology_event_observed = true;
+        managed_space_handle_sip_fallback_operation_completed(&ms, &completed);
+        TEST_CHECK(managed_space_test_completion_count, 1);
+        completed.topology_event_observed = false;
+        completed.created_sid = 0;
+        managed_space_handle_sip_fallback_operation_completed(&ms, &completed);
+        TEST_CHECK(managed_space_test_completion_count, 1);
+        managed_space_test_unobserved_create_completion = NULL;
+        managed_space_destroy(&ms);
+    }
+});

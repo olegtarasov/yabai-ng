@@ -80,6 +80,9 @@ struct mouse_state
     uint32_t ffm_window_id;
     uint8_t direction;
     struct window_node *feedback_node;
+    uint32_t feedback_window_id;
+    struct window_node empty_feedback_node;
+    uint64_t empty_feedback_sid;
 };
 
 static char *mouse_mod_str[] =
@@ -103,6 +106,8 @@ static char *mouse_mode_str[] =
 
 void mouse_window_info_populate(struct mouse_state *ms, struct mouse_window_info *info);
 enum mouse_drop_action mouse_determine_drop_action(struct mouse_state *ms, struct window_node *src_node, struct window *dst_window, CGPoint point, uint8_t mod);
+void mouse_clear_drop_feedback(struct mouse_state *ms);
+void mouse_update_drop_feedback(struct mouse_state *ms, struct view *src_view, struct view *dst_view, struct window_node *src_node, struct window_node *dst_node, struct window *dst_window, CGPoint point, uint8_t mod);
 void mouse_drop_action_stack(struct window_manager *wm, struct view *src_view, struct window *src_window, struct view *dst_view, struct window *dst_window);
 void mouse_drop_action_swap(struct window_manager *wm, struct view *src_view, struct window_node *src_node, struct window *src_window, struct view *dst_view, struct window_node *dst_node, struct window *dst_window);
 void mouse_drop_action_warp(struct window_manager *wm, struct view *src_view, struct window_node *src_node, struct window *src_window, struct view *dst_view, struct window_node *dst_node, struct window *dst_window, enum window_node_split split, enum window_node_child child);

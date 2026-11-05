@@ -284,6 +284,7 @@ static bool native_tab_promote_window(struct window_manager *wm, struct window *
         if (feedback) insert_feedback_show(node);
     }
     native_tab_reparent_members(wm, parent, selected, retiring);
+    managed_space_replace_window(&g_managed_space, parent->id, selected->id);
     native_tab_refresh_ax_reference(selected);
     if (node) {
         // Apply the existing slot to the new AX window, including zoom geometry.

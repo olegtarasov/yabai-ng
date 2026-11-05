@@ -151,6 +151,16 @@ Global Settings
     Managed spaces follow the macOS main display by default. If the main
     display changes, reconciler moves follow-main managed spaces to the new
     main display. +
+    A non-main display without managed spaces retains one usable unmanaged
+    workspace. Tiled windows can be dragged between displays, including onto
+    this workspace, or moved with `window --space` and `window --display`. The workspace is
+    reserved by UUID and does not add a managed slot. A window moved there
+    retains its previous managed home for recovery if the workspace disappears;
+    reconnecting the display does not automatically move it back. Windows first
+    opened there have no previous managed home. +
+    Reconciliation respects an active window drag and records the accepted
+    destination on release. Existing insertion feedback applies over destination
+    tiles; an empty tiled destination shows its available tiling area. +
     Native fullscreen spaces are exempt and are never moved or destroyed by
     managed mode. +
     The synchronous scripting-addition provider is the primary managed-topology
@@ -587,7 +597,9 @@ COMMAND
 
 *--managed-spaces*::
     Retrieve managed space registry, topology backend capabilities, the current
-    asynchronous operation, queue state, and the last topology failure.
+    asynchronous operation, queue state, and the last topology failure. Reserved
+    secondary workspaces and remembered windows' secondary residence UUIDs are
+    included for diagnosing intentional cross-display placement and recovery.
 
 ARGUMENT
 ^^^^^^^^

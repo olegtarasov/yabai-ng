@@ -6,6 +6,29 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [27.0.6] - 2026-11-05
+
+### Fixed
+
+- Restore tiled window dragging between displays in managed mode. Defer
+  namespace repair during the drag and commit the accepted drop, including
+  every member of swapped stacks and native tab group handoffs.
+- Preserve the required secondary workspace as a usable tiled space, reserved
+  by UUID. Intentional window moves retain their previous managed home for
+  disconnect recovery; surplus cleanup and missing-space replacement respect
+  the reservation.
+- Clear drag state and insertion feedback on interruption, window retirement,
+  and event-tap teardown. Use shared window transfers for cross-space drops.
+
+### Added
+
+- Show the configured insertion feedback across the available tiling area when
+  dragging onto an empty tiled destination.
+- Expose reserved secondary workspace UUIDs, per-window secondary residence,
+  and active drag counts in the managed-space debug query.
+- Add namespace, reservation, drag lifecycle, and feedback regression tests,
+  plus an opt-in live two-display suite.
+
 ## [27.0.5] - 2026-10-31
 
 ### Fixed

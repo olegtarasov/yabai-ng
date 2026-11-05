@@ -2,11 +2,35 @@ extern int g_connection;
 extern struct display_manager g_display_manager;
 extern struct space_manager g_space_manager;
 extern struct window_manager g_window_manager;
+extern struct mouse_state g_mouse_state;
+
+static bool insert_feedback_cancel_mouse_owner(struct window_node *node)
+{
+    if (!g_mouse_state.feedback_window_id || g_mouse_state.feedback_node != node ||
+        g_mouse_state.feedback_window_id != node->feedback_window.id) return false;
+
+    g_mouse_state.feedback_node = NULL;
+    g_mouse_state.feedback_window_id = 0;
+    node->insert_dir = 0;
+    return true;
+}
+
+static void insert_feedback_rebind_node(struct window_node *old_node, struct window_node *new_node)
+{
+    table_remove(&g_window_manager.insert_feedback, &old_node->window_order[0]);
+    table_add(&g_window_manager.insert_feedback, &new_node->window_order[0], new_node);
+    if (g_mouse_state.feedback_window_id && g_mouse_state.feedback_node == old_node &&
+        g_mouse_state.feedback_window_id == new_node->feedback_window.id) {
+        g_mouse_state.feedback_node = new_node;
+    }
+}
 
 #define INSERT_FEEDBACK_WIDTH 2
 #define INSERT_FEEDBACK_RADIUS 9
 void insert_feedback_show(struct window_node *node)
 {
+    if (!node->insert_dir) return;
+
     CFTypeRef frame_region;
     CGRect frame = {{node->area.x, node->area.y},{node->area.w, node->area.h}};
     CGSNewRegionWithRect(&frame, &frame_region);
@@ -40,7 +64,9 @@ void insert_feedback_show(struct window_node *node)
         CGContextFlush(node->feedback_window.context);
         SLSReenableUpdate(g_connection);
         SLSOrderWindow(g_connection, node->feedback_window.id, 1, node->window_order[0]);
-        table_add(&g_window_manager.insert_feedback, &node->window_order[0], node);
+        // An empty-space drag preview borrows a window for ordering, but is not
+        // an insertion marker for that window's actual tile.
+        if (!node->feedback_is_transient) table_add(&g_window_manager.insert_feedback, &node->window_order[0], node);
         if (!workspace_is_macos_sequoia() && !workspace_is_macos_tahoe() && !workspace_is_macos_27()) {
             update_window_notifications();
         }
@@ -105,7 +131,8 @@ void insert_feedback_show(struct window_node *node)
 void insert_feedback_destroy(struct window_node *node)
 {
     if (node->feedback_window.id) {
-        table_remove(&g_window_manager.insert_feedback, &node->window_order[0]);
+        insert_feedback_cancel_mouse_owner(node);
+        if (!node->feedback_is_transient) table_remove(&g_window_manager.insert_feedback, &node->window_order[0]);
 
         if (!workspace_is_macos_sequoia() && !workspace_is_macos_tahoe() && !workspace_is_macos_27()) {
             update_window_notifications();
@@ -780,6 +807,7 @@ struct window_node *view_remove_window_node(struct view *view, struct window *wi
         parent->insert_dir      = child->insert_dir;
         parent->split           = child->split;
         parent->child           = child->child;
+        insert_feedback_rebind_node(child, parent);
         insert_feedback_show(parent);
     }
 

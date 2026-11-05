@@ -36,7 +36,14 @@ the fork-owned managed-space files.
   fixed display affinity.
 - If all managed spaces leave an active non-main display, managed-space
   reconciliation may create and preserve one unmanaged placeholder normal space
-  on that display so macOS keeps the display space namespace alive.
+  on that display so macOS keeps the display space namespace alive. This space
+  is a usable tiled workspace, reserved by display and space UUID. Do not
+  evacuate its windows or consume it as a missing managed slot's replacement.
+- Intentional window drops and window commands commit their destination. A
+  window parked on the reserved secondary workspace retains its prior managed
+  home for recovery if that workspace disappears; reconnecting does not move
+  the recovered window back automatically. Active drags defer only their own
+  namespace repair and cache updates, and release deferred work through events.
 - Native fullscreen spaces are exempt. Managed mode must not move or destroy
   them.
 - Reconciliation is event-driven only. Do not add polling loops or timers unless

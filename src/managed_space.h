@@ -23,6 +23,7 @@ struct managed_space_entry
 struct managed_space_create_request
 {
     CFStringRef display_uuid;
+    uint64_t sequence;
     enum managed_space_display_affinity display_affinity;
     bool managed;
 };
@@ -30,6 +31,15 @@ struct managed_space_create_request
 struct managed_window_entry
 {
     uint32_t wid;
+    // Managed recovery home; an explicit secondary residence temporarily takes precedence.
+    CFStringRef space_uuid;
+    CFStringRef secondary_space_uuid;
+};
+
+struct managed_secondary_workspace
+{
+    // Keep the reserved workspace stable across Mission Control reordering and SID refresh.
+    CFStringRef display_uuid;
     CFStringRef space_uuid;
 };
 
@@ -41,6 +51,7 @@ struct managed_space
     bool pending_reconcile;
     bool topology_grace;
     bool replacement_retry_posted;
+    bool replacement_event_wait_expired;
     int pending_user_creates;
     int pending_replacement_order;
     int pending_replacement_retries;
@@ -52,10 +63,16 @@ struct managed_space
     int last_active_order;
     uint64_t last_focused_sid;
     uint64_t last_presentation_hash;
+    uint64_t next_create_sequence;
+    uint64_t pending_replacement_sequence;
     CFStringRef fullscreen_origin_uuid;
+    CFStringRef pending_replacement_display_uuid;
     struct managed_space_entry *spaces;
     struct managed_space_create_request *pending_creates;
     struct managed_window_entry *windows;
+    struct managed_secondary_workspace *secondary_workspaces;
+    uint32_t *drag_windows;
+    CFStringRef *replacement_receipts;
     char **names;
     enum managed_space_display_affinity display_policy;
 };
@@ -82,6 +99,11 @@ void managed_space_note_user_space_destroyed(struct managed_space *ms, uint64_t 
 void managed_space_note_user_space_display_changed(struct managed_space *ms, uint64_t sid, uint32_t did);
 void managed_space_note_space_label_changed(struct managed_space *ms, uint64_t sid);
 void managed_space_note_user_window_space_changed(struct managed_space *ms, struct window *window, uint64_t sid);
+void managed_space_begin_window_drag(struct managed_space *ms, struct window *window);
+void managed_space_track_window_drag(struct managed_space *ms, struct window *window);
+void managed_space_end_window_drag(struct managed_space *ms, bool commit);
+void managed_space_cancel_window_drag(struct managed_space *ms, uint32_t wid);
+void managed_space_replace_window(struct managed_space *ms, uint32_t old_id, uint32_t new_id);
 void managed_space_note_focus_changed(struct managed_space *ms);
 
 void managed_space_handle_space_created(struct managed_space *ms, uint64_t sid);

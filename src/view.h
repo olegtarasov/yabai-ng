@@ -172,6 +172,7 @@ struct window_node
     enum window_node_child child;
     int insert_dir;
     struct feedback_window feedback_window;
+    bool feedback_is_transient;
 };
 
 enum view_type

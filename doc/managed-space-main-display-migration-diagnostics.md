@@ -6,6 +6,13 @@ Status: diagnostic, design proposal, and implementation record. The plan below
 has been implemented in this changeset; the original diagnostic evidence is
 kept because it explains the architectural reason for the fix.
 
+The placeholder evacuation policy recorded below is historical. Since 27.0.6,
+the one required secondary workspace is reserved by display and space UUID and
+can contain tiled windows. Intentional drops and window commands preserve that
+placement; the previous managed home remains available for disconnect recovery.
+Missing-space replacement and surplus cleanup must preserve the reservation.
+See [multi-display drag regression](multi-display-drag-regression.md).
+
 ## Problem
 
 Reproduction:

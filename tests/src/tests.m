@@ -33,6 +33,13 @@ typedef TEST_SIG(function);
     TEST_ENTRY(mouse_drop_action_modifier_overrides_center_drop)\
     TEST_ENTRY(mouse_drop_action_modifier_uses_exact_modifier_match)\
     TEST_ENTRY(mouse_drop_action_modifier_does_not_affect_warp_zones)\
+    TEST_ENTRY(mouse_empty_drop_feedback_uses_destination_tiling_area)\
+    TEST_ENTRY(mouse_empty_drop_feedback_rejects_invalid_destinations)\
+    TEST_ENTRY(mouse_drop_feedback_cleanup_ignores_retired_nodes)\
+    TEST_ENTRY(mouse_drop_feedback_identity_requires_live_window)\
+    TEST_ENTRY(mouse_handler_teardown_cancels_drag_without_live_tap)\
+    TEST_ENTRY(mouse_drop_feedback_transfer_preserves_ownership)\
+    TEST_ENTRY(mouse_drag_cancel_after_native_tab_handoff_clears_batch)\
     TEST_ENTRY(stack_focus_inside_east_returns_next_logical_window)\
     TEST_ENTRY(stack_focus_inside_west_returns_prev_logical_window)\
     TEST_ENTRY(stack_focus_inside_boundary_falls_through)       \
@@ -47,6 +54,14 @@ typedef TEST_SIG(function);
     TEST_ENTRY(managed_space_display_policy_can_be_set_while_disabled)\
     TEST_ENTRY(managed_space_display_affinity_names_are_stable) \
     TEST_ENTRY(managed_space_pending_create_counts_only_managed_spaces) \
+    TEST_ENTRY(managed_space_secondary_workspace_reservation_survives_reorder_and_is_display_scoped) \
+    TEST_ENTRY(managed_space_drag_defers_only_affected_window_repairs_and_cancellation_resumes_them) \
+    TEST_ENTRY(managed_space_secondary_residence_repairs_delayed_transfer_and_recovers_home_when_absent) \
+    TEST_ENTRY(managed_space_intent_commits_preserve_unrelated_windows_and_secondary_without_home) \
+    TEST_ENTRY(managed_space_pending_placeholder_matching_is_display_scoped_and_preserves_replacement) \
+    TEST_ENTRY(managed_space_native_tab_handoff_moves_home_residence_and_active_drag) \
+    TEST_ENTRY(managed_space_create_ownership_preserves_same_display_fifo_with_replacement) \
+    TEST_ENTRY(managed_space_create_cancellation_and_delayed_receipts_preserve_newer_ownership) \
     TEST_ENTRY(managed_space_sip_fallback_destroy_preserves_remaining_uuid_order_after_sid_refresh) \
     TEST_ENTRY(managed_space_scripting_addition_destroy_preserves_primary_swap_delete_semantics) \
     TEST_ENTRY(managed_space_topology_backend_policy_values_are_stable) \

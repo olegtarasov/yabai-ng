@@ -2,12 +2,12 @@
 .\"     Title: yabai
 .\"    Author: [see the "AUTHOR(S)" section]
 .\" Generator: Asciidoctor 2.0.26
-.\"      Date: 2026-10-28
+.\"      Date: 2026-11-05
 .\"    Manual: Yabai Manual
 .\"    Source: Yabai
 .\"  Language: English
 .\"
-.TH "YABAI" "1" "2026-10-28" "Yabai" "Yabai Manual"
+.TH "YABAI" "1" "2026-11-05" "Yabai" "Yabai Manual"
 .ie \n(.g .ds Aq \(aq
 .el       .ds Aq '
 .ss \n[.ss] 0
@@ -194,6 +194,18 @@ Managed spaces follow the macOS main display by default. If the main
 display changes, reconciler moves follow\-main managed spaces to the new
 main display.
 .br
+A non\-main display without managed spaces retains one usable unmanaged
+workspace. Tiled windows can be dragged between displays, including onto
+this workspace, or moved with \f(CRwindow \-\-space\fP and \f(CRwindow \-\-display\fP. The workspace is
+reserved by UUID and does not add a managed slot. A window moved there
+retains its previous managed home for recovery if the workspace disappears;
+reconnecting the display does not automatically move it back. Windows first
+opened there have no previous managed home.
+.br
+Reconciliation respects an active window drag and records the accepted
+destination on release. Existing insertion feedback applies over destination
+tiles; an empty tiled destination shows its available tiling area.
+.br
 Native fullscreen spaces are exempt and are never moved or destroyed by
 managed mode.
 .br
@@ -250,7 +262,7 @@ Select the managed\-space topology provider policy.
 .br
 \f(CRauto\fP is the default. When managed mode is enabled, yabai performs a
 read\-only scripting\-addition handshake. An exact version with every
-platform-required capability selects the primary synchronous scripting\-addition
+platform\-required capability selects the primary synchronous scripting\-addition
 provider; an unavailable, stale, or incomplete handshake selects
 \f(CRsip\-fallback\fP. The selection remains fixed until managed mode is disabled
 or this policy is explicitly reapplied. There is no implicit cross\-provider
@@ -856,7 +868,9 @@ Retrieve information about windows.
 \fB\-\-managed\-spaces\fP
 .RS 4
 Retrieve managed space registry, topology backend capabilities, the current
-asynchronous operation, queue state, and the last topology failure.
+asynchronous operation, queue state, and the last topology failure. Reserved
+secondary workspaces and remembered windows\*(Aq secondary residence UUIDs are
+included for diagnosing intentional cross\-display placement and recovery.
 .RE
 .SS "ARGUMENT"
 .sp

@@ -133,13 +133,132 @@ enum mouse_drop_action mouse_determine_drop_action(struct mouse_state *ms, struc
     return MOUSE_DROP_ACTION_NONE;
 }
 
+static int mouse_drop_feedback_direction(enum mouse_drop_action action)
+{
+    switch (action) {
+    case MOUSE_DROP_ACTION_STACK:
+    case MOUSE_DROP_ACTION_SWAP:        return STACK;
+    case MOUSE_DROP_ACTION_WARP_TOP:    return DIR_NORTH;
+    case MOUSE_DROP_ACTION_WARP_RIGHT:  return DIR_EAST;
+    case MOUSE_DROP_ACTION_WARP_BOTTOM: return DIR_SOUTH;
+    case MOUSE_DROP_ACTION_WARP_LEFT:   return DIR_WEST;
+    case MOUSE_DROP_ACTION_NONE:        return 0;
+    }
+
+    return 0;
+}
+
+static bool mouse_empty_drop_feedback_area(struct view *src_view, struct view *dst_view, struct area *area)
+{
+    if (!src_view || !dst_view || src_view->sid == dst_view->sid) return false;
+    if (dst_view->layout != VIEW_BSP && dst_view->layout != VIEW_STACK) return false;
+    if (!dst_view->root || dst_view->root->left || dst_view->root->right || dst_view->root->window_count) return false;
+    if (dst_view->root->area.w <= 0.0f || dst_view->root->area.h <= 0.0f) return false;
+
+    *area = dst_view->root->area;
+    return true;
+}
+
+static bool mouse_owns_drop_feedback(struct mouse_state *ms, struct window_node *node)
+{
+    return ms->feedback_window_id && node == ms->feedback_node &&
+           node->feedback_window.id == ms->feedback_window_id;
+}
+
+void mouse_clear_drop_feedback(struct mouse_state *ms)
+{
+    // Nodes can be removed or replaced while a drag is in progress. Look up the
+    // live feedback instead of dereferencing the retained target-node pointer.
+    struct window_node *feedback_node = NULL;
+    if (ms->feedback_node || ms->feedback_window_id) {
+        table_for (struct window_node *node, g_window_manager.insert_feedback, {
+            if (mouse_owns_drop_feedback(ms, node)) feedback_node = node;
+        })
+    }
+
+    ms->feedback_node = NULL;
+    ms->feedback_window_id = 0;
+    if (feedback_node) {
+        feedback_node->insert_dir = 0;
+        insert_feedback_destroy(feedback_node);
+    }
+
+    insert_feedback_destroy(&ms->empty_feedback_node);
+    memset(&ms->empty_feedback_node, 0, sizeof(ms->empty_feedback_node));
+    ms->empty_feedback_sid = 0;
+}
+
+void mouse_update_drop_feedback(struct mouse_state *ms, struct view *src_view, struct view *dst_view, struct window_node *src_node, struct window_node *dst_node, struct window *dst_window, CGPoint point, uint8_t mod)
+{
+    if (!ms->window || !src_node || !src_view || !dst_view ||
+        !space_is_user(dst_view->sid) || space_is_fullscreen(dst_view->sid) ||
+        (dst_view->layout != VIEW_BSP && dst_view->layout != VIEW_STACK)) {
+        mouse_clear_drop_feedback(ms);
+        return;
+    }
+
+    if (dst_node && dst_window && src_node != dst_node) {
+        int direction = mouse_drop_feedback_direction(mouse_determine_drop_action(ms, src_node, dst_window, point, mod));
+        if (!direction) {
+            mouse_clear_drop_feedback(ms);
+            return;
+        }
+
+        if (!mouse_owns_drop_feedback(ms, dst_node) || ms->empty_feedback_sid) mouse_clear_drop_feedback(ms);
+        if (dst_node->insert_dir != direction || !dst_node->feedback_window.id) {
+            dst_node->insert_dir = direction;
+            insert_feedback_show(dst_node);
+        }
+        ms->feedback_node = dst_node;
+        ms->feedback_window_id = dst_node->feedback_window.id;
+        return;
+    }
+
+    if (!view_check_flag(dst_view, VIEW_IS_VALID)) view_update(dst_view);
+    struct area area;
+    if (!mouse_empty_drop_feedback_area(src_view, dst_view, &area)) {
+        mouse_clear_drop_feedback(ms);
+        return;
+    }
+
+    struct window_node *empty_node = &ms->empty_feedback_node;
+    if (ms->empty_feedback_sid == dst_view->sid &&
+        empty_node->area.x == area.x && empty_node->area.y == area.y &&
+        empty_node->area.w == area.w && empty_node->area.h == area.h &&
+        empty_node->window_order[0] == ms->window->id) return;
+
+    mouse_clear_drop_feedback(ms);
+    empty_node->area = area;
+    empty_node->insert_dir = STACK;
+    empty_node->window_order[0] = ms->window->id;
+    empty_node->feedback_is_transient = true;
+    ms->empty_feedback_sid = dst_view->sid;
+    insert_feedback_show(empty_node);
+}
+
+static void mouse_drop_move_window_to_space(struct window *window, uint64_t sid)
+{
+    if (window_space(window->id) != sid) {
+        space_manager_move_window_to_space(sid, window);
+        SLSSpaceSetFrontPSN(g_connection, sid, window->application->psn);
+    }
+}
+
 void mouse_drop_action_stack(struct window_manager *wm, struct view *src_view, struct window *src_window, struct view *dst_view, struct window *dst_window)
 {
+    struct window_node *dst_node = view_find_window_node(dst_view, dst_window->id);
+    if (!dst_node || dst_node->window_count+1 >= NODE_MAX_WINDOW_COUNT) {
+        struct window_node *src_node = view_find_window_node(src_view, src_window->id);
+        if (src_node) window_node_flush(src_node);
+        return;
+    }
+
     space_manager_untile_window(src_view, src_window);
     window_manager_remove_managed_window(wm, src_window->id);
 
-    struct window_node *dst_node = view_find_window_node(dst_view, dst_window->id);
+    dst_node = view_find_window_node(dst_view, dst_window->id);
     if (dst_node->window_count+1 < NODE_MAX_WINDOW_COUNT) {
+        if (src_view->sid != dst_view->sid) mouse_drop_move_window_to_space(src_window, dst_view->sid);
         view_stack_window_node(dst_node, src_window);
         window_manager_add_managed_window(wm, src_window, dst_view);
         window_manager_adjust_layer(src_window, LAYER_BELOW);
@@ -168,13 +287,17 @@ void mouse_drop_action_swap(struct window_manager *wm, struct view *src_view, st
 
     if (src_view->sid != dst_view->sid) {
         for (int i = 0; i < src_node->window_count; ++i) {
+            struct window *window = window_manager_find_window(wm, src_node->window_list[i]);
             window_manager_remove_managed_window(wm, src_node->window_list[i]);
-            window_manager_add_managed_window(wm, window_manager_find_window(wm, src_node->window_list[i]), src_view);
+            mouse_drop_move_window_to_space(window, src_view->sid);
+            window_manager_add_managed_window(wm, window, src_view);
         }
 
         for (int i = 0; i < dst_node->window_count; ++i) {
+            struct window *window = window_manager_find_window(wm, dst_node->window_list[i]);
             window_manager_remove_managed_window(wm, dst_node->window_list[i]);
-            window_manager_add_managed_window(wm, window_manager_find_window(wm, dst_node->window_list[i]), dst_view);
+            mouse_drop_move_window_to_space(window, dst_view->sid);
+            window_manager_add_managed_window(wm, window, dst_view);
         }
     }
 
@@ -212,6 +335,7 @@ void mouse_drop_action_warp(struct window_manager *wm, struct view *src_view, st
     window_manager_remove_managed_window(wm, src_window->id);
     window_manager_purify_window(wm, src_window);
 
+    if (src_view->sid != dst_view->sid) mouse_drop_move_window_to_space(src_window, dst_view->sid);
     struct window_node *src_node_add = view_add_window_node_with_insertion_point(dst_view, src_window, dst_window->id);
     window_manager_add_managed_window(wm, src_window, dst_view);
 
@@ -237,6 +361,7 @@ void mouse_drop_no_target(struct space_manager *sm, struct window_manager *wm, s
         window_manager_remove_managed_window(wm, window->id);
         window_manager_purify_window(wm, window);
 
+        mouse_drop_move_window_to_space(window, dst_view->sid);
         struct view *view = space_manager_tile_window_on_space(sm, window, dst_view->sid);
         window_manager_add_managed_window(wm, window, view);
     }
@@ -307,6 +432,10 @@ bool mouse_handler_begin(struct mouse_state *mouse_state, uint32_t mask)
 
 void mouse_handler_end(struct mouse_state *mouse_state)
 {
+    mouse_clear_drop_feedback(mouse_state);
+    managed_space_cancel_window_drag(&g_managed_space, 0);
+    mouse_state->window = NULL;
+    mouse_state->current_action = MOUSE_MODE_NONE;
     if (!mouse_state->handle) return;
 
     CGEventTapEnable(mouse_state->handle, false);

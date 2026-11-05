@@ -102,3 +102,33 @@ recorded after release.
 Actual hardware disconnect/reconnect has not been exercised. A real full-SIP
 host was unavailable; the owner explicitly accepted releasing with that check
 unverified. Forced fallback on this SIP-disabled host is reported separately.
+
+## Published package acceptance
+
+Release workflow [41980608699](https://github.com/olegtarasov/yabai-ng/actions/runs/41980608699)
+completed successfully for [v27.0.6](https://github.com/olegtarasov/yabai-ng/releases/tag/v27.0.6).
+The downloaded archive, GitHub asset digest, installer, and Homebrew formula
+agree on SHA-256:
+
+```text
+91cee19ff819a6e4b2c98233d4322738057546ebdafed78de184548ca7f244f4
+```
+
+Homebrew upgraded the host to 27.0.6. The running executable resolves to
+`/opt/homebrew/Cellar/yabai-ng/27.0.6/bin/yabai`, with the published signature
+verified. Accessibility is granted to that path, the sudoers digest matches its
+binary, and obsolete 27.0.5 and local-test grants were removed. The old keg and
+temporary build/fixture artifacts were cleaned up.
+
+The published binary passed the multi-display placement suite, including
+occupied secondary residence, native-tab selection in both directions, and
+independent detached-tab movement. The existing native-tab and visibility
+suites also passed. Synchronous create/focus/destroy passed before and after a
+real Dock restart, including automatic scripting-addition recovery and sticky
+primary provider selection.
+
+Final checks found all original managed UUIDs and user-window placements
+preserved, no fixture windows, no active drag or pending repairs, an idle
+fallback queue, and no Mission Control ownership. The original focused window
+was restored. Full-SIP and physical hardware disconnect/reconnect coverage
+remain limited as described above.

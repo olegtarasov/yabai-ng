@@ -46,6 +46,9 @@ SOURCE_SPACE=4 tests/check_multi_display_drag.sh --manual
 
 The script prints the fixture window ID and waits for two physical drags:
 source to the empty secondary workspace, then back to the populated source.
+The anchor is minimized for the first drag so the source starts as a full-width
+tile, including when the destination display is smaller; it is restored before
+the return drag.
 Hold each drag long enough to inspect the preview before releasing. The first
 preview should cover the empty display's available tiling area; the return
 preview should follow the existing target tile's insertion zone. The script
@@ -68,6 +71,33 @@ on the secondary workspace require separate physical-display acceptance.
 
 ## Acceptance record
 
-Implementation and published-package results belong here once executed. The
-existence of this fixture or passing unit tests is not evidence that the live,
-manual, display-disconnect, or full-SIP checks passed.
+Local candidate checks on 2026-11-05 used macOS 27.2 (26B123), Apple Silicon,
+with a 1920x1080 main display and a 1728x1117 secondary display. The compatible
+scripting addition reported `2.1.31-ng.1` and capabilities `0x0000005d`.
+
+- Universal build, provider-boundary check, and `git diff --check`: passed.
+- Unit suite: 71 passed, including per-window deferral, UUID reservation,
+  delayed transfers, native-tab handoff/group movement, feedback lifecycle,
+  create ownership, and fallback failure cleanup.
+- Automated multi-display placement suite with the primary provider: passed.
+- Existing native-tab and window-visibility live suites: passed.
+- Multi-display placement with `sip-fallback` explicitly selected locally:
+  passed; this does not establish full-SIP acceptance.
+- Synchronous primary create/focus/destroy before and after a real Dock restart:
+  passed. Automatic scripting-addition reload recovered operations; provider
+  selection stayed primary, the fallback queue stayed idle, and Mission
+  Control remained unowned. The original 35 managed UUIDs were restored.
+
+The first candidate's native-tab live check caught inactive tab IDs remaining
+on the source space. The corrected shared window-transfer path moves validated
+group members together; repeating the suite passed tab selection in both
+directions and independent movement after detachment.
+
+The physical fixture was prepared, including a full-width source tile, but no
+physical input was observed and the waiting attempt was closed. Pointer
+delivery, visual preview, and flicker-free tracking remain unverified until a
+separate physical check is performed. Published-package results are recorded
+after release.
+Actual hardware disconnect/reconnect has not been exercised. A real full-SIP
+host was unavailable; the owner explicitly accepted releasing with that check
+unverified. Forced fallback on this SIP-disabled host is reported separately.

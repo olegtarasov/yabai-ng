@@ -147,10 +147,11 @@ await_absent() {
     fail "closed fixture window $wid remained tracked"
 }
 manual_drop() {
-    local wid=$1 destination=$2 label=$3 attempt active=false snapshot
+    local wid=$1 destination=$2 label=$3 active=false snapshot
+    local deadline=$((SECONDS + manual_timeout))
     echo "ACTION $label: drag fixture window $wid by its title bar to space $destination."
     echo 'Hold the pointer long enough to inspect the red preview, then release. No input is synthesized.'
-    for ((attempt=0; attempt<manual_timeout*20; attempt++)); do
+    while (( SECONDS < deadline )); do
         snapshot=$("$yabai" -m query --managed-spaces)
         if jq -e '."dragged-window-count" > 0' <<< "$snapshot" >/dev/null; then active=true; fi
         if $active && jq -e '."dragged-window-count" == 0' <<< "$snapshot" >/dev/null &&
@@ -195,9 +196,13 @@ await_window "$primary" "$source_predicate" 'window --display returns to source 
 await_residence "$primary" '' 'display return clears secondary residence'
 
 if $manual; then
+    "$yabai" -m window "$anchor" --minimize
+    await_window "$anchor" '."is-minimized"' 'anchor minimized for full-width source drag'
     "$yabai" -m window --focus "$primary"
     manual_drop "$primary" "$target_index" 'source to empty secondary preview/drop'
     await_residence "$primary" "$target_uuid" 'physical drop commits secondary residence'
+    "$yabai" -m window "$anchor" --deminimize
+    await_window "$anchor" "$source_predicate and (.\"is-minimized\" | not)" 'source anchor restored for populated return'
     manual_drop "$primary" "$source_index" 'secondary to populated source preview/drop'
     await_residence "$primary" '' 'physical return commits managed home'
     # A center swap can move the anchor; reset only our fixture windows.

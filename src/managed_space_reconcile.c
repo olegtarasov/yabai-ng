@@ -348,7 +348,10 @@ static enum space_op_error managed_space_execute(struct managed_space *ms, struc
     case MANAGED_SPACE_ACTION_CREATE: {
         managed_space_add_pending_create(ms, action.did, ms->display_policy, action.managed);
         struct managed_space_create_request *request = &buf_last(ms->pending_creates);
-        if (action.replacement_uuid) request->replacement_uuid = CFRetain(action.replacement_uuid);
+        if (action.replacement_uuid) {
+            request->replacement_uuid = CFRetain(action.replacement_uuid);
+            ms->pending_user_creates = managed_space_pending_user_create_count(ms);
+        }
         if (!action.managed) request->display_affinity = MANAGED_SPACE_DISPLAY_FIXED;
         enum space_op_error error = space_manager_add_space(action.sid);
         if (error != SPACE_OP_ERROR_SUCCESS) managed_space_remove_pending_create_at_index(ms, buf_len(ms->pending_creates)-1);

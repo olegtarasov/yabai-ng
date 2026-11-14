@@ -8,6 +8,8 @@ jq -e '.enabled and ."scripting-addition-ready"' <<< "$original" >/dev/null || {
     echo 'Requires enabled managed spaces and a matching scripting addition.' >&2; exit 1;
 }
 original_uuids=$(jq -c '[.spaces[].uuid]' <<< "$original")
+original_active_uuid=$("$yabai" -m query --spaces --space | jq -r '.uuid')
+original_window=$("$yabai" -m query --windows | jq -r '[.[] | select(."has-focus")][0].id // 0')
 owned='[]'
 index_for_uuid() { "$yabai" -m query --spaces | jq -r --arg uuid "$1" '.[] | select(.uuid == $uuid) | .index'; }
 cleanup() {
@@ -18,6 +20,13 @@ cleanup() {
         index=$(index_for_uuid "$uuid")
         [[ -z "$index" ]] || "$yabai" -m space "$index" --destroy >/dev/null 2>&1 || true
     done < <(jq -r '.[]' <<< "$owned")
+    index=$(index_for_uuid "$original_active_uuid")
+    if [[ "$original_window" != 0 ]]; then
+        "$yabai" -m window --focus "$original_window" >/dev/null 2>&1 ||
+            { [[ -z "$index" ]] || "$yabai" -m space --focus "$index" >/dev/null 2>&1 || true; }
+    elif [[ -n "$index" ]]; then
+        "$yabai" -m space --focus "$index" >/dev/null 2>&1 || true
+    fi
     exit "$result"
 }
 trap cleanup EXIT

@@ -19,7 +19,9 @@ one connected display and 35 managed UUIDs. Matching scripting addition:
   window through events without a query or readiness refresh changing intent.
   Reapplied rule placement committed its new managed home.
 - The supplied video in Movist Pro retained focus after double-clicking into an
-  actual native fullscreen Space; namespace repair attempts stayed at zero.
+  actual native fullscreen Space and after leaving it. Cached fullscreen state
+  matched both transitions; namespace repair attempts stayed at zero. The player
+  was closed after testing.
 - Native tab and retained-window visibility live suites passed. One earlier tab
   run was invalidated by concurrent unit-build cleanup of its fixture directory;
   the valid rerun ran sequentially and passed.

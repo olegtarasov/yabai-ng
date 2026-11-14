@@ -839,7 +839,7 @@ static EVENT_HANDLER(WINDOW_RESIZED)
 
     CGRect new_frame = window_ax_frame(window);
     bool was_fullscreen = window_check_flag(window, WINDOW_FULLSCREEN);
-    bool is_fullscreen = window_is_fullscreen(window);
+    bool is_fullscreen = window_manager_is_window_fullscreen(window);
     if (CGRectEqualToRect(new_frame, window->frame) && was_fullscreen == is_fullscreen) {
         debug("%s:DEBOUNCED %s %d\n", __FUNCTION__, window->application->name, window->id);
         return;
@@ -902,7 +902,9 @@ static EVENT_HANDLER(WINDOW_RESIZED)
             g_mouse_state.window_frame.size = g_mouse_state.window->frame.size;
         }
 
-        if (!windowed_fullscreen) {
+        // AX may announce entry before a native Space exists. Leave frame
+        // correction alone during that interval instead of fighting the app.
+        if (!windowed_fullscreen && !is_fullscreen && !window_is_fullscreen(window)) {
             window_clear_flag(window, WINDOW_WINDOWED);
 
             if (!g_mouse_state.window || g_mouse_state.window != window) {
@@ -1130,6 +1132,7 @@ static EVENT_HANDLER(SPACE_CHANGED)
 {
     g_space_manager.last_space_id = g_space_manager.current_space_id;
     g_space_manager.current_space_id = space_manager_active_space();
+    window_manager_refresh_fullscreen_windows(&g_window_manager);
     managed_space_note_focus_changed(&g_managed_space);
     event_signal_flush();
 
@@ -1179,6 +1182,7 @@ static EVENT_HANDLER(DISPLAY_CHANGED)
 
     g_space_manager.last_space_id = g_space_manager.current_space_id;
     g_space_manager.current_space_id = display_space_id(g_display_manager.current_display_id);
+    window_manager_refresh_fullscreen_windows(&g_window_manager);
 
     uint32_t expected_display_id = space_display_id(g_space_manager.current_space_id);
     if (g_display_manager.current_display_id != expected_display_id) {

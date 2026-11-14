@@ -16,10 +16,13 @@ typedef TEST_SIG(function);
 #include "mouse.c"
 #include "stack_focus.c"
 #include "native_tab.c"
+#include "window_lifecycle.c"
 #include "managed_space.c"
 
 #define TEST_ENTRY(name) { #name, test_##name },
 #define TEST_LIST \
+    TEST_ENTRY(managed_space_unknown_window_membership_defers_only_that_window) \
+    TEST_ENTRY(window_fullscreen_space_membership_overrides_lagging_ax_and_preserves_unknown) \
     TEST_ENTRY(osax_platform_capabilities_require_space_movement) \
     TEST_ENTRY(native_tab_reparent_preserves_all_members_and_group_float) \
     TEST_ENTRY(native_tab_parent_retirement_reparents_survivors_without_frame_matching) \

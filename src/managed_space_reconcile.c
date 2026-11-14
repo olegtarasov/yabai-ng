@@ -81,9 +81,11 @@ static void managed_space_capture_observation(struct managed_space *ms, struct m
     }
     table_for (struct window *window, g_window_manager.window, {
         if (!managed_space_window_can_track(window)) continue;
-        struct managed_space_observed_window observed = ((struct managed_space_observed_window) { .wid = window->id, .sid = window_space(window->id) });
+        struct managed_space_observed_window observed = ((struct managed_space_observed_window) { .wid = window->id });
+        // Raw membership never substitutes the display's active Space. Missing
+        // or unknown membership defers only this window, not unrelated repairs.
+        observed.sid = window_manager_observe_window_space(window, &observed.fullscreen);
         struct managed_space_observed_space *space = managed_space_observed_sid(o, observed.sid);
-        observed.fullscreen = window_check_flag(window, WINDOW_FULLSCREEN) || (space && space->fullscreen);
         observed.dragged = managed_space_window_is_dragged(ms, window);
         observed.actionable = space && space->normal && !observed.fullscreen && !observed.dragged &&
             !window->application->is_hidden && !window_check_flag(window, WINDOW_MINIMIZE);
@@ -235,8 +237,9 @@ static void managed_space_update_window_cache(struct managed_space *ms, bool pre
     table_for (struct window *window, g_window_manager.window, {
         if (!managed_space_window_can_track(window) || managed_space_window_is_dragged(ms, window)) continue;
         if (managed_space_find_window_entry(ms, window->id)) continue;
-        uint64_t sid = window_space(window->id);
-        if (!sid || space_is_fullscreen(sid) || window_check_flag(window, WINDOW_FULLSCREEN)) continue;
+        bool fullscreen = false;
+        uint64_t sid = window_manager_observe_window_space(window, &fullscreen);
+        if (!sid || fullscreen) continue;
         struct managed_space_entry *home = managed_space_find_by_sid_internal(ms, sid);
         if (home) managed_space_set_window_namespace(ms, NULL, window->id, home->uuid);
     })
@@ -369,8 +372,9 @@ static enum space_op_error managed_space_execute(struct managed_space *ms, struc
         struct window *window = window_manager_find_window(&g_window_manager, action.wid);
         struct managed_space_observed_space *target = managed_space_observed_sid(o, action.target_sid);
         // Guard the execution boundary too: a native transition may have begun since capture.
-        uint64_t current_sid = window ? window_space(window->id) : 0;
-        if (!entry || !window || !target || !current_sid || space_is_fullscreen(current_sid) || window_is_fullscreen(window) ||
+        bool current_fullscreen = false;
+        uint64_t current_sid = window ? window_manager_observe_window_space(window, &current_fullscreen) : 0;
+        if (!entry || !window || !target || !current_sid || current_fullscreen || space_is_fullscreen(current_sid) ||
             !space_is_user(action.target_sid) || space_is_fullscreen(action.target_sid)) return SPACE_OP_ERROR_INVALID_TYPE;
         managed_space_set_pending_placement(entry, current_sid, target->uuid);
         ++ms->window_repair_attempt_count;

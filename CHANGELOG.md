@@ -23,7 +23,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ### Fixed
 
 - Keep native fullscreen windows focused by excluding their actual fullscreen
-  Space from namespace repair even when Accessibility flags lag.
+  Space from namespace repair even when Accessibility flags lag. Refresh cached
+  fullscreen state from actual Space changes on entry and exit.
 - Stop repeating ineffective namespace moves and count observed repairs rather
   than attempts. Keep creation and placement ownership until observation settles.
 - Preserve stack recent history during native-tab representative replacement

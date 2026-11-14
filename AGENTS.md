@@ -174,7 +174,7 @@ When merging a new upstream release tag:
   `git diff <merge-base>..<tag>` and `git diff <merge-base>..HEAD` before
   resolving conflicts.
 - Preserve the fork release surface unless explicitly cutting a new `yabai-ng`
-  release. In conflicts, keep fork defaults in `src/yabai.c` (`26.x.y` fallback
+  release. In conflicts, keep fork defaults in `src/yabai.c` (fork fallback
   version), `makefile`, and `scripts/install.sh` (`olegtarasov/yabai-ng`, fork
   archive name, fork hash). Do not replace these with upstream `7.x.y` values.
 - Keep fork changelog entries above the upstream history, but add the upstream

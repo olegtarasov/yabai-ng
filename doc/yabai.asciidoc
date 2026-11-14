@@ -740,7 +740,7 @@ Managed topology uses the scripting addition exclusively. Commands return their
 normal synchronous errors. The desired registry survives temporary support loss;
 readiness diagnostics explain why automatic reconciliation is suspended. Creation
 admission and accepted window placement can await subsequent macOS notifications
-without introducing a queued topology backend. The cumulative repair-attempt
+without introducing a queued topology backend. The per-session cumulative repair-attempt
 counter counts submissions; last-repaired-window-count counts observed completed
 repairs. Deleting a managed space preserves
 the relative order of surviving slots and reapplies configured slot names.

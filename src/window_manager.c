@@ -350,6 +350,58 @@ void window_manager_record_window_focus(struct window_manager *wm, struct window
     wm->focused_window_psn = window->application->psn;
 }
 
+static bool window_manager_fullscreen_from_space_types(const int *types, int count, bool *fullscreen)
+{
+    bool normal = count > 0;
+    for (int i = 0; i < count; ++i) {
+        if (types[i] == 4) { *fullscreen = true; return true; }
+        if (types[i] != 0) normal = false;
+    }
+    if (!normal) return false;
+    *fullscreen = false;
+    return true;
+}
+
+uint64_t window_manager_observe_window_space(struct window *window, bool *fullscreen)
+{
+    int count = 0;
+    // Unlike window_space(), this does not substitute the display's active
+    // Space when WindowServer cannot report the window's actual membership.
+    uint64_t *spaces = window_space_list(window->id, &count);
+    if (!spaces || !count) return 0;
+    int *types = ts_alloc_list(int, count);
+    for (int i = 0; i < count; ++i) types[i] = SLSSpaceGetType(g_connection, spaces[i]);
+    if (!window_manager_fullscreen_from_space_types(types, count, fullscreen)) return 0;
+    if (*fullscreen) {
+        for (int i = 0; i < count; ++i) if (types[i] == 4) return spaces[i];
+    }
+    return spaces[0];
+}
+
+bool window_manager_is_window_fullscreen(struct window *window)
+{
+    bool fullscreen = false;
+    if (window_manager_observe_window_space(window, &fullscreen)) return fullscreen;
+    return window_is_fullscreen(window);
+}
+
+void window_manager_refresh_fullscreen_windows(struct window_manager *wm)
+{
+    table_for (struct window *window, wm->window, {
+        if (!window->id_ptr || !__sync_bool_compare_and_swap(&window->id_ptr, &window->id, &window->id)) continue;
+        // The existing exit handler waits for the active Space's transition.
+        // Refresh that Space's windows; a background display is refreshed when
+        // it becomes active, without driving its layout during another transition.
+        bool fullscreen = false;
+        uint64_t sid = window_manager_observe_window_space(window, &fullscreen);
+        if (!sid || sid != g_space_manager.current_space_id ||
+            fullscreen == window_check_flag(window, WINDOW_FULLSCREEN)) continue;
+        // Reuse the ordinary transition handler: it owns capability refresh,
+        // native-tab handling and the upstream untile/retile sequence.
+        event_loop_post(&g_event_loop, WINDOW_RESIZED, (void *)(uintptr_t) window->id, 0);
+    })
+}
+
 void window_manager_handle_window_visibility_changed(struct space_manager *sm, struct window_manager *wm, struct window *window)
 {
     // Applications can order a retained window out and back in without AX destroy/create

@@ -229,6 +229,27 @@ TEST_FUNC(managed_space_planner_defers_unknown_or_interrupted_observation,
     managed_space_destroy_observation(&o); managed_space_destroy(&ms);
 });
 
+TEST_FUNC(managed_space_unknown_window_membership_defers_only_that_window,
+{
+    struct managed_space ms; struct managed_space_observation o; managed_space_test_fixture(&ms, &o);
+    o.windows[0].sid = 0;
+    // Even a stale actionable bit must not turn unknown membership into the
+    // display's currently active normal Space.
+    struct managed_space_action action = managed_space_plan(&ms, &o);
+    TEST_CHECK(action.type, MANAGED_SPACE_ACTION_NONE);
+
+    managed_space_set_window_namespace(&ms, NULL, 20, CFSTR("home"));
+    struct managed_space_observed_window known = ((struct managed_space_observed_window) {
+        .wid = 20, .sid = 22, .actionable = true,
+    });
+    buf_push(o.windows, known);
+    action = managed_space_plan(&ms, &o);
+    TEST_CHECK(action.type, MANAGED_SPACE_ACTION_REPAIR_WINDOW);
+    TEST_CHECK(action.wid, 20);
+    TEST_CHECK(CFEqual(ms.windows[0].space_uuid, CFSTR("home")), true);
+    managed_space_destroy_observation(&o); managed_space_destroy(&ms);
+});
+
 TEST_FUNC(managed_space_accepted_placement_waits_for_event_and_explicit_refresh_retries,
 {
     struct managed_space ms; struct managed_space_observation o; managed_space_test_fixture(&ms, &o);

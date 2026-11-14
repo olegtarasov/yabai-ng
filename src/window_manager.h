@@ -191,6 +191,10 @@ struct window *window_manager_create_and_add_window(struct space_manager *sm, st
 bool window_manager_refresh_ax_reference(struct window *window);
 bool window_manager_admit_window(struct space_manager *sm, struct window_manager *wm, struct window *window);
 void window_manager_record_window_focus(struct window_manager *wm, struct window *window);
+bool window_manager_is_window_fullscreen(struct window *window);
+// Returns actual normal/native-fullscreen membership, or zero when unknown.
+uint64_t window_manager_observe_window_space(struct window *window, bool *fullscreen);
+void window_manager_refresh_fullscreen_windows(struct window_manager *wm);
 struct window **window_manager_add_application_windows(struct space_manager *sm, struct window_manager *wm, struct application *application, int *count);
 bool window_manager_add_existing_application_windows(struct space_manager *sm, struct window_manager *wm, struct application *application, int refresh_index);
 enum window_op_error window_manager_apply_grid(struct space_manager *sm, struct window_manager *wm, struct window *window, unsigned r, unsigned c, unsigned x, unsigned y, unsigned w, unsigned h);

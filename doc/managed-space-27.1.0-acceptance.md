@@ -42,7 +42,24 @@ source and remain protected by the architectural guard.
 
 ## Published installation
 
-Publication and Homebrew acceptance are recorded after the release workflow and
-installation complete. The final host must use the published binary with its
-matching Accessibility requirement and sudoers digest, with temporary fixtures
-removed and original focus restored.
+- [Release workflow 43581668320](https://github.com/olegtarasov/yabai-ng/actions/runs/43581668320)
+  succeeded and published the signed universal 27.1.0 asset. Its SHA-256 is
+  `2e0f09b069be5bddc1538e9e33f8181d167f35d842ad25df480d4e03cc1b0d57`;
+  the installer update and Homebrew tap formula match it.
+- Homebrew upgraded to 27.1.0. The running service uses
+  `/opt/homebrew/Cellar/yabai-ng/27.1.0/bin/yabai` through the normal Homebrew
+  symlink. Its bytes match the published asset and its signature verifies.
+- Accessibility authorization matches the published signing requirement at the
+  current keg path. The obsolete path grant was removed, the old keg's temporary
+  binary replacement was restored, and sudoers matches the published digest.
+- The published installation passed managed topology, all three owned fullscreen
+  entry/exit cycles, reapplied-rule placement, native-tab and visibility suites.
+- Automatic Dock recovery was confirmed by observing the restart event and the
+  subsequent enabled-session refresh, then rerunning topology checks. The exact
+  SA version and required capabilities were compatible; desired UUIDs survived.
+- The supplied Movist video passed double-click native fullscreen and windowed
+  return on the published binary: fresh AX focus remained on the player, cached
+  fullscreen state matched reality, and namespace repair attempts stayed zero.
+- All fixtures were closed and removed. The original 35 managed UUIDs and their
+  order were preserved, pending creation/repair counts were zero, and original
+  window focus was restored.

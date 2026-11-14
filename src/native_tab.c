@@ -273,33 +273,7 @@ static void native_tab_reparent_members(struct window_manager *wm, struct window
     window_clear_flag(parent, WINDOW_TAB_PARENT);
     if (!retiring) native_tab_mark_child(parent, selected);
     native_tab_refresh_parent_flag(wm, selected, 0);
-}
-
-static void native_tab_replace_node_window(struct view *view, struct window_node *node, uint32_t old_id, uint32_t new_id)
-{
-    for (int i = 0; i < node->window_count; ++i) {
-        if (node->window_list[i] == old_id) node->window_list[i] = new_id;
-        if (node->window_order[i] == old_id) node->window_order[i] = new_id;
-    }
-    if (view->insertion_point == old_id) view->insertion_point = new_id;
-}
-
-static void native_tab_refresh_ax_reference(struct window *window)
-{
-    CFArrayRef windows = application_window_list(window->application);
-    if (!windows) return;
-    for (CFIndex i = 0; i < CFArrayGetCount(windows); ++i) {
-        AXUIElementRef ref = (AXUIElementRef) CFArrayGetValueAtIndex(windows, i);
-        if (ax_window_id(ref) != window->id) continue;
-        if (!CFEqual(ref, window->ref)) {
-            window_unobserve(window);
-            CFRelease(window->ref);
-            window->ref = (AXUIElementRef) CFRetain(ref);
-            window_observe(window);
-        }
-        break;
-    }
-    CFRelease(windows);
+    if (wm->last_window_id == parent->id) wm->last_window_id = selected->id;
 }
 
 static bool native_tab_promote_window(struct window_manager *wm, struct window *parent, struct window *selected, bool retiring)
@@ -312,16 +286,13 @@ static bool native_tab_promote_window(struct window_manager *wm, struct window *
     }
     struct window_node *node = view ? view_find_window_node(view, parent->id) : NULL;
     if (node) {
-        bool feedback = node->feedback_window.id != 0;
-        if (feedback) insert_feedback_destroy(node);
-        native_tab_replace_node_window(view, node, parent->id, selected->id);
+        if (!view_replace_window_id(view, parent->id, selected->id)) return false;
         window_manager_remove_managed_window(wm, parent->id);
         window_manager_add_managed_window(wm, selected, view);
-        if (feedback) insert_feedback_show(node);
     }
     native_tab_reparent_members(wm, parent, selected, retiring);
     managed_space_replace_window(&g_managed_space, parent->id, selected->id);
-    native_tab_refresh_ax_reference(selected);
+    window_manager_refresh_ax_reference(selected);
     if (node) {
         // Apply the existing slot to the new AX window, including zoom geometry.
         if (native_tab_is_ordered_in(selected) && !selected->application->is_hidden &&
@@ -401,7 +372,7 @@ bool native_tab_repair_window(struct window_manager *wm, struct window *window)
         } else if (parent && native_tab_is_ordered_in(window) &&
             (!native_tab_is_ordered_in(parent) || application_focused_window(window->application) == window->id)) {
             // Validate with the current AX element before reusing a recorded group.
-            native_tab_refresh_ax_reference(window);
+            window_manager_refresh_ax_reference(window);
             if (native_tab_windows_share_ax_tab_group(parent, window)) {
                 repaired = native_tab_promote_window(wm, parent, window, false);
             } else {

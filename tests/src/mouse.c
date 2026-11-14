@@ -251,7 +251,7 @@ TEST_FUNC(mouse_drag_cancel_after_native_tab_handoff_clears_batch,
     buf_push(g_managed_space.drag_windows, new_parent.id);
     g_mouse_state = ((struct mouse_state) { .window = &old_child, .current_action = MOUSE_MODE_MOVE });
 
-    cancel_mouse_drag(old_child.id);
+    mouse_cancel_drag(&g_mouse_state, old_child.id);
     TEST_CHECK(g_mouse_state.window == NULL, true);
     TEST_CHECK(g_mouse_state.current_action, MOUSE_MODE_NONE);
     TEST_CHECK(buf_len(g_managed_space.drag_windows), 0);
@@ -261,5 +261,47 @@ TEST_FUNC(mouse_drag_cancel_after_native_tab_handoff_clears_batch,
     table_free(&g_window_manager.window);
     g_window_manager.window = saved_windows;
     g_mouse_state = saved_mouse_state;
+    g_managed_space = saved_managed_space;
+});
+
+TEST_FUNC(mouse_drag_session_replacement_and_scoped_cancellation,
+{
+    struct managed_space saved_managed_space = g_managed_space;
+    g_managed_space = ((struct managed_space) { .enabled = true, .is_reconciling = true });
+    struct window first = ((struct window) { .id = 10, .frame = {{1, 2}, {300, 400}} });
+    struct window second = ((struct window) { .id = 20, .frame = {{5, 6}, {500, 600}} });
+    struct mouse_state ms = {0};
+
+    mouse_begin_drag(&ms, &first, CGPointMake(10, 12));
+    ms.current_action = MOUSE_MODE_MOVE;
+    ms.direction = HANDLE_LEFT;
+    TEST_CHECK(ms.window == &first, true);
+    TEST_CHECK(buf_len(g_managed_space.drag_windows), 1);
+    TEST_CHECK(g_managed_space.drag_windows[0], first.id);
+
+    mouse_cancel_drag(&ms, 99);
+    TEST_CHECK(ms.window == &first, true);
+    TEST_CHECK(ms.current_action, MOUSE_MODE_MOVE);
+    TEST_CHECK(buf_len(g_managed_space.drag_windows), 1);
+
+    mouse_begin_drag(&ms, &second, CGPointMake(20, 22));
+    TEST_CHECK(ms.window == &second, true);
+    TEST_CHECK(ms.current_action, MOUSE_MODE_NONE);
+    TEST_CHECK(ms.direction, 0);
+    TEST_CHECK((int)ms.window_frame.size.width, 500);
+    TEST_CHECK((int)ms.down_location.x, 20);
+    TEST_CHECK(buf_len(g_managed_space.drag_windows), 1);
+    TEST_CHECK(g_managed_space.drag_windows[0], second.id);
+
+    // A swapped peer is part of the same session even though it is not the
+    // concrete grabbed window or that window's native-tab representative.
+    buf_push(g_managed_space.drag_windows, 99);
+    mouse_cancel_drag(&ms, 99);
+    TEST_CHECK(ms.window == NULL, true);
+    TEST_CHECK(ms.current_action, MOUSE_MODE_NONE);
+    TEST_CHECK(buf_len(g_managed_space.drag_windows), 0);
+    TEST_CHECK(g_managed_space.pending_reconcile, true);
+
+    buf_free(g_managed_space.drag_windows);
     g_managed_space = saved_managed_space;
 });

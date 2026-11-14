@@ -105,6 +105,9 @@ static char *mouse_mode_str[] =
 };
 
 void mouse_window_info_populate(struct mouse_state *ms, struct mouse_window_info *info);
+void mouse_begin_drag(struct mouse_state *ms, struct window *window, CGPoint point);
+void mouse_end_drag(struct mouse_state *ms, bool commit);
+void mouse_cancel_drag(struct mouse_state *ms, uint32_t window_id);
 enum mouse_drop_action mouse_determine_drop_action(struct mouse_state *ms, struct window_node *src_node, struct window *dst_window, CGPoint point, uint8_t mod);
 void mouse_clear_drop_feedback(struct mouse_state *ms);
 void mouse_update_drop_feedback(struct mouse_state *ms, struct view *src_view, struct view *dst_view, struct window_node *src_node, struct window_node *dst_node, struct window *dst_window, CGPoint point, uint8_t mod);

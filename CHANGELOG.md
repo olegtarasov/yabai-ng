@@ -6,6 +6,31 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [27.1.0] - 2026-11-14
+
+### Changed
+
+- Require a compatible scripting addition for managed topology. Remove the fork's
+  SIP-on topology automation, provider selection, backend configuration, async
+  failure signal, and fallback diagnostics. Upstream SIP-compatible window
+  transfers and space focus remain available.
+- Separate managed registry/intent, reconciliation, and presentation. Preserve
+  desired state across scripting-addition loss and refresh enabled sessions
+  without taking a new snapshot.
+- Preserve surviving managed order after deletion and commit successful explicit
+  reorders to desired order.
+
+### Fixed
+
+- Keep native fullscreen windows focused by excluding their actual fullscreen
+  Space from namespace repair even when Accessibility flags lag.
+- Stop repeating ineffective namespace moves and count observed repairs rather
+  than attempts. Keep creation and placement ownership until observation settles.
+- Preserve stack recent history during native-tab representative replacement
+  and consolidate window admission and Accessibility reference refresh.
+- Make managed-space diagnostic queries observational and derive presentation
+  consistently without changing placement intent.
+
 ## [27.0.6] - 2026-11-05
 
 ### Fixed
@@ -1040,7 +1065,8 @@ The *window_destroyed* signal is now triggered for windows that are implicitly d
 ### Added
 - First official release
 
-[Unreleased]: https://github.com/asmvik/yabai/compare/v7.1.25...HEAD
+[Unreleased]: https://github.com/olegtarasov/yabai-ng/compare/v27.1.0...HEAD
+[27.1.0]: https://github.com/olegtarasov/yabai-ng/compare/v27.0.6...v27.1.0
 [7.1.25]: https://github.com/asmvik/yabai/compare/v7.1.24...v7.1.25
 [7.1.24]: https://github.com/asmvik/yabai/compare/v7.1.23...v7.1.24
 [7.1.23]: https://github.com/asmvik/yabai/compare/v7.1.22...v7.1.23

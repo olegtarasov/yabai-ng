@@ -130,6 +130,7 @@ void window_manager_apply_rule_effects_to_window(struct space_manager *sm, struc
         if (!window_is_fullscreen(window) && !space_is_fullscreen(window_space(window->id))) {
             uint64_t sid = effects->sid ? effects->sid : display_space_id(effects->did);
             window_manager_send_window_to_space(sm, wm, window, sid, true);
+            managed_space_note_user_window_space_changed(&g_managed_space, window, sid);
             if (rule_effects_check_flag(effects, RULE_FOLLOW_SPACE) || effects->fullscreen == RULE_PROP_ON) {
                 space_manager_focus_space(sid);
             }
@@ -294,6 +295,61 @@ struct view *window_manager_find_managed_window(struct window_manager *wm, struc
     return table_find(&wm->managed_window, &window->id);
 }
 
+bool window_manager_refresh_ax_reference(struct window *window)
+{
+    if (!window || !window->application) return false;
+    CFArrayRef windows = application_window_list(window->application);
+    if (!windows) return false;
+
+    bool found = false;
+    for (CFIndex i = 0; i < CFArrayGetCount(windows); ++i) {
+        AXUIElementRef ref = (AXUIElementRef) CFArrayGetValueAtIndex(windows, i);
+        if (ax_window_id(ref) != window->id) continue;
+        if (!CFEqual(ref, window->ref)) {
+            // Retained WindowServer IDs can acquire a replacement AX element.
+            window_unobserve(window);
+            CFRelease(window->ref);
+            window->ref = (AXUIElementRef) CFRetain(ref);
+            window_observe(window);
+        }
+        found = true;
+        break;
+    }
+    CFRelease(windows);
+    return found;
+}
+
+bool window_manager_admit_window(struct space_manager *sm, struct window_manager *wm, struct window *window)
+{
+    bool native_tab = native_tab_handle_window_created(wm, window);
+    if (!native_tab && window_manager_should_manage_window(window) && !window_manager_find_managed_window(wm, window)) {
+        uint64_t sid;
+        if (wm->window_origin_mode == WINDOW_ORIGIN_DEFAULT) {
+            sid = window_space(window->id);
+        } else if (wm->window_origin_mode == WINDOW_ORIGIN_FOCUSED) {
+            sid = sm->current_space_id;
+        } else {
+            sid = space_manager_cursor_space();
+        }
+
+        struct view *view = space_manager_tile_window_on_space(sm, window, sid);
+        window_manager_add_managed_window(wm, window, view);
+    }
+    return native_tab;
+}
+
+void window_manager_record_window_focus(struct window_manager *wm, struct window *window)
+{
+    if (wm->focused_window_id != window->id) {
+        struct window *previous = window_manager_find_window(wm, wm->focused_window_id);
+        // Native tab selection changes a concrete window, but keeps the same
+        // logical workspace slot. Do not lose the last distinct focused slot.
+        if (previous && !native_tab_windows_share_group(previous, window)) wm->last_window_id = previous->id;
+    }
+    wm->focused_window_id = window->id;
+    wm->focused_window_psn = window->application->psn;
+}
+
 void window_manager_handle_window_visibility_changed(struct space_manager *sm, struct window_manager *wm, struct window *window)
 {
     // Applications can order a retained window out and back in without AX destroy/create
@@ -318,23 +374,7 @@ void window_manager_handle_window_visibility_changed(struct space_manager *sm, s
     } else if (ordered_in && !view && window_manager_should_manage_window(window)) {
         // A retained WindowServer ID can be backed by a new AX element on reopen.
         // The old element can still answer identity queries while rejecting frame writes.
-        CFArrayRef windows = application_window_list(window->application);
-        if (windows) {
-            for (CFIndex i = 0; i < CFArrayGetCount(windows); ++i) {
-                AXUIElementRef ref = (AXUIElementRef) CFArrayGetValueAtIndex(windows, i);
-                if (ax_window_id(ref) != window->id) continue;
-                if (!CFEqual(ref, window->ref)) {
-                    debug("%s: refreshing AX element for %s %u\n", __FUNCTION__, window->application->name, window->id);
-                    window_unobserve(window);
-                    CFRelease(window->ref);
-                    window->ref = (AXUIElementRef) CFRetain(ref);
-                    window_observe(window);
-                }
-                window->frame = window_ax_frame(window);
-                break;
-            }
-            CFRelease(windows);
-        }
+        if (window_manager_refresh_ax_reference(window)) window->frame = window_ax_frame(window);
         if (native_tab_repair_window(wm, window)) return;
         view = space_manager_tile_window_on_space(sm, window, sid);
         window_manager_add_managed_window(wm, window, view);
@@ -1959,6 +1999,7 @@ enum window_op_error window_manager_stack_window(struct space_manager *sm, struc
     }
 
     event_signal_push(SIGNAL_SPACE_STACKS_CHANGED, (void *)(uintptr_t) b_view->sid);
+    managed_space_note_user_window_space_changed(&g_managed_space, a, b_view->sid);
     return WINDOW_OP_ERROR_SUCCESS;
 }
 
@@ -2077,6 +2118,7 @@ enum window_op_error window_manager_warp_window(struct space_manager *sm, struct
         }
     }
 
+    managed_space_note_user_window_space_changed(&g_managed_space, a, b_view->sid);
     return WINDOW_OP_ERROR_SUCCESS;
 }
 
@@ -2160,6 +2202,16 @@ enum window_op_error window_manager_swap_window(struct space_manager *sm, struct
         event_signal_push(SIGNAL_SPACE_STACKS_CHANGED, (void *)(uintptr_t) a_view->sid);
         if (a_view->sid != b_view->sid) {
             event_signal_push(SIGNAL_SPACE_STACKS_CHANGED, (void *)(uintptr_t) b_view->sid);
+        }
+    }
+    if (a_view->sid != b_view->sid) {
+        struct window_node *nodes[] = { a_node, b_node };
+        uint64_t destinations[] = { a_view->sid, b_view->sid };
+        for (int n = 0; n < array_count(nodes); ++n) {
+            for (int i = 0; i < nodes[n]->window_count; ++i) {
+                struct window *window = window_manager_find_window(wm, nodes[n]->window_list[i]);
+                if (window) managed_space_note_user_window_space_changed(&g_managed_space, window, destinations[n]);
+            }
         }
     }
     return WINDOW_OP_ERROR_SUCCESS;

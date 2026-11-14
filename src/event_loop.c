@@ -13,21 +13,6 @@ volatile bool __pending_gesture;
 volatile uint64_t __last_gesture_time;
 volatile uint64_t __last_cmd_tab_time;
 
-static void cancel_mouse_drag(uint32_t window_id)
-{
-    struct window *window = g_mouse_state.window;
-    struct window *managed = window ? native_tab_managed_window(&g_window_manager, window) : NULL;
-    if (window_id && (!window || (window->id != window_id && (!managed || managed->id != window_id)))) {
-        managed_space_cancel_window_drag(&g_managed_space, window_id);
-        return;
-    }
-
-    managed_space_cancel_window_drag(&g_managed_space, 0);
-    mouse_clear_drop_feedback(&g_mouse_state);
-    g_mouse_state.window = NULL;
-    g_mouse_state.current_action = MOUSE_MODE_NONE;
-}
-
 static void update_window_notifications(void)
 {
     int window_count = 0;
@@ -66,12 +51,9 @@ static void window_did_receive_focus(struct window_manager *wm, struct mouse_sta
         if (ms->ffm_window_id != window->id) {
             window_manager_center_mouse(wm, window);
         }
-
-        wm->last_window_id = wm->focused_window_id;
     }
 
-    wm->focused_window_id = window->id;
-    wm->focused_window_psn = window->application->psn;
+    window_manager_record_window_focus(wm, window);
     ms->ffm_window_id = 0;
 
     struct view *view = window_manager_find_managed_window(&g_window_manager, window);
@@ -116,22 +98,7 @@ static struct window *resolve_missing_focused_window(struct application *applica
     struct window *window = window_manager_create_and_add_window(&g_space_manager, &g_window_manager, application, window_ref, window_id, false);
     if (!window) return NULL;
 
-    bool native_tab = native_tab_handle_window_created(&g_window_manager, window);
-
-    if (!native_tab && window_manager_should_manage_window(window) && !window_manager_find_managed_window(&g_window_manager, window)) {
-        uint64_t sid;
-
-        if (g_window_manager.window_origin_mode == WINDOW_ORIGIN_DEFAULT) {
-            sid = window_space(window->id);
-        } else if (g_window_manager.window_origin_mode == WINDOW_ORIGIN_FOCUSED) {
-            sid = g_space_manager.current_space_id;
-        } else /* if (g_window_manager.window_origin_mode == WINDOW_ORIGIN_CURSOR) */ {
-            sid = space_manager_cursor_space();
-        }
-
-        struct view *view = space_manager_tile_window_on_space(&g_space_manager, window, sid);
-        window_manager_add_managed_window(&g_window_manager, window, view);
-    }
+    window_manager_admit_window(&g_space_manager, &g_window_manager, window);
 
     if (window_manager_is_window_eligible(window)) {
         event_signal_push(SIGNAL_WINDOW_CREATED, window);
@@ -362,7 +329,7 @@ static EVENT_HANDLER(APPLICATION_TERMINATED)
     }
 
     debug("%s: %s (%d)\n", __FUNCTION__, process->name, process->pid);
-    if (g_mouse_state.window && g_mouse_state.window->application == application) cancel_mouse_drag(0);
+    if (g_mouse_state.window && g_mouse_state.window->application == application) mouse_cancel_drag(&g_mouse_state, 0);
     event_signal_push(SIGNAL_APPLICATION_TERMINATED, application);
     window_manager_remove_application(&g_window_manager, application->pid);
 
@@ -607,7 +574,7 @@ static EVENT_HANDLER(APPLICATION_HIDDEN)
     struct application *application = window_manager_find_application(&g_window_manager, (pid_t)(intptr_t) context);
     if (!application) return;
 
-    if (g_mouse_state.window && g_mouse_state.window->application == application) cancel_mouse_drag(0);
+    if (g_mouse_state.window && g_mouse_state.window->application == application) mouse_cancel_drag(&g_mouse_state, 0);
 
     debug("%s: %s\n", __FUNCTION__, application->name);
     application->is_hidden = true;
@@ -694,23 +661,8 @@ static EVENT_HANDLER(WINDOW_CREATED)
         }
     }
 
-    bool native_tab = native_tab_handle_window_created(&g_window_manager, window);
+    bool native_tab = window_manager_admit_window(&g_space_manager, &g_window_manager, window);
     if (native_tab) window_did_receive_native_tab_focus(window);
-
-    if (!native_tab && window_manager_should_manage_window(window) && !window_manager_find_managed_window(&g_window_manager, window)) {
-        uint64_t sid;
-
-        if (g_window_manager.window_origin_mode == WINDOW_ORIGIN_DEFAULT) {
-            sid = window_space(window->id);
-        } else if (g_window_manager.window_origin_mode == WINDOW_ORIGIN_FOCUSED) {
-            sid = g_space_manager.current_space_id;
-        } else /* if (g_window_manager.window_origin_mode == WINDOW_ORIGIN_CURSOR) */ {
-            sid = space_manager_cursor_space();
-        }
-
-        struct view *view = space_manager_tile_window_on_space(&g_space_manager, window, sid);
-        window_manager_add_managed_window(&g_window_manager, window, view);
-    }
 
     if (window_manager_is_window_eligible(window)) {
         event_signal_push(SIGNAL_WINDOW_CREATED, window);
@@ -733,7 +685,7 @@ static EVENT_HANDLER(WINDOW_DESTROYED)
     }
 
     debug("%s: %s %d\n", __FUNCTION__, window->application ? window->application->name : "<unknown>", window->id);
-    cancel_mouse_drag(window->id);
+    mouse_cancel_drag(&g_mouse_state, window->id);
 
     struct view *view = window_manager_find_managed_window(&g_window_manager, window);
     uint64_t destroyed_sid = view ? view->sid : 0;
@@ -886,7 +838,9 @@ static EVENT_HANDLER(WINDOW_RESIZED)
     }
 
     CGRect new_frame = window_ax_frame(window);
-    if (CGRectEqualToRect(new_frame, window->frame)) {
+    bool was_fullscreen = window_check_flag(window, WINDOW_FULLSCREEN);
+    bool is_fullscreen = window_is_fullscreen(window);
+    if (CGRectEqualToRect(new_frame, window->frame) && was_fullscreen == is_fullscreen) {
         debug("%s:DEBOUNCED %s %d\n", __FUNCTION__, window->application->name, window->id);
         return;
     }
@@ -895,11 +849,8 @@ static EVENT_HANDLER(WINDOW_RESIZED)
     event_signal_push(SIGNAL_WINDOW_RESIZED, window);
     managed_space_request_reconcile(&g_managed_space);
 
-    bool was_fullscreen = window_check_flag(window, WINDOW_FULLSCREEN);
-
-    bool is_fullscreen = window_is_fullscreen(window);
     if (is_fullscreen) {
-        cancel_mouse_drag(window->id);
+        mouse_cancel_drag(&g_mouse_state, window->id);
         window_set_flag(window, WINDOW_FULLSCREEN);
     } else {
         window_clear_flag(window, WINDOW_FULLSCREEN);
@@ -982,7 +933,7 @@ static EVENT_HANDLER(WINDOW_RESIZED)
 static EVENT_HANDLER(WINDOW_MINIMIZED)
 {
     struct window *window = context;
-    cancel_mouse_drag(window->id);
+    mouse_cancel_drag(&g_mouse_state, window->id);
 
     if (!__sync_bool_compare_and_swap(&window->id_ptr, &window->id, &window->id)) {
         debug("%s: %d has been marked invalid by the system, ignoring event..\n", __FUNCTION__, window->id);
@@ -1155,7 +1106,6 @@ static EVENT_HANDLER(SLS_SPACE_CREATED)
         debug("%s: %lld, %d\n", __FUNCTION__, sid, type);
         space_manager_find_view(&g_space_manager, sid);
         managed_space_handle_space_created(&g_managed_space, sid);
-        managed_space_topology_handle_space_created(&g_managed_space_topology, sid);
         event_signal_push(SIGNAL_SPACE_CREATED, context);
     }
 }
@@ -1163,7 +1113,6 @@ static EVENT_HANDLER(SLS_SPACE_CREATED)
 static EVENT_HANDLER(SLS_SPACE_DESTROYED)
 {
     uint64_t sid = (uint64_t)(intptr_t) context;
-    managed_space_topology_handle_space_destroyed(&g_managed_space_topology, sid);
 
     struct view *view = table_find(&g_space_manager.view, &sid);
     if (view) {
@@ -1181,7 +1130,6 @@ static EVENT_HANDLER(SPACE_CHANGED)
 {
     g_space_manager.last_space_id = g_space_manager.current_space_id;
     g_space_manager.current_space_id = space_manager_active_space();
-    managed_space_topology_handle_focus_changed(&g_managed_space_topology);
     managed_space_note_focus_changed(&g_managed_space);
     event_signal_flush();
 
@@ -1231,7 +1179,6 @@ static EVENT_HANDLER(DISPLAY_CHANGED)
 
     g_space_manager.last_space_id = g_space_manager.current_space_id;
     g_space_manager.current_space_id = display_space_id(g_display_manager.current_display_id);
-    managed_space_topology_handle_focus_changed(&g_managed_space_topology);
 
     uint32_t expected_display_id = space_display_id(g_space_manager.current_space_id);
     if (g_display_manager.current_display_id != expected_display_id) {
@@ -1274,41 +1221,38 @@ static EVENT_HANDLER(DISPLAY_CHANGED)
 
 static EVENT_HANDLER(DISPLAY_MAIN_CHANGED)
 {
-    cancel_mouse_drag(0);
+    mouse_cancel_drag(&g_mouse_state, 0);
     uint32_t did = (uint32_t)(intptr_t) context;
     debug("%s: %d\n", __FUNCTION__, did);
     space_manager_mark_spaces_invalid(&g_space_manager);
-    managed_space_topology_note_configuration_changed(&g_managed_space_topology);
     managed_space_note_topology_event(&g_managed_space);
 }
 
 static EVENT_HANDLER(DISPLAY_ADDED)
 {
-    cancel_mouse_drag(0);
+    mouse_cancel_drag(&g_mouse_state, 0);
     uint32_t did = (uint32_t)(intptr_t) context;
     debug("%s: %d\n", __FUNCTION__, did);
     space_manager_handle_display_add(&g_space_manager, did);
     window_manager_handle_display_add_and_remove(&g_space_manager, &g_window_manager, did);
-    managed_space_topology_note_configuration_changed(&g_managed_space_topology);
     event_signal_push(SIGNAL_DISPLAY_ADDED, context);
     managed_space_note_topology_event(&g_managed_space);
 }
 
 static EVENT_HANDLER(DISPLAY_REMOVED)
 {
-    cancel_mouse_drag(0);
+    mouse_cancel_drag(&g_mouse_state, 0);
     uint32_t did = (uint32_t)(intptr_t) context;
     debug("%s: %d\n", __FUNCTION__, did);
     display_manager_remove_label_for_display(&g_display_manager, did);
     window_manager_handle_display_add_and_remove(&g_space_manager, &g_window_manager, display_manager_main_display_id());
-    managed_space_topology_note_configuration_changed(&g_managed_space_topology);
     event_signal_push(SIGNAL_DISPLAY_REMOVED, context);
     managed_space_note_topology_event(&g_managed_space);
 }
 
 static EVENT_HANDLER(DISPLAY_MOVED)
 {
-    cancel_mouse_drag(0);
+    mouse_cancel_drag(&g_mouse_state, 0);
     uint32_t did = (uint32_t)(intptr_t) context;
     debug("%s: %d\n", __FUNCTION__, did);
     space_manager_mark_spaces_invalid(&g_space_manager);
@@ -1318,7 +1262,7 @@ static EVENT_HANDLER(DISPLAY_MOVED)
 
 static EVENT_HANDLER(DISPLAY_RESIZED)
 {
-    cancel_mouse_drag(0);
+    mouse_cancel_drag(&g_mouse_state, 0);
     uint32_t did = (uint32_t)(intptr_t) context;
     debug("%s: %d\n", __FUNCTION__, did);
     space_manager_mark_spaces_invalid_for_display(&g_space_manager, did);
@@ -1337,12 +1281,7 @@ static EVENT_HANDLER(MOUSE_DOWN)
     struct window *window = window_manager_find_window_at_point(&g_window_manager, point);
     if (!window || window_check_flag(window, WINDOW_FULLSCREEN)) goto out;
 
-    mouse_clear_drop_feedback(&g_mouse_state);
-    managed_space_begin_window_drag(&g_managed_space, window);
-    g_mouse_state.window = window;
-    g_mouse_state.window_frame = g_mouse_state.window->frame;
-    g_mouse_state.down_location = point;
-    g_mouse_state.direction = 0;
+    mouse_begin_drag(&g_mouse_state, window, point);
 
     int64_t button = CGEventGetIntegerValueField(context, kCGMouseEventButtonNumber);
     uint8_t mod = (uint8_t) param1;
@@ -1452,10 +1391,8 @@ static EVENT_HANDLER(MOUSE_UP)
     }
 
 err:
-    g_mouse_state.window = NULL;
 res:
-    managed_space_end_window_drag(&g_managed_space, commit);
-    g_mouse_state.current_action = MOUSE_MODE_NONE;
+    mouse_end_drag(&g_mouse_state, commit);
     sync_focused_application_window();
     CFRelease(context);
 }
@@ -1463,19 +1400,19 @@ res:
 static EVENT_HANDLER(MOUSE_DRAGGED)
 {
     if (mission_control_is_active()) {
-        cancel_mouse_drag(0);
+        mouse_cancel_drag(&g_mouse_state, 0);
         goto out;
     }
     if (!g_mouse_state.window)       goto out;
 
     if (!__sync_bool_compare_and_swap(&g_mouse_state.window->id_ptr, &g_mouse_state.window->id, &g_mouse_state.window->id)) {
         debug("%s: %d has been marked invalid by the system, ignoring event..\n", __FUNCTION__, g_mouse_state.window->id);
-        cancel_mouse_drag(0);
+        mouse_cancel_drag(&g_mouse_state, 0);
         goto out;
     }
 
     if (window_check_flag(g_mouse_state.window, WINDOW_FULLSCREEN)) {
-        cancel_mouse_drag(0);
+        mouse_cancel_drag(&g_mouse_state, 0);
         goto out;
     }
 
@@ -1658,37 +1595,33 @@ out:
 
 static EVENT_HANDLER(MISSION_CONTROL_SHOW_ALL_WINDOWS)
 {
-    cancel_mouse_drag(0);
+    mouse_cancel_drag(&g_mouse_state, 0);
     debug("%s:\n", __FUNCTION__);
     g_mission_control_mode = MISSION_CONTROL_MODE_SHOW_ALL_WINDOWS;
-    managed_space_topology_handle_mission_control_enter(&g_managed_space_topology);
     event_signal_push(SIGNAL_MISSION_CONTROL_ENTER, (void*)(uintptr_t)g_mission_control_mode);
 }
 
 static EVENT_HANDLER(MISSION_CONTROL_SHOW_FRONT_WINDOWS)
 {
-    cancel_mouse_drag(0);
+    mouse_cancel_drag(&g_mouse_state, 0);
     debug("%s:\n", __FUNCTION__);
     g_mission_control_mode = MISSION_CONTROL_MODE_SHOW_FRONT_WINDOWS;
-    managed_space_topology_handle_mission_control_enter(&g_managed_space_topology);
     event_signal_push(SIGNAL_MISSION_CONTROL_ENTER, (void*)(uintptr_t)g_mission_control_mode);
 }
 
 static EVENT_HANDLER(MISSION_CONTROL_SHOW_DESKTOP)
 {
-    cancel_mouse_drag(0);
+    mouse_cancel_drag(&g_mouse_state, 0);
     debug("%s:\n", __FUNCTION__);
     g_mission_control_mode = MISSION_CONTROL_MODE_SHOW_DESKTOP;
-    managed_space_topology_handle_mission_control_enter(&g_managed_space_topology);
     event_signal_push(SIGNAL_MISSION_CONTROL_ENTER, (void*)(uintptr_t)g_mission_control_mode);
 }
 
 static EVENT_HANDLER(MISSION_CONTROL_ENTER)
 {
-    cancel_mouse_drag(0);
+    mouse_cancel_drag(&g_mouse_state, 0);
     debug("%s:\n", __FUNCTION__);
     g_mission_control_mode = MISSION_CONTROL_MODE_SHOW;
-    managed_space_topology_handle_mission_control_enter(&g_managed_space_topology);
 
     if (!workspace_is_macos_27()) {
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 0.1f * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
@@ -1757,13 +1690,12 @@ static EVENT_HANDLER(MISSION_CONTROL_EXIT)
 
     event_signal_push(SIGNAL_MISSION_CONTROL_EXIT, (void*)(uintptr_t)g_mission_control_mode);
     g_mission_control_mode = MISSION_CONTROL_MODE_INACTIVE;
-    managed_space_topology_handle_mission_control_exit(&g_managed_space_topology);
     managed_space_note_topology_event(&g_managed_space);
 }
 
 static EVENT_HANDLER(DOCK_DID_RESTART)
 {
-    cancel_mouse_drag(0);
+    mouse_cancel_drag(&g_mouse_state, 0);
     debug("%s:\n", __FUNCTION__);
 
     if (workspace_is_macos_monterey() ||
@@ -1775,7 +1707,7 @@ static EVENT_HANDLER(DOCK_DID_RESTART)
         mission_control_observe();
     }
 
-    managed_space_topology_handle_dock_restart(&g_managed_space_topology);
+    managed_space_handle_dock_restart(&g_managed_space);
     event_signal_push(SIGNAL_DOCK_DID_RESTART, NULL);
     managed_space_note_topology_event(&g_managed_space);
 }
@@ -1837,21 +1769,6 @@ static EVENT_HANDLER(SYSTEM_WOKE)
 static EVENT_HANDLER(MANAGED_SPACES_RECONCILE)
 {
     managed_space_reconcile(&g_managed_space);
-}
-
-static EVENT_HANDLER(MANAGED_SPACE_TOPOLOGY_STEP)
-{
-    managed_space_topology_step(&g_managed_space_topology, (uint64_t)(uintptr_t) context);
-}
-
-static EVENT_HANDLER(MANAGED_SPACE_TOPOLOGY_WATCHDOG)
-{
-    managed_space_topology_watchdog(&g_managed_space_topology, (uint64_t)(uintptr_t) context);
-}
-
-static EVENT_HANDLER(MANAGED_SPACE_TOPOLOGY_USER_INPUT)
-{
-    managed_space_topology_handle_user_interruption(&g_managed_space_topology, (uint64_t)(uintptr_t) context);
 }
 
 static EVENT_HANDLER(DAEMON_MESSAGE)

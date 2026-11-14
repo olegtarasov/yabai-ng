@@ -47,8 +47,8 @@ TEST_FUNC(native_tab_slot_transfer_preserves_stack_order_zoom_and_insertion,
     struct window_node node = ((struct window_node) {.window_count = 3, .window_list = {7, 10, 9}, .window_order = {10, 9, 7}, .area = {1, 2, 300, 400}});
     struct window_node zoom = ((struct window_node) {0});
     node.zoom = &zoom;
-    struct view view = ((struct view) {.insertion_point = 10});
-    native_tab_replace_node_window(&view, &node, 10, 20);
+    struct view view = ((struct view) {.root = &node, .insertion_point = 10});
+    TEST_CHECK(view_replace_window_id(&view, 10, 20), true);
     TEST_CHECK(node.window_list[0], 7); TEST_CHECK(node.window_list[1], 20); TEST_CHECK(node.window_list[2], 9);
     TEST_CHECK(node.window_order[0], 20); TEST_CHECK(node.window_order[1], 9); TEST_CHECK(node.window_order[2], 7);
     TEST_CHECK(view.insertion_point, 20); TEST_CHECK(node.zoom == &zoom, true);
@@ -73,6 +73,72 @@ TEST_FUNC(native_tab_rule_removal_dissolves_membership_and_group_float_is_shared
     TEST_CHECK(window_check_flag(&parent, WINDOW_TAB_PARENT), false);
     TEST_CHECK(window_check_flag(&child, WINDOW_TAB), false);
     TEST_CHECK(child.tab_parent_id, 0);
+    table_free(&wm.window);
+});
+
+TEST_FUNC(native_tab_slot_handoff_preserves_recent_history_and_rejects_duplicate_identity,
+{
+    struct window_node node = ((struct window_node) {
+        .window_count = 3, .window_list = {7, 10, 9}, .window_order = {7, 10, 9}, .recent_window_id = 10,
+    });
+    struct view view = ((struct view) { .root = &node, .insertion_point = 10 });
+
+    // A background representative retirement must retain the recent logical
+    // slot without relying on a later focus event to repair its history.
+    TEST_CHECK(view_replace_window_id(&view, 10, 20), true);
+    TEST_CHECK(node.window_list[1], 20);
+    TEST_CHECK(node.window_order[0], 7);
+    TEST_CHECK(node.recent_window_id, 20);
+    TEST_CHECK(window_node_contains_window(&node, node.recent_window_id), true);
+    TEST_CHECK(view.insertion_point, 20);
+
+    TEST_CHECK(view_replace_window_id(&view, 20, 9), false);
+    TEST_CHECK(view_replace_window_id(&view, 20, 0), false);
+    TEST_CHECK(view_replace_window_id(&view, 30, 40), false);
+    TEST_CHECK(node.window_count, 3);
+    TEST_CHECK(node.window_list[1], 20);
+    TEST_CHECK(node.recent_window_id, 20);
+    TEST_CHECK(view.insertion_point, 20);
+
+    TEST_CHECK(window_node_activate_window(&node, 20), true);
+    TEST_CHECK(node.window_order[0], 20);
+    TEST_CHECK(node.recent_window_id, 7);
+    TEST_CHECK(node.window_list[0], 7);
+    TEST_CHECK(node.window_list[1], 20);
+});
+
+TEST_FUNC(native_tab_focus_history_tracks_logical_slots_without_fabricating_focus,
+{
+    struct window_manager wm = {0};
+    struct application application = {0};
+    struct window parent = ((struct window) { .id = 10, .application = &application, .flags = WINDOW_TAB_PARENT, .rule_flags = WINDOW_RULE_TAB });
+    struct window selected = ((struct window) { .id = 20, .application = &application, .flags = WINDOW_TAB, .tab_parent_id = 10, .rule_flags = WINDOW_RULE_TAB });
+    struct window other = ((struct window) { .id = 30, .application = &application });
+    parent.id_ptr = &parent.id;
+    selected.id_ptr = &selected.id;
+    other.id_ptr = &other.id;
+    table_init(&wm.window, 8, hash_wm, compare_wm);
+    table_add(&wm.window, &parent.id, &parent);
+    table_add(&wm.window, &selected.id, &selected);
+    table_add(&wm.window, &other.id, &other);
+    wm.focused_window_id = parent.id;
+    wm.last_window_id = other.id;
+
+    native_tab_reparent_members(&wm, &parent, &selected, false);
+    TEST_CHECK(wm.focused_window_id, parent.id);
+    window_manager_record_window_focus(&wm, &selected);
+    TEST_CHECK(wm.focused_window_id, selected.id);
+    TEST_CHECK(wm.last_window_id, other.id);
+
+    window_manager_record_window_focus(&wm, &other);
+    TEST_CHECK(wm.focused_window_id, other.id);
+    TEST_CHECK(wm.last_window_id, selected.id);
+
+    // Retiring a background representative transfers recent-slot identity but
+    // leaves observed frontmost focus untouched until an actual focus event.
+    native_tab_reparent_members(&wm, &selected, &parent, true);
+    TEST_CHECK(wm.focused_window_id, other.id);
+    TEST_CHECK(wm.last_window_id, parent.id);
     table_free(&wm.window);
 });
 

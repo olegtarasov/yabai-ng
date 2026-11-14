@@ -8,6 +8,7 @@ TEST_FUNC(managed_space_display_policy_defaults_to_follow_main,
     managed_space_destroy(&ms);
 });
 
+
 TEST_FUNC(managed_space_display_policy_can_be_set_while_disabled,
 {
     struct managed_space ms;
@@ -22,11 +23,13 @@ TEST_FUNC(managed_space_display_policy_can_be_set_while_disabled,
     managed_space_destroy(&ms);
 });
 
+
 TEST_FUNC(managed_space_display_affinity_names_are_stable,
 {
     TEST_CHECK(strcmp(managed_space_display_affinity_name(MANAGED_SPACE_DISPLAY_FOLLOW_MAIN), "follow-main"), 0);
     TEST_CHECK(strcmp(managed_space_display_affinity_name(MANAGED_SPACE_DISPLAY_FIXED), "fixed"), 0);
 });
+
 
 TEST_FUNC(managed_space_pending_create_counts_only_managed_spaces,
 {
@@ -46,55 +49,6 @@ TEST_FUNC(managed_space_pending_create_counts_only_managed_spaces,
     managed_space_destroy(&ms);
 });
 
-TEST_FUNC(managed_space_sip_fallback_destroy_preserves_remaining_uuid_order_after_sid_refresh,
-{
-    struct managed_space ms;
-    managed_space_init(&ms);
-
-    struct managed_space_entry first = {0};
-    first.uuid = CFStringCreateCopy(NULL, CFSTR("first"));
-    first.name = string_copy("1");
-    struct managed_space_entry second = {0};
-    second.uuid = CFStringCreateCopy(NULL, CFSTR("second"));
-    second.sid = 22;
-    second.name = string_copy("2");
-    struct managed_space_entry third = {0};
-    third.uuid = CFStringCreateCopy(NULL, CFSTR("third"));
-    third.sid = 33;
-    third.name = string_copy("3");
-    buf_push(ms.spaces, first);
-    buf_push(ms.spaces, second);
-    buf_push(ms.spaces, third);
-
-    TEST_CHECK(managed_space_remove_entry_ordered_by_uuid_string(&ms, "first"), true);
-    TEST_CHECK(buf_len(ms.spaces), 2);
-    TEST_CHECK((int) ms.spaces[0].sid, 22);
-    TEST_CHECK(CFEqual(ms.spaces[0].uuid, CFSTR("second")), true);
-    TEST_CHECK((int) ms.spaces[1].sid, 33);
-    TEST_CHECK(CFEqual(ms.spaces[1].uuid, CFSTR("third")), true);
-
-    managed_space_destroy(&ms);
-});
-
-TEST_FUNC(managed_space_scripting_addition_destroy_preserves_primary_swap_delete_semantics,
-{
-    struct managed_space ms;
-    managed_space_init(&ms);
-
-    struct managed_space_entry first = { .sid = 11 };
-    struct managed_space_entry second = { .sid = 22 };
-    struct managed_space_entry third = { .sid = 33 };
-    buf_push(ms.spaces, first);
-    buf_push(ms.spaces, second);
-    buf_push(ms.spaces, third);
-
-    TEST_CHECK(managed_space_remove_entry_scripting_addition(&ms, 11), true);
-    TEST_CHECK(buf_len(ms.spaces), 2);
-    TEST_CHECK((int) ms.spaces[0].sid, 33);
-    TEST_CHECK((int) ms.spaces[1].sid, 22);
-
-    managed_space_destroy(&ms);
-});
 
 TEST_FUNC(managed_space_secondary_workspace_reservation_survives_reorder_and_is_display_scoped,
 {
@@ -123,66 +77,38 @@ TEST_FUNC(managed_space_secondary_workspace_reservation_survives_reorder_and_is_
     managed_space_destroy(&ms);
 });
 
+
 TEST_FUNC(managed_space_drag_defers_only_affected_window_repairs_and_cancellation_resumes_them,
 {
     struct managed_space ms;
     managed_space_init(&ms);
     ms.enabled = true;
     ms.event_posted = true;
-    struct managed_space_entry home = {0};
+    struct managed_space_entry home = ((struct managed_space_entry) {0});
     home.uuid = CFRetain(CFSTR("home"));
     home.sid = 11;
     buf_push(ms.spaces, home);
     managed_space_set_window_namespace(&ms, NULL, 1, CFSTR("home"));
     managed_space_set_window_namespace(&ms, NULL, 2, CFSTR("home"));
-    struct window source = {0};
+    struct window source = ((struct window) {0});
     source.id = 1;
-    struct window peer = {0};
+    struct window peer = ((struct window) {0});
     peer.id = 3;
     managed_space_begin_window_drag(&ms, &source);
     managed_space_track_window_drag(&ms, &peer);
     managed_space_track_window_drag(&ms, &source);
     TEST_CHECK(buf_len(ms.drag_windows), 2);
-    TEST_CHECK(managed_space_window_needs_repair(&ms, &ms.windows[0], 22, 0), false);
-    TEST_CHECK(managed_space_window_needs_repair(&ms, &ms.windows[1], 22, 0), true);
+    TEST_CHECK(managed_space_drag_contains_window(&ms, ms.windows[0].wid), true);
+    TEST_CHECK(managed_space_drag_contains_window(&ms, ms.windows[1].wid), false);
 
     managed_space_cancel_window_drag(&ms, 9);
     TEST_CHECK(buf_len(ms.drag_windows), 2);
     managed_space_cancel_window_drag(&ms, 1);
     TEST_CHECK(buf_len(ms.drag_windows), 0);
-    TEST_CHECK(managed_space_window_needs_repair(&ms, &ms.windows[0], 22, 0), true);
+    TEST_CHECK(managed_space_drag_contains_window(&ms, ms.windows[0].wid), false);
     managed_space_destroy(&ms);
 });
 
-TEST_FUNC(managed_space_secondary_residence_repairs_delayed_transfer_and_recovers_home_when_absent,
-{
-    struct managed_space ms;
-    managed_space_init(&ms);
-    struct managed_space_entry home = {0};
-    home.uuid = CFRetain(CFSTR("home"));
-    home.sid = 11;
-    buf_push(ms.spaces, home);
-    managed_space_set_window_namespace(&ms, NULL, 1, CFSTR("home"));
-    managed_space_set_secondary_residence(&ms, 1, CFSTR("secondary"));
-    struct managed_window_entry *window = &ms.windows[0];
-    TEST_CHECK(CFEqual(window->space_uuid, CFSTR("home")), true);
-    TEST_CHECK((int) managed_space_window_repair_target(&ms, window, 22), 22);
-    TEST_CHECK(managed_space_window_needs_repair(&ms, window, 11, 22), true);
-    TEST_CHECK(managed_space_window_needs_repair(&ms, window, 22, 22), false);
-    TEST_CHECK((int) managed_space_window_repair_target(&ms, window, 0), 11);
-    TEST_CHECK(managed_space_window_needs_repair(&ms, window, 22, 0), true);
-
-    // Invalidating the vanished secondary destination prevents automatic replug return.
-    managed_space_clear_secondary_residence(window);
-    TEST_CHECK((int) managed_space_window_repair_target(&ms, window, 22), 11);
-    managed_space_set_secondary_residence(&ms, 1, CFSTR("secondary"));
-
-    // Returning home clears residence even when the managed UUID itself did not change.
-    managed_space_set_window_namespace(&ms, window, 1, CFSTR("home"));
-    TEST_CHECK(window->secondary_space_uuid == NULL, true);
-    TEST_CHECK((int) managed_space_window_repair_target(&ms, window, 22), 11);
-    managed_space_destroy(&ms);
-});
 
 TEST_FUNC(managed_space_intent_commits_preserve_unrelated_windows_and_secondary_without_home,
 {
@@ -193,8 +119,6 @@ TEST_FUNC(managed_space_intent_commits_preserve_unrelated_windows_and_secondary_
     managed_space_set_secondary_residence(&ms, 1, CFSTR("secondary"));
     managed_space_set_secondary_residence(&ms, 3, CFSTR("secondary"));
     TEST_CHECK(ms.windows[2].space_uuid == NULL, true);
-    TEST_CHECK((int) managed_space_window_repair_target(&ms, &ms.windows[2], 22), 22);
-    TEST_CHECK((int) managed_space_window_repair_target(&ms, &ms.windows[2], 0), 0);
 
     managed_space_set_window_namespace(&ms, &ms.windows[0], 1, CFSTR("new-home"));
     TEST_CHECK(ms.windows[0].secondary_space_uuid == NULL, true);
@@ -204,29 +128,6 @@ TEST_FUNC(managed_space_intent_commits_preserve_unrelated_windows_and_secondary_
     managed_space_destroy(&ms);
 });
 
-TEST_FUNC(managed_space_pending_placeholder_matching_is_display_scoped_and_preserves_replacement,
-{
-    struct managed_space ms;
-    managed_space_init(&ms);
-    ms.pending_replacement_order = 7;
-    struct managed_space_create_request user = {0};
-    user.display_uuid = CFRetain(CFSTR("display-a"));
-    user.managed = true;
-    struct managed_space_create_request placeholder = {0};
-    placeholder.display_uuid = CFRetain(CFSTR("display-b"));
-    buf_push(ms.pending_creates, user);
-    buf_push(ms.pending_creates, placeholder);
-    ms.pending_user_creates = 1;
-
-    TEST_CHECK(managed_space_find_pending_placeholder_create_for_uuid(&ms, CFSTR("display-a")), -1);
-    int index = managed_space_find_pending_placeholder_create_for_uuid(&ms, CFSTR("display-b"));
-    TEST_CHECK(index, 1);
-    managed_space_remove_pending_create_at_index(&ms, index);
-    TEST_CHECK(ms.pending_replacement_order, 7);
-    TEST_CHECK(ms.pending_user_creates, 1);
-    TEST_CHECK(buf_len(ms.pending_creates), 1);
-    managed_space_destroy(&ms);
-});
 
 TEST_FUNC(managed_space_native_tab_handoff_moves_home_residence_and_active_drag,
 {
@@ -259,164 +160,233 @@ TEST_FUNC(managed_space_native_tab_handoff_moves_home_residence_and_active_drag,
     managed_space_destroy(&ms);
 });
 
-TEST_FUNC(managed_space_create_ownership_preserves_same_display_fifo_with_replacement,
+
+TEST_FUNC(managed_space_destroy_preserves_remaining_slot_order,
 {
-    for (int placeholder_first = 0; placeholder_first < 2; ++placeholder_first) {
-        struct managed_space ms;
-        managed_space_init(&ms);
-        struct managed_space_create_request user = {0};
-        user.display_uuid = CFRetain(CFSTR("display"));
-        user.managed = true;
-        user.sequence = placeholder_first ? 3 : 1;
-        struct managed_space_create_request placeholder = {0};
-        placeholder.display_uuid = CFRetain(CFSTR("display"));
-        placeholder.sequence = placeholder_first ? 1 : 3;
-        buf_push(ms.pending_creates, user);
-        buf_push(ms.pending_creates, placeholder);
-        ms.pending_user_creates = 1;
-        ms.pending_replacement_order = 7;
-        ms.pending_replacement_sequence = 2;
-        ms.pending_replacement_display_uuid = CFRetain(CFSTR("display"));
-
-        TEST_CHECK(managed_space_created_space_owner(&ms, CFSTR("other-display")), MANAGED_SPACE_CREATE_OWNER_NONE);
-        int owner = managed_space_created_space_owner(&ms, CFSTR("display"));
-        TEST_CHECK(owner, placeholder_first ? 1 : 0);
-        TEST_CHECK(ms.pending_creates[owner].managed, !placeholder_first);
-        managed_space_remove_pending_create_at_index(&ms, owner);
-        TEST_CHECK(managed_space_created_space_owner(&ms, CFSTR("display")), MANAGED_SPACE_CREATE_OWNER_REPLACEMENT);
-        TEST_CHECK(ms.pending_replacement_order, 7);
-        managed_space_clear_replacement_ticket(&ms);
-        owner = managed_space_created_space_owner(&ms, CFSTR("display"));
-        TEST_CHECK(owner, 0);
-        TEST_CHECK(ms.pending_creates[owner].managed, placeholder_first);
-        managed_space_remove_pending_create_at_index(&ms, owner);
-        TEST_CHECK(managed_space_created_space_owner(&ms, CFSTR("display")), MANAGED_SPACE_CREATE_OWNER_NONE);
-        managed_space_destroy(&ms);
-    }
-});
-
-TEST_FUNC(managed_space_create_cancellation_and_delayed_receipts_preserve_newer_ownership,
-{
-    struct managed_space ms;
-    managed_space_init(&ms);
-    struct managed_space_create_request first = {0};
-    first.display_uuid = CFRetain(CFSTR("display"));
-    first.sequence = 1;
-    first.managed = true;
-    struct managed_space_create_request placeholder = {0};
-    placeholder.display_uuid = CFRetain(CFSTR("display"));
-    placeholder.sequence = 2;
-    struct managed_space_create_request last = {0};
-    last.display_uuid = CFRetain(CFSTR("display"));
-    last.sequence = 3;
-    last.managed = true;
-    buf_push(ms.pending_creates, placeholder);
-    buf_push(ms.pending_creates, last);
-    buf_push(ms.pending_creates, first);
-    managed_space_remove_last_pending_user_create(&ms);
-    TEST_CHECK(buf_len(ms.pending_creates), 2);
-    int owner = managed_space_created_space_owner(&ms, CFSTR("display"));
-    TEST_CHECK((int) ms.pending_creates[owner].sequence, 1);
-
-    buf_push(ms.replacement_receipts, CFRetain(CFSTR("rebound-space")));
-    TEST_CHECK(managed_space_consume_replacement_receipt(&ms, CFSTR("unrelated-space")), false);
-    TEST_CHECK(managed_space_consume_replacement_receipt(&ms, CFSTR("rebound-space")), true);
-    TEST_CHECK(buf_len(ms.replacement_receipts), 0);
-    TEST_CHECK(managed_space_created_space_owner(&ms, CFSTR("display")), owner);
-    TEST_CHECK(managed_space_consume_replacement_receipt(&ms, CFSTR("rebound-space")), false);
+    struct managed_space ms; managed_space_init(&ms);
+    struct managed_space_entry first = ((struct managed_space_entry) { .uuid = CFRetain(CFSTR("first")), .sid = 11 });
+    struct managed_space_entry second = ((struct managed_space_entry) { .uuid = CFRetain(CFSTR("second")), .sid = 22 });
+    struct managed_space_entry third = ((struct managed_space_entry) { .uuid = CFRetain(CFSTR("third")), .sid = 33 });
+    buf_push(ms.spaces, first); buf_push(ms.spaces, second); buf_push(ms.spaces, third);
+    TEST_CHECK(managed_space_remove_entry_ordered(&ms, 11), true);
+    TEST_CHECK(buf_len(ms.spaces), 2);
+    TEST_CHECK(CFEqual(ms.spaces[0].uuid, CFSTR("second")), true);
+    TEST_CHECK(CFEqual(ms.spaces[1].uuid, CFSTR("third")), true);
+    TEST_CHECK(ms.spaces[0].order, 1);
+    TEST_CHECK(ms.spaces[1].order, 2);
     managed_space_destroy(&ms);
 });
 
-TEST_FUNC(managed_space_sip_fallback_create_failure_after_event_preserves_next_pending_owner,
+static void managed_space_test_fixture(struct managed_space *ms, struct managed_space_observation *o)
 {
-    struct managed_space ms;
-    managed_space_init(&ms);
-    ms.enabled = true;
-    ms.event_posted = true;
-    struct managed_space_create_request first = {0};
-    first.display_uuid = CFRetain(CFSTR("display"));
-    first.sequence = 1;
-    first.managed = true;
-    struct managed_space_create_request next = {0};
-    next.display_uuid = CFRetain(CFSTR("display"));
-    next.sequence = 2;
-    next.managed = true;
-    buf_push(ms.pending_creates, first);
-    buf_push(ms.pending_creates, next);
-    managed_space_remove_pending_create_at_index(&ms, 0);
-    TEST_CHECK(managed_space_failed_create_owner(&ms, CFSTR("display"), false), 0);
-    TEST_CHECK(managed_space_failed_create_owner(&ms, CFSTR("display"), true), MANAGED_SPACE_CREATE_OWNER_NONE);
-
-    struct managed_space_sip_fallback_request failed = {0};
-    failed.operation = MANAGED_SPACE_TOPOLOGY_OPERATION_CREATE;
-    failed.origin = MANAGED_SPACE_TOPOLOGY_ORIGIN_COMMAND;
-    failed.topology_event_observed = true;
-    managed_space_handle_sip_fallback_operation_failed(&ms, &failed);
-    TEST_CHECK(buf_len(ms.pending_creates), 1);
-    TEST_CHECK(ms.pending_user_creates, 1);
-    TEST_CHECK((int) ms.pending_creates[0].sequence, 2);
-    TEST_CHECK(managed_space_created_space_owner(&ms, CFSTR("display")), 0);
-    managed_space_destroy(&ms);
-});
-
-TEST_FUNC(managed_space_pending_create_protects_only_its_display_until_metadata_is_consumed,
-{
-    struct managed_space ms;
-    managed_space_init(&ms);
-    struct managed_space_create_request request = {0};
-    request.display_uuid = CFRetain(CFSTR("display-a"));
-    request.sequence = 1;
-    request.managed = true;
-    buf_push(ms.pending_creates, request);
-    TEST_CHECK(managed_space_display_has_pending_create(&ms, CFSTR("display-a")), true);
-    TEST_CHECK(managed_space_display_has_pending_create(&ms, CFSTR("display-b")), false);
-    managed_space_remove_pending_create_at_index(&ms, 0);
-    TEST_CHECK(managed_space_display_has_pending_create(&ms, CFSTR("display-a")), false);
-
-    ms.pending_replacement_sequence = 2;
-    ms.pending_replacement_display_uuid = CFRetain(CFSTR("display-a"));
-    TEST_CHECK(managed_space_display_has_pending_create(&ms, CFSTR("display-a")), true);
-    managed_space_clear_replacement_ticket(&ms);
-    TEST_CHECK(managed_space_display_has_pending_create(&ms, CFSTR("display-a")), false);
-    managed_space_destroy(&ms);
-});
-
-static uint64_t managed_space_test_completed_sid;
-static int managed_space_test_completion_count;
-
-static void managed_space_test_capture_snapshot_create(struct managed_space *ms, uint64_t sid)
-{
-    (void) ms;
-    managed_space_test_completed_sid = sid;
-    ++managed_space_test_completion_count;
+    managed_space_init(ms); ms->enabled = ms->scripting_addition_ready = ms->event_posted = true;
+    memset(o, 0, sizeof(*o)); o->valid = true; o->hash = 123;
+    struct managed_space_observed_display display = ((struct managed_space_observed_display) { .did = 1, .uuid = CFRetain(CFSTR("main")), .main = true, .active_sid = 11 });
+    struct managed_space_observed_space home = ((struct managed_space_observed_space) { .sid = 11, .uuid = CFRetain(CFSTR("home")), .did = 1, .index = 1, .normal = true });
+    struct managed_space_observed_space other = ((struct managed_space_observed_space) { .sid = 22, .uuid = CFRetain(CFSTR("other")), .did = 1, .index = 2, .normal = true });
+    struct managed_space_entry entry = ((struct managed_space_entry) { .uuid = CFRetain(CFSTR("home")), .sid = 11, .order = 1 });
+    buf_push(o->displays, display); buf_push(o->spaces, home); buf_push(o->spaces, other); buf_push(ms->spaces, entry);
+    struct managed_space_entry other_entry = ((struct managed_space_entry) { .uuid = CFRetain(CFSTR("other")), .sid = 22, .order = 2 });
+    buf_push(ms->spaces, other_entry);
+    managed_space_set_window_namespace(ms, NULL, 10, CFSTR("home"));
+    struct managed_space_observed_window window = ((struct managed_space_observed_window) { .wid = 10, .sid = 22, .actionable = true });
+    buf_push(o->windows, window);
 }
 
-TEST_FUNC(managed_space_sip_fallback_snapshot_create_completion_replays_exact_sid_before_origin_filter,
+TEST_FUNC(managed_space_planner_never_repairs_actual_fullscreen_membership,
 {
-    for (int reconcile = 0; reconcile < 2; ++reconcile) {
-        struct managed_space ms;
-        managed_space_init(&ms);
-        ms.enabled = true;
+    struct managed_space ms; struct managed_space_observation o; managed_space_test_fixture(&ms, &o);
+    struct managed_space_observed_space fullscreen = ((struct managed_space_observed_space) { .sid = 33, .uuid = CFRetain(CFSTR("fullscreen")), .did = 1, .index = 3, .fullscreen = true });
+    buf_push(o.spaces, fullscreen);
+    o.windows[0].sid = 33; o.windows[0].fullscreen = false;
+    // Deliberately leave cached/actionable=true to model the historical AX race.
+    struct managed_space_action action = managed_space_plan(&ms, &o);
+    TEST_CHECK(action.type, MANAGED_SPACE_ACTION_NONE);
+    TEST_CHECK((int) ms.window_repair_attempt_count, 0);
+    managed_space_destroy_observation(&o); managed_space_destroy(&ms);
+});
 
-        struct managed_space_sip_fallback_request completed = {0};
-        completed.operation = MANAGED_SPACE_TOPOLOGY_OPERATION_CREATE;
-        completed.origin = reconcile ? MANAGED_SPACE_TOPOLOGY_ORIGIN_RECONCILE : MANAGED_SPACE_TOPOLOGY_ORIGIN_COMMAND;
-        completed.created_sid = 42;
-        managed_space_test_completed_sid = 0;
-        managed_space_test_completion_count = 0;
-        managed_space_test_unobserved_create_completion = managed_space_test_capture_snapshot_create;
-        managed_space_handle_sip_fallback_operation_completed(&ms, &completed);
-        TEST_CHECK((int) managed_space_test_completed_sid, 42);
-        TEST_CHECK(managed_space_test_completion_count, 1);
+TEST_FUNC(managed_space_planner_defers_unknown_or_interrupted_observation,
+{
+    struct managed_space ms; struct managed_space_observation o; managed_space_test_fixture(&ms, &o);
+    struct managed_space_action action = managed_space_plan(&ms, &o);
+    TEST_CHECK(action.type, MANAGED_SPACE_ACTION_REPAIR_WINDOW);
+    o.valid = false; action = managed_space_plan(&ms, &o); TEST_CHECK(action.type, MANAGED_SPACE_ACTION_NONE);
+    o.valid = true; o.blocked = true; action = managed_space_plan(&ms, &o); TEST_CHECK(action.type, MANAGED_SPACE_ACTION_NONE);
+    o.blocked = false; ms.scripting_addition_ready = false;
+    action = managed_space_plan(&ms, &o); TEST_CHECK(action.type, MANAGED_SPACE_ACTION_NONE);
+    TEST_CHECK(CFEqual(ms.windows[0].space_uuid, CFSTR("home")), true);
+    // Missing fixed slots are recreated on an available display without losing affinity.
+    ms.scripting_addition_ready = true;
+    ms.spaces[0].display_affinity = MANAGED_SPACE_DISPLAY_FIXED;
+    ms.spaces[0].preferred_display_uuid = CFRetain(CFSTR("disconnected"));
+    CFRelease(o.spaces[0].uuid); o.spaces[0] = o.spaces[1]; --buf__hdr(o.spaces)->len;
+    o.displays[0].active_sid = 22;
+    action = managed_space_plan(&ms, &o);
+    TEST_CHECK(action.type, MANAGED_SPACE_ACTION_CREATE);
+    TEST_CHECK((int) action.did, 1);
+    TEST_CHECK(CFEqual(ms.spaces[0].preferred_display_uuid, CFSTR("disconnected")), true);
+    managed_space_destroy_observation(&o); managed_space_destroy(&ms);
+});
 
-        completed.topology_event_observed = true;
-        managed_space_handle_sip_fallback_operation_completed(&ms, &completed);
-        TEST_CHECK(managed_space_test_completion_count, 1);
-        completed.topology_event_observed = false;
-        completed.created_sid = 0;
-        managed_space_handle_sip_fallback_operation_completed(&ms, &completed);
-        TEST_CHECK(managed_space_test_completion_count, 1);
-        managed_space_test_unobserved_create_completion = NULL;
-        managed_space_destroy(&ms);
-    }
+TEST_FUNC(managed_space_accepted_placement_waits_for_event_and_explicit_refresh_retries,
+{
+    struct managed_space ms; struct managed_space_observation o; managed_space_test_fixture(&ms, &o);
+    managed_space_set_pending_placement(&ms.windows[0], 22, CFSTR("home"));
+    struct managed_space_action action = managed_space_plan(&ms, &o);
+    TEST_CHECK(action.type, MANAGED_SPACE_ACTION_NONE);
+    managed_space_test_probe_override_enabled = true;
+    managed_space_test_probe_override = (struct scripting_addition_probe_result) { .status = SCRIPTING_ADDITION_PROBE_COMPATIBLE };
+    TEST_CHECK(managed_space_set_enabled(&ms, true), true);
+    TEST_CHECK(buf_len(ms.spaces), 2);
+    TEST_CHECK(ms.windows[0].pending_space_uuid == NULL, true);
+    action = managed_space_plan(&ms, &o); TEST_CHECK(action.type, MANAGED_SPACE_ACTION_REPAIR_WINDOW);
+    managed_space_set_pending_placement(&ms.windows[0], 22, CFSTR("home"));
+    o.windows[0].sid = 11;
+    managed_space_refresh_observed_intent(&ms, &o);
+    TEST_CHECK(ms.windows[0].pending_space_uuid == NULL, true);
+    action = managed_space_plan(&ms, &o); TEST_CHECK(action.type, MANAGED_SPACE_ACTION_NONE);
+    managed_space_test_probe_override_enabled = false;
+    managed_space_destroy_observation(&o); managed_space_destroy(&ms);
+});
+
+TEST_FUNC(managed_space_readiness_failure_preserves_registry_and_home,
+{
+    struct managed_space ms; struct managed_space_observation o; managed_space_test_fixture(&ms, &o);
+    managed_space_test_probe_override_enabled = true;
+    managed_space_test_probe_override = (struct scripting_addition_probe_result) { .status = SCRIPTING_ADDITION_PROBE_VERSION_MISMATCH };
+    TEST_CHECK(managed_space_set_enabled(&ms, true), false);
+    TEST_CHECK(ms.enabled, true);
+    TEST_CHECK(ms.scripting_addition_ready, false);
+    TEST_CHECK(buf_len(ms.spaces), 2);
+    TEST_CHECK(CFEqual(ms.windows[0].space_uuid, CFSTR("home")), true);
+    managed_space_handle_dock_restart(&ms);
+    TEST_CHECK(ms.enabled, true);
+    TEST_CHECK(ms.scripting_addition.status, SCRIPTING_ADDITION_PROBE_UNAVAILABLE);
+    managed_space_test_probe_override = (struct scripting_addition_probe_result) { .status = SCRIPTING_ADDITION_PROBE_COMPATIBLE };
+    TEST_CHECK(managed_space_refresh_scripting_addition(&ms), true);
+    TEST_CHECK(buf_len(ms.spaces), 2);
+    managed_space_note_topology_result(&ms, SPACE_OP_ERROR_SCRIPTING_ADDITION);
+    TEST_CHECK(ms.scripting_addition_ready, false);
+    TEST_CHECK(ms.last_error, SPACE_OP_ERROR_SCRIPTING_ADDITION);
+    managed_space_test_probe_override_enabled = false;
+    managed_space_destroy_observation(&o); managed_space_destroy(&ms);
+});
+
+TEST_FUNC(managed_space_initial_enable_requires_compatible_addition,
+{
+    struct managed_space ms; managed_space_init(&ms);
+    managed_space_test_probe_override_enabled = true;
+    managed_space_test_probe_override = (struct scripting_addition_probe_result) { .status = SCRIPTING_ADDITION_PROBE_CAPABILITIES_MISSING };
+    TEST_CHECK(managed_space_set_enabled(&ms, true), false);
+    TEST_CHECK(ms.enabled, false);
+    TEST_CHECK(buf_len(ms.spaces), 0);
+    managed_space_test_probe_override_enabled = false;
+    managed_space_destroy(&ms);
+});
+
+TEST_FUNC(managed_space_create_tickets_protect_display_and_cancel_exact_latest_user,
+{
+    struct managed_space ms; managed_space_init(&ms); ms.enabled = true;
+    struct managed_space_create_request user = ((struct managed_space_create_request) { .display_uuid = CFRetain(CFSTR("a")), .sequence = 1, .managed = true });
+    struct managed_space_create_request replacement = ((struct managed_space_create_request) { .display_uuid = CFRetain(CFSTR("a")), .replacement_uuid = CFRetain(CFSTR("lost")), .sequence = 2, .managed = true });
+    struct managed_space_create_request placeholder = ((struct managed_space_create_request) { .display_uuid = CFRetain(CFSTR("b")), .sequence = 3 });
+    struct managed_space_create_request latest = ((struct managed_space_create_request) { .display_uuid = CFRetain(CFSTR("a")), .sequence = 4, .managed = true });
+    buf_push(ms.pending_creates, user); buf_push(ms.pending_creates, replacement); buf_push(ms.pending_creates, placeholder); buf_push(ms.pending_creates, latest);
+    TEST_CHECK(managed_space_pending_user_create_count(&ms), 2);
+    TEST_CHECK(managed_space_display_has_pending_create(&ms, CFSTR("a")), true);
+    TEST_CHECK(managed_space_display_has_pending_create(&ms, CFSTR("c")), false);
+    managed_space_cancel_user_space_create(&ms);
+    TEST_CHECK(buf_len(ms.pending_creates), 3);
+    TEST_CHECK(managed_space_pending_user_create_count(&ms), 1);
+    TEST_CHECK(managed_space_pending_replacement(&ms, CFSTR("lost")), true);
+    int index = managed_space_find_pending_placeholder_create_for_uuid(&ms, CFSTR("b"));
+    TEST_CHECK(index >= 0, true);
+    managed_space_remove_pending_create_at_index(&ms, index);
+    TEST_CHECK(managed_space_display_has_pending_create(&ms, CFSTR("b")), false);
+    TEST_CHECK(managed_space_pending_replacement(&ms, CFSTR("lost")), true);
+    managed_space_destroy(&ms);
+});
+
+TEST_FUNC(managed_space_late_creation_receipt_does_not_consume_next_ticket,
+{
+    struct managed_space ms; managed_space_init(&ms);
+    struct managed_space_create_request request = ((struct managed_space_create_request) { .display_uuid = CFRetain(CFSTR("a")), .sequence = 3, .managed = true });
+    buf_push(request.known_space_uuids, CFRetain(CFSTR("old")));
+    buf_push(ms.pending_creates, request);
+    buf_push(ms.replacement_receipts, CFRetain(CFSTR("admitted")));
+    TEST_CHECK(managed_space_consume_replacement_receipt(&ms, CFSTR("other")), false);
+    TEST_CHECK(managed_space_consume_replacement_receipt(&ms, CFSTR("admitted")), true);
+    TEST_CHECK(buf_len(ms.pending_creates), 1);
+    TEST_CHECK(managed_space_create_knows_uuid(&ms.pending_creates[0], CFSTR("old")), true);
+    TEST_CHECK(managed_space_create_knows_uuid(&ms.pending_creates[0], CFSTR("new")), false);
+    TEST_CHECK(managed_space_consume_replacement_receipt(&ms, CFSTR("admitted")), false);
+    managed_space_destroy(&ms);
+});
+
+TEST_FUNC(managed_space_secondary_disappearance_is_transition_and_no_replug_return,
+{
+    struct managed_space ms; struct managed_space_observation o; managed_space_test_fixture(&ms, &o);
+    managed_space_set_secondary_residence(&ms, 10, CFSTR("secondary"));
+    struct managed_secondary_workspace workspace = ((struct managed_secondary_workspace) { .display_uuid = CFRetain(CFSTR("display-b")), .space_uuid = CFRetain(CFSTR("secondary")) });
+    buf_push(ms.secondary_workspaces, workspace);
+    o.valid = false; managed_space_refresh_observed_intent(&ms, &o);
+    TEST_CHECK(ms.windows[0].secondary_space_uuid != NULL, true);
+    o.valid = true; managed_space_refresh_observed_intent(&ms, &o);
+    TEST_CHECK(ms.windows[0].secondary_space_uuid == NULL, true);
+    TEST_CHECK(CFEqual(ms.windows[0].space_uuid, CFSTR("home")), true);
+    struct managed_space_observed_display second = ((struct managed_space_observed_display) { .did = 2, .uuid = CFRetain(CFSTR("display-b")), .active_sid = 33 });
+    struct managed_space_observed_space secondary = ((struct managed_space_observed_space) { .sid = 33, .uuid = CFRetain(CFSTR("secondary")), .did = 2, .index = 3, .normal = true });
+    buf_push(o.displays, second); buf_push(o.spaces, secondary);
+    managed_space_refresh_observed_intent(&ms, &o);
+    TEST_CHECK(ms.windows[0].secondary_space_uuid == NULL, true);
+    struct managed_space_action action = managed_space_plan(&ms, &o);
+    TEST_CHECK(action.type, MANAGED_SPACE_ACTION_REPAIR_WINDOW);
+    TEST_CHECK((int) action.target_sid, 11);
+    managed_space_destroy_observation(&o); managed_space_destroy(&ms);
+});
+
+TEST_FUNC(managed_space_planner_respects_drag_and_creation_admission,
+{
+    struct managed_space ms; struct managed_space_observation o; managed_space_test_fixture(&ms, &o);
+    o.windows[0].dragged = true;
+    struct managed_space_action action = managed_space_plan(&ms, &o); TEST_CHECK(action.type, MANAGED_SPACE_ACTION_NONE);
+    struct managed_space_observed_space extra = ((struct managed_space_observed_space) { .sid = 33, .uuid = CFRetain(CFSTR("new-space")), .did = 1, .index = 3, .normal = true });
+    buf_push(o.spaces, extra);
+    struct managed_space_create_request request = ((struct managed_space_create_request) { .display_uuid = CFRetain(CFSTR("main")), .sequence = 1, .managed = true });
+    buf_push(ms.pending_creates, request);
+    action = managed_space_plan(&ms, &o); TEST_CHECK(action.type, MANAGED_SPACE_ACTION_NONE);
+    managed_space_remove_pending_create_at_index(&ms, 0);
+    action = managed_space_plan(&ms, &o); TEST_CHECK(action.type, MANAGED_SPACE_ACTION_DESTROY);
+    TEST_CHECK((int) action.sid, 33);
+    managed_space_destroy_observation(&o); managed_space_destroy(&ms);
+});
+
+TEST_FUNC(managed_space_explicit_destroy_does_not_replenish_configured_names,
+{
+    struct managed_space ms; struct managed_space_observation o; managed_space_test_fixture(&ms, &o);
+    buf_push(ms.names, string_copy("1")); buf_push(ms.names, string_copy("2"));
+    // A successful explicit destroy already removed the second physical space.
+    ms.spaces[1].sid = 0;
+    managed_space_remove_entry_ordered_at_index(&ms, 1);
+    CFRelease(o.spaces[1].uuid); --buf__hdr(o.spaces)->len;
+    o.windows[0].sid = 11;
+    struct managed_space_action action = managed_space_plan(&ms, &o);
+    TEST_CHECK(action.type, MANAGED_SPACE_ACTION_NONE);
+    TEST_CHECK(buf_len(ms.spaces), 1);
+    TEST_CHECK(buf_len(ms.names), 2);
+    managed_space_destroy_observation(&o); managed_space_destroy(&ms);
+});
+
+TEST_FUNC(managed_space_unchanged_observation_does_not_repeat_failed_action,
+{
+    struct managed_space ms; struct managed_space_observation o; managed_space_test_fixture(&ms, &o);
+    struct managed_space_action action = managed_space_plan(&ms, &o);
+    TEST_CHECK(managed_space_should_execute_action(&ms, &o, action), true);
+    ms.last_action_key = managed_space_action_key(action); ms.last_action_observation = o.hash;
+    // Re-entering reconciliation on another notification is not evidence of progress.
+    TEST_CHECK(managed_space_should_execute_action(&ms, &o, action), false);
+    ++o.hash;
+    TEST_CHECK(managed_space_should_execute_action(&ms, &o, action), true);
+    managed_space_destroy_observation(&o); managed_space_destroy(&ms);
 });

@@ -163,23 +163,13 @@ Global Settings
     tiles; an empty tiled destination shows its available tiling area. +
     Native fullscreen spaces are exempt and are never moved or destroyed by
     managed mode. +
-    The synchronous scripting-addition provider is the primary managed-topology
-    implementation. With managed mode enabled, `auto` selects it whenever an
-    exact scripting-addition version with every required capability is
-    available. Only when the primary provider is unavailable does `auto` select
-    the contained `sip-fallback` provider for a full-SIP host. The fallback
-    serializes requests and uses an exact-build validated SkyLight bridge or
-    Mission Control Accessibility automation. Provider selection is sticky: a
-    Dock restart or operation failure never changes implementations implicitly.
-    Reapply `managed_space_topology_backend` to explicitly re-evaluate `auto`. +
-    The bridge is enabled automatically only after the operation agrees across
-    SLS, Dock's Accessibility topology, persisted Dock state, and a Dock
-    restart. Accessibility automation briefly shows Mission Control and
-    requires yabai to be enabled in System Settings -> Privacy & Security ->
-    Accessibility. If the user already opened Mission Control, yabai waits for
-    that session to end and does not close or control it. macOS exposes at most
-    16 normal spaces per display through Mission Control; reaching that limit
-    blocks further fallback creates until configuration or topology changes.
+    Managed mode requires an exact compatible scripting-addition version with
+    every platform-required capability. Topology operations run synchronously
+    through the shared space manager. Missing support returns an error; no
+    Mission Control automation or alternative topology backend is used. +
+    Runtime scripting-addition loss preserves the desired registry and suspends
+    automatic managed mutations. Reapplying this setting as on while enabled
+    refreshes readiness and reconciliation without taking a new snapshot.
 
 *managed_space_names* ['<comma-separated names>']::
     Configure optional managed slot names. +
@@ -199,28 +189,6 @@ Global Settings
     `space --display` gives the moved managed space fixed display affinity.
     `space --create --display` on a non-main display creates a fixed managed
     space; other managed creates inherit this policy.
-
-*managed_space_topology_backend* ['<auto|scripting-addition|sip-fallback|bridge|accessibility>']::
-    Select the managed-space topology provider policy. +
-    `auto` is the default. When managed mode is enabled, yabai performs a
-    read-only scripting-addition handshake. An exact version with every
-    platform-required capability selects the primary synchronous scripting-addition
-    provider; an unavailable, stale, or incomplete handshake selects
-    `sip-fallback`. The selection remains fixed until managed mode is disabled
-    or this policy is explicitly reapplied. There is no implicit cross-provider
-    fallback. +
-    `scripting-addition` forces the primary provider and reports its normal
-    immediate errors if the scripting addition cannot perform an operation.
-    `sip-fallback` forces the full-SIP provider with its normal per-operation
-    backend selection. `bridge` and `accessibility` force individual fallback
-    sub-backends for diagnostics. Forced bridge mode bypasses the per-build
-    validation table so an available bridge operation can be tested before it
-    is added to that table. Within `sip-fallback`, backend auto-selection may
-    fall back from a validated bridge operation to Accessibility only if bridge
-    mutation has not begun. A successful SLS event alone is not sufficient
-    validation because a bridge mutation can exist in WindowServer without
-    being persisted by Dock. This setting affects topology changes only while
-    `managed_spaces` is enabled.
 
 *external_bar* ['<main|all|off>:<top_padding>:<bottom_padding>']::
     Specify top and bottom padding for a potential custom bar that you may be running. +
@@ -403,46 +371,36 @@ COMMAND
 *--create*  ['<DISPLAY_SEL>']::
     Create a new space on the given display. +
     If none specified, use the display of the active space instead. +
-    With managed spaces enabled, the primary scripting-addition provider
-    executes this command synchronously. The SIP fallback provider queues it and
-    can run with full System Integrity Protection. Otherwise, System Integrity
-    Protection must be partially disabled.
+    Requires the scripting addition and partially disabled System Integrity
+    Protection. In managed mode the created user space intentionally joins the
+    registry, with admission protected until its UUID is observed.
 
 *--destroy* ['<SPACE_SEL>']::
     Remove the given space. +
     If none specified, use the selected space instead. +
-    With the SIP fallback provider, managed membership is removed only after
-    deletion is confirmed, the command is asynchronous, and it can run with
-    full System Integrity Protection. The primary scripting-addition provider
-    executes the command synchronously. Otherwise, System Integrity Protection
-    must be partially disabled.
+    Requires the scripting addition and partially disabled System Integrity
+    Protection. Managed membership is removed after successful deletion; surviving
+    slots retain their relative order and configured names are reapplied.
 
 *--move* '<SPACE_SEL>'::
     Move position of the selected space to the position of the given space. +
     The selected space and given space must both belong to the same display. +
-    With the SIP fallback provider this command is asynchronous, persists the
-    confirmed UUID order, and can run with full System Integrity Protection.
-    The primary scripting-addition provider executes the command synchronously.
-    Otherwise, System Integrity Protection must be partially disabled.
+    When managed mode is enabled, successful moves update desired managed order.
+    This command requires the scripting addition and partially disabled SIP.
 
 *--swap* '<SPACE_SEL>'::
     Swap the selected space with the given space. +
     If the selected space and given space belong to different displays, all the windows will swap. +
     If the selected space and given space belong to the same display, the actual spaces will swap. +
-    With the SIP fallback provider, same-display topology changes are asynchronous,
-    persist only after the full swap is confirmed, and can run with full System
-    Integrity Protection. The primary scripting-addition provider executes the
-    command synchronously. Otherwise, System Integrity Protection must be
-    partially disabled.
+    Same-display swaps require the scripting addition and partially disabled SIP.
+    In managed mode their successful order becomes the desired managed order.
+    Cross-display swaps retain the shared upstream window-transfer behavior.
 
 *--display* '<DISPLAY_SEL>'::
     Send the selected space to the given display. +
     When managed spaces are enabled, sending a managed space to a display gives
-    that managed space fixed display affinity. The SIP fallback provider commits
-    that affinity after confirmation, runs asynchronously, and can work with
-    full System Integrity Protection. The primary scripting-addition provider
-    executes synchronously and commits affinity on return. Otherwise, System
-    Integrity Protection must be partially disabled.
+    that managed space fixed display affinity after the synchronous operation
+    succeeds. Requires the scripting addition and partially disabled SIP.
 
 *--equalize* ['x-axis|y-axis']::
     Reset the split ratios on the selected space to the default value along the given axis. +
@@ -596,10 +554,9 @@ COMMAND
     Retrieve information about windows.
 
 *--managed-spaces*::
-    Retrieve managed space registry, topology backend capabilities, the current
-    asynchronous operation, queue state, and the last topology failure. Reserved
-    secondary workspaces and remembered windows' secondary residence UUIDs are
-    included for diagnosing intentional cross-display placement and recovery.
+    Retrieve managed registry, scripting-addition readiness, reconciliation
+    diagnostics, reserved secondary workspaces, and remembered placement intent.
+    This query does not change registry or placement policy.
 
 ARGUMENT
 ^^^^^^^^
@@ -755,63 +712,10 @@ MANAGED SPACES
 [subs=+macros]
 ----
 {
-    "topology-backend-policy": string,
-    "topology-resolved-provider": string,
-    "topology-provider-selection-reason": string,
-    "topology-scripting-addition-compatible": bool,
-    "topology-scripting-addition-version": string,
-    "topology-scripting-addition-capabilities": string,
-    "topology-os-build": string,
-    "topology-accessibility-trusted": bool,
-    "topology-authority-observed": bool,
-    "topology-authority-consistent": bool,
-    "topology-authority-display": number,
-    "topology-authority-sls-count": number,
-    "topology-authority-ax-count": number,
-    "topology-capabilities": object {
-        "<operation>": object {
-            "preferred-backend": string,
-            "fallback-backend": string,
-            "bridge-available": bool,
-            "bridge-validated": bool,
-            "accessibility": bool
-        }
-    },
-    "topology-state": string,
-    "topology-operation": string,
-    "topology-operation-origin": string,
-    "topology-operation-backend": string,
-    "topology-operation-generation": number,
-    "topology-operation-precondition-hash": string,
-    "topology-operation-space": number,
-    "topology-operation-space-uuid": string,
-    "topology-operation-target-space": number,
-    "topology-operation-target-space-uuid": string,
-    "topology-operation-created-space": number,
-    "topology-operation-source-display": number,
-    "topology-operation-source-display-uuid": string,
-    "topology-operation-target-display": number,
-    "topology-operation-target-display-uuid": string,
-    "topology-operation-pre-source-count": number,
-    "topology-operation-pre-target-count": number,
-    "topology-operation-ax-source-count": number,
-    "topology-operation-ax-target-count": number,
-    "topology-operation-phase": number,
-    "topology-operation-mutation-started": bool,
-    "topology-operation-event-observed": bool,
-    "topology-operation-ax-precondition-observed": bool,
-    "topology-operation-ax-postcondition-observed": bool,
-    "topology-operation-dock-postcondition-observed": bool,
-    "topology-queue-depth": number,
-    "topology-owns-mission-control": bool,
-    "topology-reconciliation-blocked": bool,
-    "topology-space-limit-reached": bool,
-    "topology-space-limit-display": number,
-    "topology-space-limit-count": number,
-    "topology-last-failed-generation": number,
-    "topology-last-failed-operation": string,
-    "topology-last-failed-backend": string,
-    "topology-last-error": string,
+    "scripting-addition-ready": bool,
+    "scripting-addition-status": string,
+    "scripting-addition-version": string,
+    "scripting-addition-capabilities": string,
     "enabled": bool,
     "managed-space-count": number,
     "extra-space-count": number,
@@ -819,33 +723,27 @@ MANAGED SPACES
     "remembered-window-count": number,
     "pending-window-repair-count": number,
     "pending-user-create-count": number,
-    "topology-grace": bool,
+    "pending-create-count": number,
+    "last-error": number,
+    "window-repair-attempt-count": number,
     "managed-space-display-policy": string,
     "last-repaired-window-count": number,
     "active-managed-order": number,
     "managed-space-names": array of string,
     "spaces": array of object,
-    "windows": array of object
+    "windows": array of object,
+    "secondary-workspaces": array of object
 }
 ----
 
-The provider-selection fields identify the sticky managed-mode provider and the
-handshake result that selected it. `scripting-addition` is the primary provider:
-topology commands return synchronously, the fallback queue stays idle, and
-yabai does not own Mission Control. `topology-resolved-provider` is one of
-`disabled`, `scripting-addition`, or `sip-fallback`. +
-
-With `sip-fallback`, topology-changing commands return successfully and remain
-silent after a request is safely queued. Completion is observable through this
-query and the normal space and managed-space signals. An immediate validation
-failure is returned to the caller. An asynchronous failure updates the
-`topology-last-*` fields and emits `managed_space_topology_failed`. A failed
-reconciliation remains blocked until a configuration or external topology
-change prevents repeated retries against unchanged state. Accessibility
-operations begin only when SLS and Mission Control report the same per-display
-space count. They commit after Mission Control reports the expected topology,
-or after Dock's persisted topology proves the same postcondition during an
-unexpected Mission Control exit.
+Managed topology uses the scripting addition exclusively. Commands return their
+normal synchronous errors. The desired registry survives temporary support loss;
+readiness diagnostics explain why automatic reconciliation is suspended. Creation
+admission and accepted window placement can await subsequent macOS notifications
+without introducing a queued topology backend. The cumulative repair-attempt
+counter counts submissions; last-repaired-window-count counts observed completed
+repairs. Deleting a managed space preserves
+the relative order of surviving slots and reapplies configured slot names.
 
 Each managed space object contains:
 
@@ -1157,12 +1055,6 @@ EVENT
     Triggered when the active managed or native fullscreen space changes. +
     Passes four arguments: $YABAI_SPACE_INDEX, $YABAI_DISPLAY_INDEX,
     $YABAI_MANAGED_ORDER, $YABAI_MANAGED_SPACE_NAME
-
-*managed_space_topology_failed*::
-    Triggered when a queued managed-space topology request fails or an
-    immediately selected topology backend is unavailable. +
-    Passes three arguments: $YABAI_MANAGED_SPACE_OPERATION,
-    $YABAI_MANAGED_SPACE_BACKEND, $YABAI_MANAGED_SPACE_ERROR
 
 *space_stacks_changed*::
     Triggered when a space's stack presentation changes. +

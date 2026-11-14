@@ -36,11 +36,10 @@ target_index=$(jq -r '.index' <<< "$target")
 target_display=$(jq -r '.display' <<< "$target")
 target_uuid=$(jq -r '.uuid' <<< "$target")
 before=$("$yabai" -m query --managed-spaces)
-jq -e '.enabled and ."topology-state" == "idle" and ."topology-queue-depth" == 0 and (."topology-owns-mission-control" | not)' <<< "$before" >/dev/null || {
-    echo 'Managed mode must be enabled with an idle provider before this test.' >&2; exit 1;
+jq -e '.enabled and ."scripting-addition-ready"' <<< "$before" >/dev/null || {
+    echo 'Managed mode must be enabled with a compatible scripting addition before this test.' >&2; exit 1;
 }
 registry=$(jq -c '.spaces | map(del(."window-count"))' <<< "$before")
-provider=$(jq -r '."topology-resolved-provider"' <<< "$before")
 if "$yabai" -m query --windows | jq -e 'any(.app == "YabaiMultiDisplayTest")' >/dev/null; then
     echo 'A previous YabaiMultiDisplayTest instance is still running.' >&2; exit 1
 fi
@@ -234,6 +233,6 @@ hold_window "$primary" "$source_predicate" 'detached movement leaves original ta
 
 after=$("$yabai" -m query --managed-spaces)
 [[ $(jq -c '.spaces | map(del(."window-count"))' <<< "$after") == "$registry" ]] || fail 'managed registry changed'
-jq -e --arg provider "$provider" '."topology-resolved-provider" == $provider and ."topology-state" == "idle" and ."topology-queue-depth" == 0 and (."topology-owns-mission-control" | not) and ."dragged-window-count" == 0 and ."pending-window-repair-count" == 0' <<< "$after" >/dev/null || fail 'provider or drag state did not return idle'
+jq -e '."scripting-addition-ready" and ."dragged-window-count" == 0 and ."pending-window-repair-count" == 0' <<< "$after" >/dev/null || fail 'readiness or drag state did not return idle'
 "$yabai" -m query --spaces | jq -e --arg uuid "$target_uuid" --argjson display "$target_display" 'any(.[]; .uuid == $uuid and .display == $display and (."is-managed" | not))' >/dev/null || fail 'secondary workspace identity changed'
-echo 'Live multi-display placement checks passed; managed registry/provider preserved.'
+echo 'Live multi-display placement checks passed; managed registry/readiness preserved.'

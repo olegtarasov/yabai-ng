@@ -107,6 +107,37 @@ void mouse_window_info_populate(struct mouse_state *ms, struct mouse_window_info
     info->changed_size     = info->changed_w || info->changed_h;
 }
 
+void mouse_begin_drag(struct mouse_state *ms, struct window *window, CGPoint point)
+{
+    mouse_cancel_drag(ms, 0);
+    managed_space_begin_window_drag(&g_managed_space, window);
+    ms->window = window;
+    ms->window_frame = window->frame;
+    ms->down_location = point;
+    ms->direction = 0;
+}
+
+void mouse_end_drag(struct mouse_state *ms, bool commit)
+{
+    mouse_clear_drop_feedback(ms);
+    managed_space_end_window_drag(&g_managed_space, commit);
+    ms->window = NULL;
+    ms->current_action = MOUSE_MODE_NONE;
+    ms->direction = 0;
+}
+
+void mouse_cancel_drag(struct mouse_state *ms, uint32_t window_id)
+{
+    struct window *window = ms->window;
+    struct window *managed = window ? native_tab_managed_window(&g_window_manager, window) : NULL;
+    if (window_id && (!window || (window->id != window_id && (!managed || managed->id != window_id)))) {
+        if (managed_space_cancel_window_drag(&g_managed_space, window_id)) mouse_end_drag(ms, false);
+        return;
+    }
+
+    mouse_end_drag(ms, false);
+}
+
 enum mouse_drop_action mouse_determine_drop_action(struct mouse_state *ms, struct window_node *src_node, struct window *dst_window, CGPoint point, uint8_t mod)
 {
     CGRect  f    = dst_window->frame;
@@ -430,10 +461,7 @@ bool mouse_handler_begin(struct mouse_state *mouse_state, uint32_t mask)
 
 void mouse_handler_end(struct mouse_state *mouse_state)
 {
-    mouse_clear_drop_feedback(mouse_state);
-    managed_space_cancel_window_drag(&g_managed_space, 0);
-    mouse_state->window = NULL;
-    mouse_state->current_action = MOUSE_MODE_NONE;
+    mouse_cancel_drag(mouse_state, 0);
     if (!mouse_state->handle) return;
 
     CGEventTapEnable(mouse_state->handle, false);

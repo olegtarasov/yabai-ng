@@ -67,7 +67,7 @@ Please also take note of the following caveats.
 |Caveat|Note|
 |-:|:-|
 |System&nbsp;Integrity&nbsp;Protection (Optional)|System Integrity Protection can be (partially) disabled for yabai to inject a scripting addition into Dock.app for controlling windows with functions that require elevated privileges. This enables control of the window server, which is the sole owner of all window connections, and enables additional features of yabai.|
-|Managed&nbsp;Spaces topology|The synchronous scripting-addition provider is the primary managed-topology implementation. When `managed_spaces` is enabled, `auto` selects it whenever a compatible scripting addition is available. Only full-SIP hosts use the contained `sip-fallback` provider, which uses a validated SkyLight bridge or Mission Control Accessibility automation; Mission Control may briefly become visible, commands complete asynchronously, and the UI limit is 16 normal spaces per display.|
+|Managed&nbsp;Spaces topology|Managed mode requires a matching scripting addition with all platform-required capabilities. Topology commands run synchronously through upstream space operations. Missing support reports an error; the fork has no SIP-on topology automation. Runtime SA loss preserves the desired registry until support is restored.|
 |Code&nbsp;Signing|When building from source (or installing from HEAD), sign the binary with a stable code-signing identity (for example, with `scripts/codesign`) so it retains its accessibility and automation privileges when updated or rebuilt. A linker-generated or ad-hoc identity changes with the binary and requires a new privacy grant.|
 |Finder&nbsp;Desktop|Some people disable the Finder Desktop window using an undocumented defaults write command. This breaks focusing of empty spaces and should be avoided when using yabai. To re-activate the Finder Desktop, run: "defaults write com.apple.finder CreateDesktop -bool true".|
 |NSDocument-based&nbsp;Applications|Windows that utilize native macOS tabs such as Terminal and Finder do not behave correctly when creating tabs. Avoid creating tabs in these applications, consider alternatives that do not use NSDocument's tab system, or make these windows float using rules.|
@@ -75,7 +75,6 @@ Please also take note of the following caveats.
 |System&nbsp;Settings&nbsp;(macOS 13.x, 14.x, 15.x, 26.x, 27.x)|In the Desktop & Dock tab, inside the Mission Control pane, the setting "Automatically rearrange Spaces based on most recent use" should be disabled for commands that rely on the ordering of spaces to work reliably.|
 |System&nbsp;Settings&nbsp;(macOS 14.x, 15.x, 26.x, 27.x)|In the Desktop & Dock tab, inside the Desktop & Stage Manager pane, the setting "Show Items On Desktop" should be enabled for display and space focus commands to work reliably in multi-display configurations.|
 |System&nbsp;Settings&nbsp;(macOS 14.x, 15.x, 26.x, 27.x)|In the Desktop & Dock tab, inside the Desktop & Stage Manager pane, the setting "Click wallpaper to reveal Desktop" should be set to "Only in Stage Manager" for display and space focus commands to work reliably.|
-|Full-SIP managed spaces (macOS 27)|Indexed bridge operations handle reorder, swap, and cross-display moves on all macOS 27 builds, with Accessibility retained for create and destroy.|
 
 ## License and Attribution
 

@@ -25,11 +25,11 @@
 #endif
 
 #ifndef MINOR
-#define MINOR  0
+#define MINOR  1
 #endif
 
 #ifndef PATCH
-#define PATCH 6
+#define PATCH 0
 #endif
 
 struct signal *g_signal_event[SIGNAL_TYPE_COUNT];
@@ -41,8 +41,6 @@ struct memory_pool g_signal_storage;
 struct mouse_state g_mouse_state;
 struct event_loop g_event_loop;
 struct managed_space g_managed_space;
-struct managed_space_topology g_managed_space_topology;
-struct managed_space_sip_fallback g_managed_space_sip_fallback;
 void *g_workspace_context;
 
 enum mission_control_mode g_mission_control_mode;
@@ -356,7 +354,6 @@ int main(int argc, char **argv)
     window_manager_init(&g_window_manager);
     space_manager_begin(&g_space_manager);
     window_manager_begin(&g_space_manager, &g_window_manager);
-    managed_space_topology_init(&g_managed_space_topology);
     managed_space_init(&g_managed_space);
 
     if (workspace_is_macos_sequoia() || workspace_is_macos_tahoe() || workspace_is_macos_27()) {

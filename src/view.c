@@ -729,6 +729,26 @@ struct window_node *view_find_window_node(struct view *view, uint32_t window_id)
     return NULL;
 }
 
+bool view_replace_window_id(struct view *view, uint32_t old_id, uint32_t new_id)
+{
+    if (!view || !view->root || !old_id || !new_id || old_id == new_id) return false;
+    struct window_node *node = view_find_window_node(view, old_id);
+    if (!node || view_find_window_node(view, new_id)) return false;
+
+    // A native tab can replace the WindowServer identity occupying a logical
+    // slot. Keep every layout-owned reference in the same handoff.
+    bool feedback = node->feedback_window.id != 0;
+    if (feedback) insert_feedback_destroy(node);
+    for (int i = 0; i < node->window_count; ++i) {
+        if (node->window_list[i] == old_id) node->window_list[i] = new_id;
+        if (node->window_order[i] == old_id) node->window_order[i] = new_id;
+    }
+    if (node->recent_window_id == old_id) node->recent_window_id = new_id;
+    if (view->insertion_point == old_id) view->insertion_point = new_id;
+    if (feedback) insert_feedback_show(node);
+    return true;
+}
+
 static void view_signal_space_stacks_changed(struct view *view)
 {
     event_signal_push(SIGNAL_SPACE_STACKS_CHANGED, (void *)(uintptr_t) view->sid);
@@ -1113,6 +1133,11 @@ void view_serialize(FILE *rsp, struct view *view, uint64_t flags)
 
     if (flags == 0x0) flags |= ~flags;
 
+    struct managed_space_presentation presentation = {0};
+    if (flags & (SPACE_PROPERTY_DISPLAYABLE_WINDOW_COUNT | SPACE_PROPERTY_DISPLAYABLE_WINDOWS | SPACE_PROPERTY_DISPLAYABLE_APPS)) {
+        managed_space_capture_presentation(view->sid, &presentation);
+    }
+
     bool did_output = false;
     fprintf(rsp, "{\n");
 
@@ -1239,7 +1264,7 @@ void view_serialize(FILE *rsp, struct view *view, uint64_t flags)
     if (flags & SPACE_PROPERTY_DISPLAYABLE_WINDOW_COUNT) {
         if (did_output) fprintf(rsp, ",\n");
 
-        fprintf(rsp, "\t\"displayable-window-count\":%d", managed_space_displayable_window_count(view->sid));
+        fprintf(rsp, "\t\"displayable-window-count\":%d", buf_len(presentation.windows));
         did_output = true;
     }
 
@@ -1247,7 +1272,7 @@ void view_serialize(FILE *rsp, struct view *view, uint64_t flags)
         if (did_output) fprintf(rsp, ",\n");
 
         fprintf(rsp, "\t\"displayable-windows\":");
-        managed_space_serialize_displayable_windows(rsp, view->sid);
+        managed_space_serialize_presentation_windows(rsp, &presentation);
         did_output = true;
     }
 
@@ -1255,7 +1280,7 @@ void view_serialize(FILE *rsp, struct view *view, uint64_t flags)
         if (did_output) fprintf(rsp, ",\n");
 
         fprintf(rsp, "\t\"displayable-apps\":");
-        managed_space_serialize_displayable_apps(rsp, view->sid);
+        managed_space_serialize_presentation_apps(rsp, &presentation);
         did_output = true;
     }
 
@@ -1267,6 +1292,7 @@ void view_serialize(FILE *rsp, struct view *view, uint64_t flags)
     }
 
     fprintf(rsp, "\n}");
+    managed_space_destroy_presentation(&presentation);
 }
 
 void view_update(struct view *view)

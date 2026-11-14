@@ -17,82 +17,61 @@ typedef TEST_SIG(function);
 #include "stack_focus.c"
 #include "native_tab.c"
 #include "managed_space.c"
-#include "managed_space_topology.c"
-#include "managed_space_sip_fallback.c"
 
 #define TEST_ENTRY(name) { #name, test_##name },
-#define TEST_LIST                                              \
+#define TEST_LIST \
     TEST_ENTRY(osax_platform_capabilities_require_space_movement) \
     TEST_ENTRY(native_tab_reparent_preserves_all_members_and_group_float) \
     TEST_ENTRY(native_tab_parent_retirement_reparents_survivors_without_frame_matching) \
     TEST_ENTRY(native_tab_slot_transfer_preserves_stack_order_zoom_and_insertion) \
+    TEST_ENTRY(native_tab_slot_handoff_preserves_recent_history_and_rejects_duplicate_identity) \
+    TEST_ENTRY(native_tab_focus_history_tracks_logical_slots_without_fabricating_focus) \
     TEST_ENTRY(native_tab_rule_removal_dissolves_membership_and_group_float_is_shared) \
     TEST_ENTRY(native_tab_group_move_includes_only_live_recorded_members) \
-    TEST_ENTRY(display_area_is_in_direction)                   \
-    TEST_ENTRY(closest_display_in_direction)                   \
-    TEST_ENTRY(mouse_drop_action_modifier_inherits_default)     \
-    TEST_ENTRY(mouse_drop_action_modifier_overrides_center_drop)\
-    TEST_ENTRY(mouse_drop_action_modifier_uses_exact_modifier_match)\
-    TEST_ENTRY(mouse_drop_action_modifier_does_not_affect_warp_zones)\
-    TEST_ENTRY(mouse_empty_drop_feedback_uses_destination_tiling_area)\
-    TEST_ENTRY(mouse_empty_drop_feedback_rejects_invalid_destinations)\
-    TEST_ENTRY(mouse_drop_feedback_cleanup_ignores_retired_nodes)\
-    TEST_ENTRY(mouse_drop_feedback_identity_requires_live_window)\
-    TEST_ENTRY(mouse_handler_teardown_cancels_drag_without_live_tap)\
-    TEST_ENTRY(mouse_drop_feedback_transfer_preserves_ownership)\
-    TEST_ENTRY(mouse_drag_cancel_after_native_tab_handoff_clears_batch)\
-    TEST_ENTRY(stack_focus_inside_east_returns_next_logical_window)\
-    TEST_ENTRY(stack_focus_inside_west_returns_prev_logical_window)\
-    TEST_ENTRY(stack_focus_inside_boundary_falls_through)       \
-    TEST_ENTRY(stack_focus_inside_disabled_falls_through)       \
-    TEST_ENTRY(stack_focus_inside_vertical_falls_through)       \
-    TEST_ENTRY(stack_focus_inside_single_window_falls_through)  \
-    TEST_ENTRY(stack_insert_source_after_right_side_target_edge)\
-    TEST_ENTRY(stack_insert_source_before_left_side_target_edge)\
-    TEST_ENTRY(stack_remove_non_active_source_preserves_logical_order_and_active)\
-    TEST_ENTRY(stack_window_rejects_same_stack)                 \
+    TEST_ENTRY(display_area_is_in_direction) \
+    TEST_ENTRY(closest_display_in_direction) \
+    TEST_ENTRY(mouse_drop_action_modifier_inherits_default) \
+    TEST_ENTRY(mouse_drop_action_modifier_overrides_center_drop) \
+    TEST_ENTRY(mouse_drop_action_modifier_uses_exact_modifier_match) \
+    TEST_ENTRY(mouse_drop_action_modifier_does_not_affect_warp_zones) \
+    TEST_ENTRY(mouse_empty_drop_feedback_uses_destination_tiling_area) \
+    TEST_ENTRY(mouse_empty_drop_feedback_rejects_invalid_destinations) \
+    TEST_ENTRY(mouse_drop_feedback_cleanup_ignores_retired_nodes) \
+    TEST_ENTRY(mouse_drop_feedback_identity_requires_live_window) \
+    TEST_ENTRY(mouse_handler_teardown_cancels_drag_without_live_tap) \
+    TEST_ENTRY(mouse_drop_feedback_transfer_preserves_ownership) \
+    TEST_ENTRY(mouse_drag_cancel_after_native_tab_handoff_clears_batch) \
+    TEST_ENTRY(mouse_drag_session_replacement_and_scoped_cancellation) \
+    TEST_ENTRY(stack_focus_inside_east_returns_next_logical_window) \
+    TEST_ENTRY(stack_focus_inside_west_returns_prev_logical_window) \
+    TEST_ENTRY(stack_focus_inside_boundary_falls_through) \
+    TEST_ENTRY(stack_focus_inside_disabled_falls_through) \
+    TEST_ENTRY(stack_focus_inside_vertical_falls_through) \
+    TEST_ENTRY(stack_focus_inside_single_window_falls_through) \
+    TEST_ENTRY(stack_insert_source_after_right_side_target_edge) \
+    TEST_ENTRY(stack_insert_source_before_left_side_target_edge) \
+    TEST_ENTRY(stack_remove_non_active_source_preserves_logical_order_and_active) \
+    TEST_ENTRY(stack_window_rejects_same_stack) \
     TEST_ENTRY(managed_space_display_policy_defaults_to_follow_main)\
     TEST_ENTRY(managed_space_display_policy_can_be_set_while_disabled)\
-    TEST_ENTRY(managed_space_display_affinity_names_are_stable) \
-    TEST_ENTRY(managed_space_pending_create_counts_only_managed_spaces) \
-    TEST_ENTRY(managed_space_secondary_workspace_reservation_survives_reorder_and_is_display_scoped) \
-    TEST_ENTRY(managed_space_drag_defers_only_affected_window_repairs_and_cancellation_resumes_them) \
-    TEST_ENTRY(managed_space_secondary_residence_repairs_delayed_transfer_and_recovers_home_when_absent) \
-    TEST_ENTRY(managed_space_intent_commits_preserve_unrelated_windows_and_secondary_without_home) \
-    TEST_ENTRY(managed_space_pending_placeholder_matching_is_display_scoped_and_preserves_replacement) \
-    TEST_ENTRY(managed_space_native_tab_handoff_moves_home_residence_and_active_drag) \
-    TEST_ENTRY(managed_space_create_ownership_preserves_same_display_fifo_with_replacement) \
-    TEST_ENTRY(managed_space_create_cancellation_and_delayed_receipts_preserve_newer_ownership) \
-    TEST_ENTRY(managed_space_sip_fallback_create_failure_after_event_preserves_next_pending_owner) \
-    TEST_ENTRY(managed_space_pending_create_protects_only_its_display_until_metadata_is_consumed) \
-    TEST_ENTRY(managed_space_sip_fallback_snapshot_create_completion_replays_exact_sid_before_origin_filter) \
-    TEST_ENTRY(managed_space_sip_fallback_destroy_preserves_remaining_uuid_order_after_sid_refresh) \
-    TEST_ENTRY(managed_space_scripting_addition_destroy_preserves_primary_swap_delete_semantics) \
-    TEST_ENTRY(managed_space_topology_backend_policy_values_are_stable) \
-    TEST_ENTRY(managed_space_topology_auto_selects_only_compatible_scripting_addition) \
-    TEST_ENTRY(managed_space_topology_forced_provider_never_cross_falls_back) \
-    TEST_ENTRY(managed_space_topology_primary_dispatch_is_synchronous_and_fallback_resources_stay_dormant) \
-    TEST_ENTRY(managed_space_topology_selection_is_sticky_until_explicit_refresh) \
-    TEST_ENTRY(managed_space_topology_result_keeps_provider_errors_out_of_space_manager) \
-    TEST_ENTRY(managed_space_sip_fallback_backend_selection_is_operation_scoped) \
-    TEST_ENTRY(managed_space_sip_fallback_validated_bridge_matrix_is_os_scoped) \
-    TEST_ENTRY(managed_space_sip_fallback_backend_change_preserves_last_failure) \
-    TEST_ENTRY(managed_space_sip_fallback_failed_reconcile_waits_for_new_state) \
-    TEST_ENTRY(managed_space_sip_fallback_queue_serializes_and_records_origin) \
-    TEST_ENTRY(managed_space_sip_fallback_stale_watchdogs_are_rejected) \
-    TEST_ENTRY(managed_space_sip_fallback_events_match_only_the_active_request) \
-    TEST_ENTRY(managed_space_sip_fallback_create_events_must_be_new_to_the_request) \
-    TEST_ENTRY(managed_space_sip_fallback_mutation_backends_require_authoritative_postconditions) \
-    TEST_ENTRY(managed_space_sip_fallback_persisted_postconditions_are_transactional) \
-    TEST_ENTRY(managed_space_sip_fallback_explicit_destroy_defers_membership_commit) \
-    TEST_ENTRY(managed_space_sip_fallback_failed_reorder_keeps_previous_desired_order) \
-    TEST_ENTRY(managed_space_sip_fallback_swap_expected_order_is_transactional) \
-    TEST_ENTRY(managed_space_sip_fallback_mission_control_ownership_is_explicit) \
-    TEST_ENTRY(managed_space_sip_fallback_owned_deactivation_is_generation_checked) \
-    TEST_ENTRY(managed_space_sip_fallback_drag_targets_use_visible_ax_frames) \
-    TEST_ENTRY(managed_space_sip_fallback_ax_display_mapping_accepts_numeric_ids) \
-    TEST_ENTRY(managed_space_sip_fallback_space_limit_is_display_scoped) \
-    TEST_ENTRY(managed_space_sip_fallback_normal_order_excludes_fullscreen_entries)
+    TEST_ENTRY(managed_space_display_affinity_names_are_stable)\
+    TEST_ENTRY(managed_space_pending_create_counts_only_managed_spaces)\
+    TEST_ENTRY(managed_space_secondary_workspace_reservation_survives_reorder_and_is_display_scoped)\
+    TEST_ENTRY(managed_space_drag_defers_only_affected_window_repairs_and_cancellation_resumes_them)\
+    TEST_ENTRY(managed_space_intent_commits_preserve_unrelated_windows_and_secondary_without_home)\
+    TEST_ENTRY(managed_space_native_tab_handoff_moves_home_residence_and_active_drag)\
+    TEST_ENTRY(managed_space_destroy_preserves_remaining_slot_order)\
+    TEST_ENTRY(managed_space_planner_never_repairs_actual_fullscreen_membership)\
+    TEST_ENTRY(managed_space_planner_defers_unknown_or_interrupted_observation)\
+    TEST_ENTRY(managed_space_accepted_placement_waits_for_event_and_explicit_refresh_retries)\
+    TEST_ENTRY(managed_space_readiness_failure_preserves_registry_and_home)\
+    TEST_ENTRY(managed_space_initial_enable_requires_compatible_addition)\
+    TEST_ENTRY(managed_space_create_tickets_protect_display_and_cancel_exact_latest_user)\
+    TEST_ENTRY(managed_space_late_creation_receipt_does_not_consume_next_ticket)\
+    TEST_ENTRY(managed_space_secondary_disappearance_is_transition_and_no_replug_return)\
+    TEST_ENTRY(managed_space_planner_respects_drag_and_creation_admission)\
+    TEST_ENTRY(managed_space_explicit_destroy_does_not_replenish_configured_names)\
+    TEST_ENTRY(managed_space_unchanged_observation_does_not_repeat_failed_action)
 
 static struct {
     char *name;

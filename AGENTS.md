@@ -51,88 +51,47 @@ the fork-owned managed-space files.
 - Do not hardcode Sketchybar or any other bar integration in yabai. Expose
   queries and signals; let user config decide how to consume them.
 
-## Managed Topology Provider Boundary
+## Managed Topology Boundary
 
-Managed topology has two deliberately separate implementations:
+Managed topology requires a compatible scripting addition. There is one
+synchronous implementation: the authoritative upstream space_manager operations.
+Do not add alternate providers, Mission Control automation, request queues,
+watchdogs, fallback input taps, or SIP-on topology support.
 
-- The `scripting-addition` provider is the primary managed-topology
-  implementation. It is synchronous, uses the authoritative `space_manager`
-  operations, and is the normal development target for hosts where the matching
-  scripting addition is available. Maintain and improve this path; do not treat
-  it as frozen compatibility code.
-- The `sip-fallback` provider is the exceptional asynchronous implementation
-  for full-SIP hosts where the primary provider cannot run. It owns SkyLight
-  bridge validation, Mission Control Accessibility automation, serialization,
-  watchdogs, rollback, UI ownership, and asynchronous metadata transactions.
+- Keep managed policy in fork-owned files. space_manager must not import it.
+- Preserve upstream bridged window transfers, gesture-based space focus, core
+  Mission Control observation, and the macOS compatibility fixes for those paths.
+- Validate the exact scripting-addition version and platform-required capability
+  bits before enabling managed mode. Missing support returns an immediate error.
+- Runtime loss of the scripting addition preserves desired UUIDs and intent,
+  suspends automatic mutations, and exposes readiness diagnostics. Reapplying
+  managed_spaces on refreshes readiness without resnapshotting an enabled session.
+- Space creation notifications and bridged window transfers can arrive after a
+  synchronous call. Preserve creation ownership, late-event receipts, and accepted
+  placement intent; do not confuse delayed observation with a failed operation.
+- Native fullscreen membership excludes namespace repair independently of cached
+  Accessibility flags. Unknown/transitional observations defer mutation.
+- Reconciliation must stop when an operation makes no observed progress. Attempted
+  moves are not completed repairs. Continue through relevant events, not timers.
+- Queries and presentation derivation must not change registry, reservations, or
+  placement intent. Diagnostic reads are observational.
+- Successful explicit reorder commands update desired order. Deletion preserves
+  surviving relative order. Cross-display swaps remain shared window transfers.
 
-`src/managed_space_topology.*` is only the provider-selection and dispatch
-facade. In `auto` mode it performs one scripting-addition handshake when managed
-mode is enabled. An exact version with all platform-required capability bits
-selects the primary provider; any other result selects the SIP fallback provider. The result is
-sticky for that managed-mode session. A Dock restart or operation failure must
-never switch providers implicitly. Reapplying the backend policy is the
-explicit refresh mechanism.
-
-Keep this boundary mechanically enforceable:
-
-- `src/space_manager.*` must not import or reference managed-space provider
-  code. Its topology functions are the authoritative primary synchronous
-  implementation and may be improved. Prefer shared `space_manager` fixes that
-  benefit managed commands, ordinary commands, rules, swaps, and window moves
-  together.
-- `src/managed_space_scripting_addition.*` must stay a transparent adapter over
-  those functions. Do not add provider validation, fallback, queueing, retries,
-  or metadata policy there.
-- `src/managed_space_sip_fallback.*` must not be called directly outside the
-  provider facade, its completion hooks, and its failure-signal serializer.
-- Never fall through from a selected primary operation to SIP fallback
-  automation, or from a selected SIP fallback operation to the scripting
-  addition. Backend fallback inside the SIP fallback provider is limited to
-  validated bridge-to-Accessibility fallback before mutation begins.
-- Cross-display `space --swap` is a provider-independent window transfer, not a
-  topology mutation. Keep it on the shared `space_manager` helper instead of
-  routing it through either topology provider.
-- AX observers, CoreDock notifications, topology bridge lookup, watchdogs,
-  request queues, Mission Control ownership, and input monitoring are fallback
-  resources. Do not initialize them for the primary provider.
-- Input monitoring required by fallback operations must use a transient tap
-  owned by the fallback session. Do not expand yabai's permanent mouse event
-  mask with keyboard or unrelated mouse events.
-- Fallback-only limits, errors, retry state, async metadata commits, and query
-  state must not change primary call sequences or leak into
-  `enum space_op_error`.
-- Provider-independent registry and reconciliation policy remains in
-  `src/managed_space.c`. Every branch needed only for queued fallback execution
-  must be guarded by `managed_space_topology_uses_sip_fallback`.
-
-Run `tests/check_managed_space_provider_boundary.sh` for every topology change.
-In addition to unit tests, acceptance requires a real compatible
-scripting-addition run for the primary provider and a full-SIP run for the
-fallback provider. Primary acceptance must verify synchronous commands, an idle
-fallback queue, no Mission Control ownership, and no provider switch after a
-Dock restart.
+Run tests/check_managed_space_provider_boundary.sh for topology changes. Acceptance
+requires a real matching scripting-addition run, synchronous commands, no topology
+UI automation, and loss/recovery across a Dock restart without losing UUIDs.
 
 ## Fork Surface
 
-- `src/managed_space.h`
-  Public managed-space subsystem types and hooks.
-
-- `src/managed_space.c`
-  Managed registry, display affinity, window namespace cache, coalesced
-  reconciler, query serialization, and signal counters.
-
-- `src/managed_space_topology.h` and `src/managed_space_topology.m`
-  Provider selection, sticky session policy, result translation, and dispatch.
-
-- `src/managed_space_scripting_addition.h` and `src/managed_space_scripting_addition.c`
-  Transparent adapter to the primary synchronous scripting-addition path.
-
-- `src/managed_space_sip_fallback.h` and `src/managed_space_sip_fallback.m`
-  Contained full-SIP bridge and Mission Control Accessibility fallback.
-
-- Small hook points in:
-  `src/manifest.m`, `src/yabai.c`, `src/message.c`, `src/event_loop.*`,
-  `src/event_signal.*`, and `src/view.*`.
+- src/managed_space.c and src/managed_space.h: lifecycle, readiness, registry,
+  display affinity, explicit command/placement intent, and creation admission.
+- src/managed_space_reconcile.c: observation, bounded planning and execution
+  through shared upstream helpers.
+- src/managed_space_presentation.c: consistent query/signal projection.
+- src/native_tab.*: evidence-based tab groups and representative handoff.
+- Small integration hooks in manifest, message, event_loop, event_signal, view,
+  window_manager, and mouse_handler. Preserve upstream layout storage and APIs.
 
 ## Runtime Surface
 
@@ -146,11 +105,6 @@ Dock restart.
 - `yabai -m config managed_space_display_policy follow-main|fixed`
   Sets the default managed-space display affinity. `follow-main` is the
   default; `fixed` preserves current concrete display UUIDs.
-
-- `yabai -m config managed_space_topology_backend auto|scripting-addition|sip-fallback|bridge|accessibility`
-  Selects provider policy. `auto` prefers the primary scripting addition and
-  uses `sip-fallback` only when the compatible handshake is unavailable.
-  `bridge` and `accessibility` force fallback sub-backends for diagnostics.
 
 - `yabai -m query --managed-spaces`
   Returns managed registry/debug state.
@@ -167,9 +121,6 @@ Dock restart.
 
 - `managed_space_focused`
   Signal emitted when the active managed or native fullscreen space changes.
-
-- `managed_space_topology_failed`
-  Signal emitted for an asynchronous SIP fallback topology failure.
 
 ## Validation
 

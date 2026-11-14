@@ -1,3 +1,19 @@
+TEST_FUNC(window_space_id_decode_normalizes_numeric_width,
+{
+    int32_t small = 9;
+    int64_t large = ((int64_t)1 << 40) + 9;
+    CFNumberRef narrow = CFNumberCreate(NULL, kCFNumberSInt32Type, &small);
+    CFNumberRef wide = CFNumberCreate(NULL, kCFNumberSInt64Type, &large);
+    uint64_t sid = UINT64_C(0xdeadbeef00000000);
+    TEST_CHECK(window_space_decode_id(narrow, &sid), true);
+    TEST_CHECK(sid == (uint64_t)small, true);
+    TEST_CHECK(window_space_decode_id(wide, &sid), true);
+    TEST_CHECK(sid == (uint64_t)large, true);
+    TEST_CHECK(window_space_decode_id(NULL, &sid), false);
+    TEST_CHECK(sid == 0, true);
+    CFRelease(narrow); CFRelease(wide);
+});
+
 TEST_FUNC(window_fullscreen_space_membership_overrides_lagging_ax_and_preserves_unknown,
 {
     bool fullscreen = false;

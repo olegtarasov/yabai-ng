@@ -362,12 +362,14 @@ static bool window_manager_fullscreen_from_space_types(const int *types, int cou
     return true;
 }
 
-uint64_t window_manager_observe_window_space(struct window *window, bool *fullscreen)
+uint64_t window_manager_observe_window_space(uint32_t wid, bool *fullscreen)
 {
     int count = 0;
     // Unlike window_space(), this does not substitute the display's active
     // Space when WindowServer cannot report the window's actual membership.
-    uint64_t *spaces = window_space_list(window->id, &count);
+    *fullscreen = false;
+    if (!wid) return 0;
+    uint64_t *spaces = window_space_list(wid, &count);
     if (!spaces || !count) return 0;
     int *types = ts_alloc_list(int, count);
     for (int i = 0; i < count; ++i) types[i] = SLSSpaceGetType(g_connection, spaces[i]);
@@ -381,7 +383,7 @@ uint64_t window_manager_observe_window_space(struct window *window, bool *fullsc
 bool window_manager_is_window_fullscreen(struct window *window)
 {
     bool fullscreen = false;
-    if (window_manager_observe_window_space(window, &fullscreen)) return fullscreen;
+    if (window_manager_observe_window_space(window->id, &fullscreen)) return fullscreen;
     return window_is_fullscreen(window);
 }
 
@@ -393,7 +395,7 @@ void window_manager_refresh_fullscreen_windows(struct window_manager *wm)
         // Refresh that Space's windows; a background display is refreshed when
         // it becomes active, without driving its layout during another transition.
         bool fullscreen = false;
-        uint64_t sid = window_manager_observe_window_space(window, &fullscreen);
+        uint64_t sid = window_manager_observe_window_space(window->id, &fullscreen);
         if (!sid || sid != g_space_manager.current_space_id ||
             fullscreen == window_check_flag(window, WINDOW_FULLSCREEN)) continue;
         // Reuse the ordinary transition handler: it owns capability refresh,

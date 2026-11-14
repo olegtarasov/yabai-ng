@@ -1951,8 +1951,13 @@ static void handle_domain_space(FILE *rsp, struct token domain, char *message)
                 uint32_t *acting_windows = NULL, *selector_windows = NULL;
                 if (result == SPACE_OP_ERROR_SUCCESS) {
                     if (!same_display && managed_space_is_enabled(&g_managed_space)) {
-                        acting_windows = space_window_list(acting_sid, &acting_window_count, true);
-                        selector_windows = space_window_list(selector.sid, &selector_window_count, true);
+                        bool acting_windows_valid = false, selector_windows_valid = false;
+                        acting_windows = space_window_list_with_status(acting_sid, &acting_window_count, true, &acting_windows_valid);
+                        selector_windows = space_window_list_with_status(selector.sid, &selector_window_count, true, &selector_windows_valid);
+                        if (!acting_windows_valid || !selector_windows_valid) {
+                            daemon_fail(rsp, "cannot swap spaces because their window membership could not be observed; retry after the transition.\n");
+                            return;
+                        }
                     }
                     result = space_manager_swap_space_with_space(acting_sid, selector.sid);
                 }

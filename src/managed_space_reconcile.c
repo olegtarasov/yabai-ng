@@ -84,7 +84,7 @@ static void managed_space_capture_observation(struct managed_space *ms, struct m
         struct managed_space_observed_window observed = ((struct managed_space_observed_window) { .wid = window->id });
         // Raw membership never substitutes the display's active Space. Missing
         // or unknown membership defers only this window, not unrelated repairs.
-        observed.sid = window_manager_observe_window_space(window, &observed.fullscreen);
+        observed.sid = window_manager_observe_window_space(window->id, &observed.fullscreen);
         struct managed_space_observed_space *space = managed_space_observed_sid(o, observed.sid);
         observed.dragged = managed_space_window_is_dragged(ms, window);
         observed.actionable = space && space->normal && !observed.fullscreen && !observed.dragged &&
@@ -238,7 +238,7 @@ static void managed_space_update_window_cache(struct managed_space *ms, bool pre
         if (!managed_space_window_can_track(window) || managed_space_window_is_dragged(ms, window)) continue;
         if (managed_space_find_window_entry(ms, window->id)) continue;
         bool fullscreen = false;
-        uint64_t sid = window_manager_observe_window_space(window, &fullscreen);
+        uint64_t sid = window_manager_observe_window_space(window->id, &fullscreen);
         if (!sid || fullscreen) continue;
         struct managed_space_entry *home = managed_space_find_by_sid_internal(ms, sid);
         if (home) managed_space_set_window_namespace(ms, NULL, window->id, home->uuid);
@@ -298,10 +298,17 @@ static struct managed_space_action managed_space_plan(struct managed_space *ms, 
     // Do not clean up or reorder around an unresolved missing slot.
     for (int i = 0; i < buf_len(ms->spaces); ++i) if (!managed_space_observed_uuid(o, ms->spaces[i].uuid)) return none;
     for (int i = 1; i < buf_len(ms->spaces); ++i) {
-        struct managed_space_observed_space *left = managed_space_observed_uuid(o, ms->spaces[i-1].uuid);
         struct managed_space_observed_space *right = managed_space_observed_uuid(o, ms->spaces[i].uuid);
-        if (left && right && left->normal && right->normal && left->did == right->did && left->index > right->index)
-            return (struct managed_space_action) { .type = MANAGED_SPACE_ACTION_REORDER, .sid = left->sid, .target_sid = right->sid };
+        if (!right || !right->normal) continue;
+        // Fixed-affinity slots can interleave displays in desired order. Compare
+        // the preceding slot on this display, not only the preceding global slot.
+        for (int j = i-1; j >= 0; --j) {
+            struct managed_space_observed_space *left = managed_space_observed_uuid(o, ms->spaces[j].uuid);
+            if (!left || !left->normal || left->did != right->did) continue;
+            if (left->index > right->index)
+                return (struct managed_space_action) { .type = MANAGED_SPACE_ACTION_REORDER, .sid = left->sid, .target_sid = right->sid };
+            break;
+        }
     }
     for (int i = 0; i < buf_len(o->windows); ++i) {
         struct managed_space_observed_window *window = &o->windows[i];
@@ -345,6 +352,16 @@ static bool managed_space_should_execute_action(struct managed_space *ms, struct
         (ms->last_action_key != managed_space_action_key(action) || ms->last_action_observation != o->hash);
 }
 
+static void managed_space_note_reconcile_result(struct managed_space *ms, enum space_op_error result)
+{
+    managed_space_note_topology_result(ms, result);
+    if (result == SPACE_OP_ERROR_DISPLAY_IS_ANIMATING || result == SPACE_OP_ERROR_IN_MISSION_CONTROL) {
+        // These refusals precede mutation. End-of-transition events may retry
+        // the same topology; they need no observed namespace change first.
+        ms->last_action_key = ms->last_action_observation = 0;
+    }
+}
+
 static enum space_op_error managed_space_execute(struct managed_space *ms, struct managed_space_observation *o, struct managed_space_action action)
 {
     switch (action.type) {
@@ -373,7 +390,7 @@ static enum space_op_error managed_space_execute(struct managed_space *ms, struc
         struct managed_space_observed_space *target = managed_space_observed_sid(o, action.target_sid);
         // Guard the execution boundary too: a native transition may have begun since capture.
         bool current_fullscreen = false;
-        uint64_t current_sid = window ? window_manager_observe_window_space(window, &current_fullscreen) : 0;
+        uint64_t current_sid = window ? window_manager_observe_window_space(window->id, &current_fullscreen) : 0;
         if (!entry || !window || !target || !current_sid || current_fullscreen || space_is_fullscreen(current_sid) ||
             !space_is_user(action.target_sid) || space_is_fullscreen(action.target_sid)) return SPACE_OP_ERROR_INVALID_TYPE;
         managed_space_set_pending_placement(entry, current_sid, target->uuid);
@@ -388,9 +405,9 @@ static enum space_op_error managed_space_execute(struct managed_space *ms, struc
         uint32_t *windows = NULL;
         for (int i = 0; source && i < buf_len(source->windows); ++i) {
             struct window *window = window_manager_find_window(&g_window_manager, source->windows[i]);
-            uint64_t current_sid = window_space(source->windows[i]);
-            if (current_sid != action.sid || space_is_fullscreen(current_sid) ||
-                (window && window_is_fullscreen(window)) || managed_space_window_is_dragged(ms, window)) continue;
+            bool fullscreen = false;
+            uint64_t current_sid = window_manager_observe_window_space(source->windows[i], &fullscreen);
+            if (!current_sid || current_sid != action.sid || fullscreen || managed_space_window_is_dragged(ms, window)) continue;
             buf_push(windows, source->windows[i]);
         }
         if (buf_len(windows)) space_manager_move_window_list_to_space(action.target_sid, windows, buf_len(windows));
@@ -466,8 +483,7 @@ void managed_space_reconcile(struct managed_space *ms)
         }
         ms->last_action_key = key; ms->last_action_observation = o.hash;
         enum space_op_error result = managed_space_execute(ms, &o, action);
-        ms->last_error = result;
-        if (result == SPACE_OP_ERROR_SCRIPTING_ADDITION) ms->scripting_addition_ready = false;
+        managed_space_note_reconcile_result(ms, result);
         // Count only placements that became observable, not attempts queued into the window bridge.
         if (result == SPACE_OP_ERROR_SUCCESS && action.type == MANAGED_SPACE_ACTION_REPAIR_WINDOW && window_space(action.wid) == action.target_sid) ++ms->last_repaired_window_count;
         bool wait = result != SPACE_OP_ERROR_SUCCESS ||

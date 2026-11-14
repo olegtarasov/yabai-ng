@@ -67,7 +67,14 @@ trap 'exit 130' INT
 trap 'exit 143' TERM
 "$yabai" -m rule --add label="$rule_label" app='^YabaiFullscreenTest$' manage=off
 rule_installed=true
-"$yabai" -m space --focus "$source_index"
+if [[ "$original_space" != "$source_index" ]]; then "$yabai" -m space --focus "$source_index"; fi
+source_focused=false
+for ((attempt=0; attempt<100; attempt++)); do
+    current_uuid=$("$yabai" -m query --spaces --space | jq -r '.uuid')
+    if [[ "$current_uuid" == "$source_uuid" ]]; then source_focused=true; break; fi
+    sleep 0.1
+done
+$source_focused || { echo 'FAIL fixture source did not become active' >&2; exit 1; }
 "$app/Contents/MacOS/YabaiFullscreenTest" < "$control" > "$state" 2> "$state.err" &
 fixture_pid=$!
 exec 3> "$control"

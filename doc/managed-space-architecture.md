@@ -33,7 +33,8 @@ Ordinary yabai operations keep their original behavior when managed mode is off.
 Explicit successful same-display reorder/swap commands update desired managed
 order. Cross-display swaps remain shared window transfers. Deletion preserves the
 relative order of survivors, renumbers slots and reapplies configured names.
-Labels do not control managed membership.
+Reconciliation compares desired order within each display, including interleaved
+fixed-affinity slots. Labels do not control managed membership.
 
 A repair planner must exclude actual native fullscreen Spaces even if AX flags
 lag, defer dragged/unknown/transitional objects, and respect secondary residence.

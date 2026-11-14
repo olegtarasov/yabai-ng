@@ -21,6 +21,7 @@ typedef TEST_SIG(function);
 
 #define TEST_ENTRY(name) { #name, test_##name },
 #define TEST_LIST \
+    TEST_ENTRY(window_space_id_decode_normalizes_numeric_width) \
     TEST_ENTRY(managed_space_unknown_window_membership_defers_only_that_window) \
     TEST_ENTRY(window_fullscreen_space_membership_overrides_lagging_ax_and_preserves_unknown) \
     TEST_ENTRY(osax_platform_capabilities_require_space_movement) \
@@ -74,7 +75,8 @@ typedef TEST_SIG(function);
     TEST_ENTRY(managed_space_secondary_disappearance_is_transition_and_no_replug_return)\
     TEST_ENTRY(managed_space_planner_respects_drag_and_creation_admission)\
     TEST_ENTRY(managed_space_explicit_destroy_does_not_replenish_configured_names)\
-    TEST_ENTRY(managed_space_unchanged_observation_does_not_repeat_failed_action)
+    TEST_ENTRY(managed_space_unchanged_observation_does_not_repeat_failed_action)\
+    TEST_ENTRY(managed_space_planner_orders_slots_with_interleaved_display_affinity)
 
 static struct {
     char *name;

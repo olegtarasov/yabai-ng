@@ -7,12 +7,16 @@ one connected display and 35 managed UUIDs. Matching scripting addition:
 ## Candidate
 
 - Universal build and signature verification passed.
-- Unit suite, single-SA architectural guard and diff whitespace check passed.
+- All 56 unit tests, single-SA architectural guard and diff whitespace check passed.
+  Coverage includes numeric Space ID widths, interleaved display ordering and
+  event-driven retry after a pre-mutation transition refusal.
 - Live managed topology passed explicit swap/move desired-order commits, ordered
   deletion, observational query reads and idempotent enabled refresh. All fixture
   Spaces were removed and the original UUID sequence was restored.
 - The owned Cocoa fullscreen suite passed three entry/exit cycles, fresh focused
-  AX window checks, unchanged registry/home and zero namespace repair attempts.
+  AX window checks, accurate cached entry/exit state, unchanged registry/home and
+  zero namespace repair attempts. Fresh application launch admits its unmanaged
+  window through events without a query or readiness refresh changing intent.
   Reapplied rule placement committed its new managed home.
 - The supplied video in Movist Pro retained focus after double-clicking into an
   actual native fullscreen Space; namespace repair attempts stayed at zero.

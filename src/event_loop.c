@@ -316,6 +316,9 @@ static EVENT_HANDLER(APPLICATION_LAUNCHED)
     if (workspace_is_macos_sequoia() || workspace_is_macos_tahoe() || workspace_is_macos_27()) {
         update_window_notifications();
     }
+    // Initial application discovery can admit its windows without a separate
+    // WINDOW_CREATED notification, including unmanaged windows with no resize.
+    managed_space_request_reconcile(&g_managed_space);
 }
 
 static EVENT_HANDLER(APPLICATION_TERMINATED)
@@ -501,6 +504,7 @@ static EVENT_HANDLER(APPLICATION_FRONT_SWITCHED)
     window_did_receive_focus(&g_window_manager, &g_mouse_state, window);
     event_signal_push(SIGNAL_WINDOW_FOCUSED, window);
     __atomic_store_n(&__pending_window_focus, false, __ATOMIC_RELEASE);
+    managed_space_request_reconcile(&g_managed_space);
 }
 #pragma clang diagnostic pop
 
@@ -764,6 +768,7 @@ static EVENT_HANDLER(WINDOW_FOCUSED)
 
     window_did_receive_focus(&g_window_manager, &g_mouse_state, window);
     event_signal_push(SIGNAL_WINDOW_FOCUSED, window);
+    managed_space_request_reconcile(&g_managed_space);
 }
 
 static EVENT_HANDLER(WINDOW_MOVED)

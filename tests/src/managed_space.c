@@ -409,5 +409,38 @@ TEST_FUNC(managed_space_unchanged_observation_does_not_repeat_failed_action,
     TEST_CHECK(managed_space_should_execute_action(&ms, &o, action), false);
     ++o.hash;
     TEST_CHECK(managed_space_should_execute_action(&ms, &o, action), true);
+    ms.last_action_observation = o.hash;
+    managed_space_note_reconcile_result(&ms, SPACE_OP_ERROR_INVALID_SRC);
+    TEST_CHECK(managed_space_should_execute_action(&ms, &o, action), false);
+    managed_space_note_reconcile_result(&ms, SPACE_OP_ERROR_DISPLAY_IS_ANIMATING);
+    TEST_CHECK(managed_space_should_execute_action(&ms, &o, action), true);
+    ms.last_action_key = managed_space_action_key(action); ms.last_action_observation = o.hash;
+    managed_space_note_reconcile_result(&ms, SPACE_OP_ERROR_IN_MISSION_CONTROL);
+    TEST_CHECK(managed_space_should_execute_action(&ms, &o, action), true);
+    managed_space_destroy_observation(&o); managed_space_destroy(&ms);
+});
+
+TEST_FUNC(managed_space_planner_orders_slots_with_interleaved_display_affinity,
+{
+    struct managed_space ms; struct managed_space_observation o; managed_space_test_fixture(&ms, &o);
+    struct managed_space_observed_display display = ((struct managed_space_observed_display) {
+        .did = 2, .uuid = CFRetain(CFSTR("secondary")), .active_sid = 33 });
+    struct managed_space_observed_space space = ((struct managed_space_observed_space) {
+        .sid = 33, .uuid = CFRetain(CFSTR("pinned")), .did = 2, .index = 3, .normal = true });
+    struct managed_space_entry pinned = ((struct managed_space_entry) {
+        .uuid = CFRetain(CFSTR("pinned")), .sid = 33, .order = 2,
+        .display_affinity = MANAGED_SPACE_DISPLAY_FIXED, .preferred_display_uuid = CFRetain(CFSTR("secondary")) });
+    buf_push(o.displays, display); buf_push(o.spaces, space); buf_push(ms.spaces, pinned);
+    struct managed_space_entry last = ms.spaces[1]; ms.spaces[1] = ms.spaces[2]; ms.spaces[2] = last;
+    ms.spaces[2].order = 3;
+    // Desired main-A, secondary-B, main-C; observed main-C, main-A.
+    o.spaces[0].index = 2; o.spaces[1].index = 1;
+    struct managed_space_action action = managed_space_plan(&ms, &o);
+    TEST_CHECK(action.type, MANAGED_SPACE_ACTION_REORDER);
+    TEST_CHECK((int) action.sid, 11);
+    TEST_CHECK((int) action.target_sid, 22);
+    o.spaces[0].index = 1; o.spaces[1].index = 2; o.windows[0].sid = 11;
+    action = managed_space_plan(&ms, &o);
+    TEST_CHECK(action.type, MANAGED_SPACE_ACTION_NONE);
     managed_space_destroy_observation(&o); managed_space_destroy(&ms);
 });

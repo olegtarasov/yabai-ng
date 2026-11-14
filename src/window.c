@@ -64,6 +64,13 @@ static uint64_t window_display_space(uint32_t wid)
     return sid;
 }
 
+static bool window_space_decode_id(CFNumberRef value, uint64_t *sid)
+{
+    *sid = 0;
+    return value && CFGetTypeID(value) == CFNumberGetTypeID() &&
+           CFNumberGetValue(value, kCFNumberSInt64Type, sid);
+}
+
 uint64_t window_space(uint32_t wid)
 {
     uint64_t sid = 0;
@@ -76,7 +83,7 @@ uint64_t window_space(uint32_t wid)
     if (!count) goto free;
 
     CFNumberRef id_ref = CFArrayGetValueAtIndex(space_list_ref, 0);
-    CFNumberGetValue(id_ref, CFNumberGetType(id_ref), &sid);
+    window_space_decode_id(id_ref, &sid);
 
 free:
     CFRelease(space_list_ref);
@@ -88,6 +95,7 @@ err:
 
 uint64_t *window_space_list(uint32_t wid, int *count)
 {
+    *count = 0;
     uint64_t *space_list = NULL;
     CFArrayRef window_list_ref = cfarray_of_cfnumbers(&wid, sizeof(uint32_t), 1, kCFNumberSInt32Type);
     CFArrayRef space_list_ref = SLSCopySpacesForWindows(g_connection, 0x7, window_list_ref);
@@ -100,7 +108,11 @@ uint64_t *window_space_list(uint32_t wid, int *count)
 
     for (int i = 0; i < *count; ++i) {
         CFNumberRef id_ref = CFArrayGetValueAtIndex(space_list_ref, i);
-        CFNumberGetValue(id_ref, CFNumberGetType(id_ref), space_list + i);
+        if (!window_space_decode_id(id_ref, space_list + i)) {
+            *count = 0;
+            space_list = NULL;
+            break;
+        }
     }
 
 out:
